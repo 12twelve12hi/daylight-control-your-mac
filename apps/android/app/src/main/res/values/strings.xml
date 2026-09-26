@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <string name="app_name">Twelve</string>
+  <string name="setup_title">Connect to your Mac</string>
+  <string name="setup_help">On the Mac, open the pairing page the Twelve server prints at startup (http://127.0.0.1:7712/pair) and paste one of the links shown under the QR code. No scanner here on purpose: paste is enough.</string>
+  <string name="setup_hint">http://192.168.1.20:7712/?token=…</string>
+  <string name="setup_error_invalid">That does not look like a server link. It should start with http:// and include the Mac address and port, for example http://192.168.1.20:7712/?token=…</string>
+  <string name="setup_connect">Connect</string>
+  <string name="setup_cancel">Cancel</string>
+</resources>

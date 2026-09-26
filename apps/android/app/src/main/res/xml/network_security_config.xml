@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The Twelve server runs on the Mac over plain http on the local network
+  (Wi-Fi or Tailscale), so cleartext must be allowed. Android cannot express
+  "private address ranges only" here, so cleartext is allowed for every host;
+  MainActivity restricts navigation to the paired origin regardless.
+-->
+<network-security-config>
+  <base-config cleartextTrafficPermitted="true">
+    <trust-anchors>
+      <certificates src="system" />
+    </trust-anchors>
+  </base-config>
+</network-security-config>

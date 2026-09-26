@@ -110,7 +110,7 @@ of them with `npm run screenshots`.
 ## Quick start on the Mac
 
 ```sh
-git clone https://github.com/12twelve12hi/twelve && cd twelve
+git clone https://github.com/12twelve12hi/daylight-control-your-mac && cd daylight-control-your-mac
 echo 'ANTHROPIC_API_KEY=sk-ant-...' > ~/.twelve/env     # or leave it out and use the mock brain
 ./scripts/install-mac.sh
 open http://127.0.0.1:7712/pair                        # scan this on the Daylight

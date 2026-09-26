@@ -6,7 +6,7 @@ Requirements: macOS 13+, Node 20+ (`brew install node`), Xcode Command Line
 Tools (`xcode-select --install`) for the gate app.
 
 ```sh
-git clone https://github.com/12twelve12hi/twelve && cd twelve
+git clone https://github.com/12twelve12hi/daylight-control-your-mac && cd daylight-control-your-mac
 mkdir -p ~/.twelve
 cat > ~/.twelve/env <<'EOF'
 ANTHROPIC_API_KEY=sk-ant-...

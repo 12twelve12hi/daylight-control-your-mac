@@ -92,6 +92,8 @@ export class App {
       this.ctx.checkinStartedAt = prev ? s.now : lock ? Date.parse(lock.at) : 0;
     }
     if (prev && prev.phase !== s.phase && s.phase === "idle") this.ctx.lastAi = null;
+    // The plan was just confirmed: always land on the dashboard, whatever the hash says.
+    if (prev && prev.phase === "reviewing" && s.phase === "working") return this.ctx.navigate("home");
     this.render();
   }
 

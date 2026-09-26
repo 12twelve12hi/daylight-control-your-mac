@@ -23,6 +23,78 @@ state machine, is in [`SPEC.md`](SPEC.md).
                                         └──────────────────────────────┘
 ```
 
+## What it looks like
+
+The Daylight screens are real captures from the end-to-end run at the DC-1's
+1600×1200 resolution (mock coach, so the "handwriting" is scribbles). The Mac
+images are renderings of the AppKit layout in `apps/mac/TwelveGate`, because
+the app could not be run in the environment this was built in. Regenerate all
+of them with `npm run screenshots`.
+
+### The gate
+
+<table>
+<tr>
+<td width="50%"><img src="docs/screenshots/mac-01-shield-gated.png" alt="Mac shield: Your Mac is waiting for your Daylight"><br><sub><b>Mac, work hours, no plan yet.</b> Full-screen shield on every display; Dock, menu bar, Cmd-Tab and force-quit are off. The hold button at the bottom is the emergency exit.</sub></td>
+<td width="50%"><img src="docs/screenshots/02-home-gated.png" alt="Daylight home: Your Mac is waiting"><br><sub><b>Daylight, same moment.</b> One big button. Meeting pass and arm/disarm live here too.</sub></td>
+</tr>
+<tr>
+<td><img src="docs/screenshots/01-pairing-page.png" alt="Pairing page with QR code"><br><sub><b>Pairing.</b> Served only on the Mac itself; scan it once from the Daylight.</sub></td>
+<td><img src="docs/screenshots/mac-06-menu-bar.png" alt="Mac menu bar item"><br><sub><b>Mac menu bar.</b> Status, next check-in, pairing page, dashboard. Quit is disabled while locked.</sub></td>
+</tr>
+</table>
+
+### Planning by hand
+
+<table>
+<tr>
+<td width="50%"><img src="docs/screenshots/03-plan-by-hand.png" alt="Plan page with ink"><br><sub><b>Plan.</b> Faint headings for intention, priorities and to-dos; pressure-sensitive pen, eraser, undo, and a keyboard fallback.</sub></td>
+<td width="50%"><img src="docs/screenshots/04-review.png" alt="Review of the plan the coach read"><br><sub><b>Review.</b> The transcription, the coach's reply, and the plan as editable fields. One button unlocks the Mac.</sub></td>
+</tr>
+<tr>
+<td><img src="docs/screenshots/05-review-question.png" alt="Coach asks what the session is for"><br><sub><b>The gate question.</b> No intention on the page, so the coach asks once. Answer by writing or typing. At most two questions, ever.</sub></td>
+<td><img src="docs/screenshots/06-dashboard-working.png" alt="Dashboard while working"><br><sub><b>Working.</b> The Daylight becomes the container for the session: intention on top, priorities, to-dos, next check-in.</sub></td>
+</tr>
+</table>
+
+### The hourly check-in
+
+<table>
+<tr>
+<td width="50%"><img src="docs/screenshots/mac-04-checkin-banner.png" alt="Mac banner with countdown"><br><sub><b>Mac, two minutes before.</b> A floating countdown you can snooze once.</sub></td>
+<td width="50%"><img src="docs/screenshots/07-checkin-warning.png" alt="Daylight dashboard with check-in countdown"><br><sub><b>Daylight, same countdown.</b> Check in early or snooze from here.</sub></td>
+</tr>
+<tr>
+<td><img src="docs/screenshots/mac-02-shield-checkin.png" alt="Mac shield: Check-in time"><br><sub><b>Mac, countdown over.</b> Shielded until the check-in is written.</sub></td>
+<td><img src="docs/screenshots/08-checkin-write.png" alt="Check-in writing page"><br><sub><b>Check-in.</b> Where am I, what happened, stuck on, next step.</sub></td>
+</tr>
+<tr>
+<td><img src="docs/screenshots/09-checkin-reply.png" alt="Coach reply to a check-in"><br><sub><b>The reply.</b> Two or three sentences tied to the intention, one concrete step if you were stuck. Then back to work.</sub></td>
+<td><img src="docs/screenshots/10-meeting-mode.png" alt="Meeting mode on the Daylight"><br><sub><b>Meeting mode.</b> A calendar meeting (or a manual pass) lifts the shield for allowlisted apps and pauses check-ins.</sub></td>
+</tr>
+</table>
+
+### Meetings, wrap-up, the exit
+
+<table>
+<tr>
+<td width="50%"><img src="docs/screenshots/mac-05-meeting-hud.png" alt="Mac meeting-mode HUD"><br><sub><b>Mac in meeting mode.</b> A corner HUD; apps not on the allowlist are hidden as they come forward.</sub></td>
+<td width="50%"><img src="docs/screenshots/11-wrapup-summary.png" alt="Wrap-up summary"><br><sub><b>Wrap-up.</b> What got done, what's next, a three-line summary for tomorrow-morning-you.</sub></td>
+</tr>
+<tr>
+<td><img src="docs/screenshots/mac-03-shield-emergency.png" alt="Mac shield with the emergency unlock form"><br><sub><b>Emergency exit.</b> Hold 30 seconds, write why, get 30 minutes. It goes in the journal, no shame.</sub></td>
+<td><img src="docs/screenshots/12-emergency-unlock.png" alt="Daylight showing an emergency unlock"><br><sub><b>Daylight, same moment.</b> The unlock and its reason show up here and in History.</sub></td>
+</tr>
+<tr>
+<td><img src="docs/screenshots/13-history.png" alt="History with ink pages"><br><sub><b>History.</b> Every session with its check-ins, summary, and the handwritten pages themselves.</sub></td>
+<td><img src="docs/screenshots/14-settings.png" alt="Settings"><br><sub><b>Settings.</b> Schedule, check-in cadence, calendar links, allowlist, emergency rules, coach and voice.</sub></td>
+</tr>
+<tr>
+<td><img src="docs/screenshots/15-home-free.png" alt="Outside work hours"><br><sub><b>Outside work hours.</b> The Mac is free; arm the gate for an off-hours session if you want the ritual.</sub></td>
+<td></td>
+</tr>
+</table>
+
 ## What is in the box
 
 | Path | What | Status |

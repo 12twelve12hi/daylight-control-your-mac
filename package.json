@@ -15,6 +15,7 @@
     "build": "npm run build -w packages/protocol && npm run build -w packages/daylight && npm run build -w packages/server",
     "dev": "npm run dev -w packages/server",
     "test": "npm run test -w packages/server && npm run test -w packages/daylight",
-    "typecheck": "npm run typecheck --workspaces --if-present"
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "screenshots": "node scripts/screenshots/daylight.mjs && node scripts/screenshots/mac-previews.mjs"
   }
 }

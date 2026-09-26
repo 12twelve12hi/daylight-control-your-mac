@@ -152,11 +152,16 @@ test("planning with typed text asks a question when the intention is missing, th
   await expect(page.locator(".coach .q")).toHaveText("What is this session for?");
   await expect(page.getByRole("button", { name: "Answer by writing" })).toBeVisible();
 
-  // Rewriting the page is allowed while reviewing, and Back returns to the review.
+  // Rewriting the page is allowed while reviewing; submitting the rewrite returns to the review
+  // (this path leaves the URL on #/review, which once kept the confirm from reaching the dashboard).
   await page.getByRole("button", { name: "Rewrite the page" }).click();
   await expect(page.getByRole("heading", { name: "Plan by hand" })).toBeVisible();
-  await page.goBack();
+  await page.getByRole("button", { name: "Type instead" }).click();
+  await page.locator("textarea").fill("1. only a priority, rewritten");
+  await page.getByRole("button", { name: "I'm done" }).click();
   await expect(page.getByRole("heading", { name: "Here's what I read" })).toBeVisible();
+  await expect(page.locator(".coach .q")).toHaveText("What is this session for?");
+  expect(page.url()).toContain("#/review");
 
   // Answer by typing.
   await page.locator("input[placeholder='…or type a short answer']").fill("make the demo work");

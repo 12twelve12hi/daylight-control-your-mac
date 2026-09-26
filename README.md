@@ -123,7 +123,8 @@ Use `--no-gate` to run the server only while you try the flow.
 
 On the Daylight: scan the QR code (or open the printed link in Chrome), then
 **Add to Home screen** so it runs full-screen. Details in
-[`docs/SETUP.md`](docs/SETUP.md).
+[`docs/SETUP.md`](docs/SETUP.md). New here? Follow
+[`docs/NEXT-STEPS.md`](docs/NEXT-STEPS.md), one step at a time.
 
 To try it without any key or Mac app:
 

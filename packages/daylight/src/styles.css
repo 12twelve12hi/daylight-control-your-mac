@@ -1,0 +1,133 @@
+/* Twelve — Daylight app. Paper first: white, black ink, generous type, no colour dependence. */
+:root {
+  --ink: #111;
+  --paper: #fff;
+  --mute: #666;
+  --faint: #d9d9d9;
+  --rule: rgba(0, 0, 0, 0.08);
+  --accent: #111;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --serif: "Iowan Old Style", "Palatino Linotype", Georgia, "Noto Serif", serif;
+  --tap: 56px;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  font-family: var(--sans);
+  color: var(--ink);
+  background: var(--paper);
+  font-size: 18px;
+  line-height: 1.45;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+#app { min-height: 100%; display: flex; flex-direction: column; }
+button { font: inherit; color: inherit; }
+a { color: inherit; }
+h1, h2, h3 { font-family: var(--serif); font-weight: 500; margin: 0; letter-spacing: -0.01em; }
+h1 { font-size: 2rem; }
+h2 { font-size: 1.4rem; }
+p { margin: 0.4em 0; }
+.mute { color: var(--mute); }
+.small { font-size: 0.9rem; }
+.serif { font-family: var(--serif); }
+
+/* Layout */
+.topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 20px; border-bottom: 1px solid var(--rule); gap: 12px;
+  min-height: 56px;
+}
+.topbar .brand { font-family: var(--serif); font-size: 1.3rem; text-decoration: none; }
+.topbar .status { display: flex; align-items: center; gap: 10px; font-size: 0.95rem; color: var(--mute); }
+.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--faint); display: inline-block; }
+.dot.on { background: var(--ink); }
+.screen { flex: 1; display: flex; flex-direction: column; padding: 20px; gap: 16px; max-width: 1100px; width: 100%; margin: 0 auto; }
+.screen.fill { max-width: none; padding: 0; gap: 0; }
+.row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.spread { justify-content: space-between; }
+.stack { display: flex; flex-direction: column; gap: 12px; }
+.card { border: 1px solid var(--faint); border-radius: 14px; padding: 18px 20px; background: var(--paper); }
+.hero { padding: 36px 0 12px; }
+.hero h1 { font-size: 2.4rem; }
+.big { font-size: 1.5rem; }
+
+/* Buttons */
+.btn {
+  min-height: var(--tap); padding: 0 22px; border-radius: 14px; border: 1.5px solid var(--ink);
+  background: var(--paper); cursor: pointer; font-size: 1.05rem; font-weight: 500;
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+}
+.btn.primary { background: var(--ink); color: var(--paper); }
+.btn.ghost { border-color: var(--faint); color: var(--ink); }
+.btn.wide { width: 100%; }
+.btn.huge { min-height: 84px; font-size: 1.35rem; border-radius: 20px; }
+.btn:disabled { opacity: 0.4; cursor: default; }
+.btn.active { background: #eee; }
+.iconbtn { min-width: var(--tap); padding: 0 14px; }
+
+/* Lists */
+.plist { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
+.plist li { display: flex; gap: 12px; align-items: baseline; font-size: 1.25rem; }
+.plist .n { font-family: var(--serif); color: var(--mute); min-width: 1.4em; }
+.todo { display: flex; align-items: center; gap: 12px; min-height: 44px; font-size: 1.1rem; }
+.todo input { width: 26px; height: 26px; accent-color: var(--ink); }
+.todo.done span { text-decoration: line-through; color: var(--mute); }
+.intention { font-family: var(--serif); font-size: 2rem; line-height: 1.2; }
+.label { text-transform: uppercase; letter-spacing: 0.08em; font-size: 0.75rem; color: var(--mute); margin-bottom: 6px; }
+
+/* Coach messages */
+.coach { border-left: 3px solid var(--ink); padding: 6px 16px; font-size: 1.15rem; white-space: pre-wrap; }
+.coach .q { margin-top: 8px; font-family: var(--serif); font-size: 1.25rem; }
+.transcript { white-space: pre-wrap; background: #fafafa; border: 1px solid var(--faint); border-radius: 12px; padding: 12px 14px; font-family: var(--serif); }
+
+/* Inputs */
+input[type="text"], input[type="time"], input[type="url"], input[type="number"], textarea, select {
+  font: inherit; padding: 10px 12px; border: 1.5px solid var(--faint); border-radius: 10px; width: 100%; background: var(--paper); color: var(--ink);
+}
+textarea { min-height: 120px; resize: vertical; }
+input:focus, textarea:focus { outline: 2px solid var(--ink); outline-offset: 1px; border-color: var(--ink); }
+.field { display: flex; flex-direction: column; gap: 6px; }
+.field label { font-size: 0.9rem; color: var(--mute); }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+
+/* Writing screen */
+.write { display: flex; flex-direction: column; height: 100dvh; }
+.write .toolbar { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--rule); flex-wrap: wrap; }
+.write .toolbar .grow { flex: 1; }
+.write .page { flex: 1; position: relative; min-height: 300px; overflow: hidden; }
+.write canvas.ink { position: absolute; inset: 0; display: block; touch-action: none; }
+.write .typed { position: absolute; inset: 0; padding: 20px; background: var(--paper); }
+.write .typed textarea { height: 100%; font-size: 1.3rem; font-family: var(--serif); border: none; padding: 0; }
+.write .footer { display: flex; gap: 10px; padding: 10px 12px; border-top: 1px solid var(--rule); align-items: center; }
+.busy { display: inline-flex; align-items: center; gap: 10px; }
+.spinner { width: 18px; height: 18px; border: 2px solid var(--faint); border-top-color: var(--ink); border-radius: 50%; animation: spin 0.9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Countdown */
+.count { font-family: var(--serif); font-variant-numeric: tabular-nums; font-size: 2.2rem; }
+.banner { border: 1.5px solid var(--ink); border-radius: 14px; padding: 14px 18px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+
+/* History */
+.hist { border-top: 1px solid var(--rule); padding: 14px 0; }
+.hist summary { cursor: pointer; font-size: 1.15rem; list-style: none; display: flex; justify-content: space-between; gap: 12px; }
+.hist summary::-webkit-details-marker { display: none; }
+.thumbs { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
+.thumbs img { width: 180px; border: 1px solid var(--faint); border-radius: 8px; background: #fff; }
+
+/* Toast */
+.toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--ink); color: var(--paper); padding: 12px 18px; border-radius: 12px; max-width: 90vw; z-index: 50; font-size: 1rem; }
+
+/* Bottom nav */
+.nav { display: flex; gap: 18px; padding: 16px 20px; border-top: 1px solid var(--rule); font-size: 0.95rem; color: var(--mute); margin-top: auto; }
+.nav a { text-decoration: none; }
+.nav a.here { color: var(--ink); text-decoration: underline; }
+
+@media (max-width: 640px) {
+  body { font-size: 17px; }
+  .hero h1 { font-size: 1.9rem; }
+  .intention { font-size: 1.6rem; }
+}
+@media (prefers-color-scheme: dark) {
+  /* Deliberately unchanged: the Daylight display is a paper surface. Dark mode would fight it. */
+}

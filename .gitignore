@@ -1,0 +1,20 @@
+node_modules/
+dist/
+*.log
+.DS_Store
+.env
+.env.*
+!.env.example
+# Swift
+apps/mac/TwelveGate/.build/
+apps/mac/TwelveGate/*.app
+apps/mac/TwelveGate/.swiftpm/
+# Android
+apps/android/.gradle/
+apps/android/build/
+apps/android/app/build/
+apps/android/local.properties
+# Playwright
+packages/daylight/test-results/
+packages/daylight/playwright-report/
+apps/mac/TwelveGate/build/

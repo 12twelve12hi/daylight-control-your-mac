@@ -1,0 +1,20 @@
+{
+  "name": "twelve",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Your Daylight gatekeeps your Mac: handwritten planning before the screen, hourly check-ins, calendar-aware lock.",
+  "workspaces": [
+    "packages/protocol",
+    "packages/server",
+    "packages/daylight"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "npm run build -w packages/protocol && npm run build -w packages/daylight && npm run build -w packages/server",
+    "dev": "npm run dev -w packages/server",
+    "test": "npm run test -w packages/server && npm run test -w packages/daylight",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  }
+}

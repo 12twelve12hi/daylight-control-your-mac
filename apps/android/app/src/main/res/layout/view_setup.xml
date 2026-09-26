@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Opaque, clickable root so touches never fall through to the WebView underneath. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+  android:id="@+id/setup_root"
+  android:layout_width="match_parent"
+  android:layout_height="match_parent"
+  android:background="@android:color/white"
+  android:clickable="true"
+  android:focusable="true"
+  android:visibility="gone">
+
+  <LinearLayout
+    android:layout_width="560dp"
+    android:layout_height="wrap_content"
+    android:layout_gravity="center"
+    android:orientation="vertical"
+    android:padding="24dp">
+
+    <TextView
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:text="@string/setup_title"
+      android:textColor="@android:color/black"
+      android:textSize="28sp" />
+
+    <TextView
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:layout_marginTop="12dp"
+      android:lineSpacingExtra="4sp"
+      android:text="@string/setup_help"
+      android:textColor="#444444"
+      android:textSize="16sp" />
+
+    <EditText
+      android:id="@+id/url_input"
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:layout_marginTop="24dp"
+      android:hint="@string/setup_hint"
+      android:imeOptions="actionGo"
+      android:importantForAutofill="no"
+      android:inputType="textUri"
+      android:maxLines="1"
+      android:textColor="@android:color/black"
+      android:textSize="18sp" />
+
+    <TextView
+      android:id="@+id/setup_error"
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:layout_marginTop="8dp"
+      android:text="@string/setup_error_invalid"
+      android:textColor="@android:color/holo_red_dark"
+      android:textSize="14sp"
+      android:visibility="gone" />
+
+    <LinearLayout
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:layout_marginTop="24dp"
+      android:gravity="end"
+      android:orientation="horizontal">
+
+      <Button
+        android:id="@+id/setup_cancel"
+        style="@style/Widget.AppCompat.Button.Borderless"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/setup_cancel" />
+
+      <Button
+        android:id="@+id/setup_connect"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="8dp"
+        android:text="@string/setup_connect" />
+
+    </LinearLayout>
+
+  </LinearLayout>
+
+</FrameLayout>

@@ -1,5 +1,7 @@
 # Twelve
 
+*Pen before the screen.*
+
 **Your Daylight gatekeeps your Mac.** During work hours the Mac is shielded
 until you have written, by hand on your Daylight DC-1, what the session is for
 and what matters most. An AI reads the ink, asks at most two short questions,

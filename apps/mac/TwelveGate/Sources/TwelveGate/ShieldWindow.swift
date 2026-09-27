@@ -63,8 +63,8 @@ final class ShieldWindow: NSWindow {
 
 // MARK: - ShieldContentView
 
-/// Centered title/body/clock/status/meeting lines with the emergency unlock
-/// controls anchored at the bottom.
+/// Centered tagline/title/body/clock/status/meeting lines with the emergency
+/// unlock controls anchored at the bottom.
 final class ShieldContentView: NSView {
 
     static let backgroundColor = NSColor(calibratedRed: 0.07, green: 0.07, blue: 0.09, alpha: 1)
@@ -74,6 +74,8 @@ final class ShieldContentView: NSView {
         set { emergencyView.onUnlock = newValue }
     }
 
+    /// Fixed, whatever the phase: the one line that says why the Mac is shielded.
+    private let taglineLabel = NSTextField(labelWithString: "Pen before the screen.")
     private let titleLabel = NSTextField(wrappingLabelWithString: "")
     private let bodyLabel = NSTextField(wrappingLabelWithString: "")
     private let meetingLabel = NSTextField(wrappingLabelWithString: "")
@@ -131,6 +133,7 @@ final class ShieldContentView: NSView {
     private func buildLayout() {
         autoresizingMask = [.width, .height]
 
+        styleLabel(taglineLabel, font: NSFont.systemFont(ofSize: 17, weight: .medium), white: 0.55, wraps: false)
         styleLabel(titleLabel, font: NSFont.systemFont(ofSize: 40, weight: .semibold), white: 1.0, wraps: true)
         styleLabel(bodyLabel, font: NSFont.systemFont(ofSize: 20, weight: .light), white: 0.85, wraps: true)
         styleLabel(meetingLabel, font: NSFont.systemFont(ofSize: 16, weight: .regular), white: 0.75, wraps: true)
@@ -139,10 +142,11 @@ final class ShieldContentView: NSView {
         bodyLabel.isHidden = true
         meetingLabel.isHidden = true
 
-        let stack = NSStackView(views: [titleLabel, bodyLabel, meetingLabel, clockLabel, statusLabel])
+        let stack = NSStackView(views: [taglineLabel, titleLabel, bodyLabel, meetingLabel, clockLabel, statusLabel])
         stack.orientation = .vertical
         stack.alignment = .centerX
         stack.spacing = 18
+        stack.setCustomSpacing(26, after: taglineLabel)
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
 

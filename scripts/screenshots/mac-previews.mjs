@@ -19,6 +19,7 @@ const dark = "rgb(18,18,23)";
 const shield = (opts) => `<!doctype html><html><head><meta charset="utf-8"><style>
 html,body{margin:0;width:1440px;height:900px;background:${dark};font-family:${font};color:#fff;overflow:hidden}
 .stack{position:absolute;left:50%;top:50%;transform:translate(-50%,calc(-50% - 40px));width:760px;display:flex;flex-direction:column;align-items:center;gap:18px;text-align:center}
+.tagline{font-size:17px;font-weight:500;color:rgba(255,255,255,.55);margin-bottom:8px}
 .title{font-size:40px;font-weight:600;line-height:1.15}
 .body{font-size:20px;font-weight:300;color:rgba(255,255,255,.85);line-height:1.4}
 .meeting{font-size:16px;color:rgba(255,255,255,.75)}
@@ -34,6 +35,7 @@ html,body{margin:0;width:1440px;height:900px;background:${dark};font-family:${fo
 .btn{height:24px;padding:0 14px;border-radius:6px;background:${opts.enabled ? "rgb(52,120,246)" : "rgb(70,70,74)"};color:${opts.enabled ? "#fff" : "rgba(255,255,255,.4)"};font-size:13px;display:flex;align-items:center}
 </style></head><body>
 <div class="stack">
+  <div class="tagline">Pen before the screen.</div>
   <div class="title">${opts.title}</div>
   <div class="body">${opts.body}</div>
   ${opts.meeting ? `<div class="meeting">Meeting: ${opts.meeting}</div>` : ""}

@@ -76,7 +76,7 @@ final class DaylightSinkStream: NSObject, CMIOExtensionStreamSource {
 
     func startStream() throws {
         guard let deviceSource = device.source as? DaylightDeviceSource else {
-            fatalError("Daylight camera extension: unexpected device source \(String(describing: device.source))")
+            throw DaylightDeviceSource.unexpectedSourceError(device, in: "sink startStream")
         }
         if let client = client {
             deviceSource.startStreamingSink(client: client)
@@ -87,7 +87,12 @@ final class DaylightSinkStream: NSObject, CMIOExtensionStreamSource {
 
     func stopStream() throws {
         guard let deviceSource = device.source as? DaylightDeviceSource else {
-            fatalError("Daylight camera extension: unexpected device source \(String(describing: device.source))")
+            throw DaylightDeviceSource.unexpectedSourceError(device, in: "sink stopStream")
+        }
+        guard client != nil else {
+            // `disconnect(from:)` already stopped the sink for this client (it clears `client`): not a second stop.
+            extensionLog.info("sink stopStream after the client disconnected; already stopped")
+            return
         }
         deviceSource.stopStreamingSink()
     }

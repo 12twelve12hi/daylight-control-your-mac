@@ -46,6 +46,23 @@ final class ExtensionBundleTests: XCTestCase {
         XCTAssertEqual(Set(values).count, 3, "the three UUIDs are distinct")
     }
 
+    /// The extension's built-in fallback UUIDs (used when its Info.plist is broken, instead of crashing) are the values
+    /// the build writes into the extension's Info.plist, and they are distinct.
+    func testBuiltInFallbackUUIDsMatchTheExtensionInfoPlist() throws {
+        let ext = try XCTUnwrap(ExtensionBundleTests.embeddedExtension(), "no embedded extension")
+        let defaults = [
+            "DaylightCameraDeviceUUID": DaylightExtensionRules.defaultDeviceUUID,
+            "DaylightCameraSourceUUID": DaylightExtensionRules.defaultSourceUUID,
+            "DaylightCameraSinkUUID": DaylightExtensionRules.defaultSinkUUID,
+        ]
+        for key in ExtensionBundleTests.uuidKeys {
+            let value = ext.object(forInfoDictionaryKey: key)
+            let inExtension = try XCTUnwrap(DaylightExtensionRules.uuid(fromPlistValue: value), "extension Info.plist \(key) is not a UUID: \(String(describing: value))")
+            XCTAssertEqual(defaults[key], inExtension, "the built-in \(key) differs from the built bundle")
+        }
+        XCTAssertEqual(Set(defaults.values).count, 3, "the three built-in UUIDs are distinct")
+    }
+
     func testExtensionIdentityAndMachServiceName() throws {
         let ext = try XCTUnwrap(ExtensionBundleTests.embeddedExtension(), "no embedded extension")
         XCTAssertEqual(ext.bundleIdentifier, ExtensionBundleTests.extensionIdentifier)

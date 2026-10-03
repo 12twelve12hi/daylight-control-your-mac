@@ -44,6 +44,34 @@ enum DaylightExtensionRules {
     static let inkBlack: UInt32 = 0x111111
     static let textMuted: UInt32 = 0x736F68
 
+    /// The device, source and sink UUIDs `project.yml` writes into both Info.plists. The extension falls back to these
+    /// when its own Info.plist lacks a key or holds something that is not a UUID, so a packaging mistake logs a fault
+    /// instead of crash-looping the extension (ExtensionBundleTests pins them against the built bundle).
+    static let defaultDeviceUUID = UUID(uuid: (0xAB, 0x51, 0xC6, 0xBA, 0x17, 0xFD, 0x4A, 0x67, 0xBE, 0x3A, 0x06, 0xA8, 0x54, 0x0B, 0xA6, 0xAA))
+    static let defaultSourceUUID = UUID(uuid: (0x8C, 0x5A, 0x22, 0x72, 0xC7, 0x79, 0x46, 0x9F, 0x84, 0x39, 0xBF, 0xE8, 0xBE, 0xBA, 0x22, 0x9A))
+    static let defaultSinkUUID = UUID(uuid: (0x4B, 0x85, 0x6A, 0xE3, 0xB9, 0x92, 0x49, 0x0B, 0x8D, 0xC5, 0x1F, 0x2A, 0x94, 0x75, 0xD6, 0xE7))
+
+    /// An Info.plist value as a UUID, or nil when it is missing or not a UUID string.
+    static func uuid(fromPlistValue value: Any?) -> UUID? {
+        guard let string = value as? String else { return nil }
+        return UUID(uuidString: string)
+    }
+
+    /// Sink bookkeeping after one `stopStream` (camera review CAMB-01): the counter drops by one and the sink stays
+    /// started while another host still has it open; only the last stop clears `sinkStarted` and the consume timer.
+    static func sinkStateAfterStop(counter: UInt32) -> (counter: UInt32, started: Bool) {
+        let next: UInt32 = counter > 1 ? counter - 1 : 0
+        return (next, next > 0)
+    }
+
+    /// `disconnect(from:)` on the provider stops the sink when the departing client is the one the sink authorised,
+    /// so a host that crashed or quit without stopping the stream still brings back the card (camera review CAMA-03).
+    /// Compared by `CMIOExtensionClient.clientID`, which a reused pid cannot fake.
+    static func stopsSinkOnDisconnect(sinkClientID: UUID?, disconnectingClientID: UUID) -> Bool {
+        guard let sinkClientID = sinkClientID else { return false }
+        return sinkClientID == disconnectingClientID
+    }
+
     /// `authorizedToStartStream(for:)` on the sink.
     static func authorizesSink(signingID: String?) -> Bool {
         guard let signingID = signingID else { return true }

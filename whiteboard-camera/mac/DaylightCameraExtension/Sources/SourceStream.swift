@@ -80,14 +80,14 @@ final class DaylightSourceStream: NSObject, CMIOExtensionStreamSource {
 
     func startStream() throws {
         guard let deviceSource = device.source as? DaylightDeviceSource else {
-            fatalError("Daylight camera extension: unexpected device source \(String(describing: device.source))")
+            throw DaylightDeviceSource.unexpectedSourceError(device, in: "source startStream")
         }
         deviceSource.startStreaming()
     }
 
     func stopStream() throws {
         guard let deviceSource = device.source as? DaylightDeviceSource else {
-            fatalError("Daylight camera extension: unexpected device source \(String(describing: device.source))")
+            throw DaylightDeviceSource.unexpectedSourceError(device, in: "source stopStream")
         }
         deviceSource.stopStreaming()
     }

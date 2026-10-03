@@ -84,7 +84,9 @@ final class DaylightDeviceSource: NSObject, CMIOExtensionDeviceSource {
             try device.addStream(streamSource.stream)
             try device.addStream(streamSink.stream)
         } catch let error {
-            fatalError("Daylight camera extension: addStream failed: \(error.localizedDescription)")
+            // No crash loop: the device is published with the streams that were added. The host logs row 14 (stream
+            // layout) and the fault names the cause.
+            extensionLog.fault("addStream failed: \(error.localizedDescription, privacy: .public); the device has fewer than two streams")
         }
         extensionLog.info("device ready: \(localizedName, privacy: .public) consume=\(String(describing: DaylightExtensionRules.consumeStrategy), privacy: .public) hz=\(DaylightExtensionRules.consumeHz)")
     }
@@ -232,17 +234,32 @@ final class DaylightDeviceSource: NSObject, CMIOExtensionDeviceSource {
     }
 
     func stopStreamingSink() {
-        sinkStarted = false
-        if streamingSinkCounter > 1 {
-            streamingSinkCounter -= 1
-        } else {
-            streamingSinkCounter = 0
-            if let timer = consumeBufferTimer {
-                timer.cancel()
-                consumeBufferTimer = nil
-            }
+        // The sink stays started while another host still has it open (camera review CAMB-01). Whether CMIO delivers
+        // start and stop per client is UNVERIFIED; the consume timer stays bound to the newest client either way.
+        let next = DaylightExtensionRules.sinkStateAfterStop(counter: streamingSinkCounter)
+        streamingSinkCounter = next.counter
+        sinkStarted = next.started
+        if !next.started, let timer = consumeBufferTimer {
+            timer.cancel()
+            consumeBufferTimer = nil
         }
-        extensionLog.info("sink stopped: streamingSinkCounter=\(self.streamingSinkCounter)")
+        extensionLog.info("sink stopped: streamingSinkCounter=\(self.streamingSinkCounter) sinkStarted=\(self.sinkStarted)")
+    }
+
+    /// The provider saw `client` disconnect. The sink is stopped when that client is the one it authorised, and the
+    /// client is forgotten so a later `stopStream` for the same dead client does not count a second stop.
+    func clientDisconnected(_ client: CMIOExtensionClient) {
+        guard DaylightExtensionRules.stopsSinkOnDisconnect(sinkClientID: streamSink.client?.clientID, disconnectingClientID: client.clientID) else { return }
+        extensionLog.notice("sink client pid=\(client.pid) disconnected; stopping the sink")
+        streamSink.client = nil
+        stopStreamingSink()
+    }
+
+    /// A stream whose device source is not this class (impossible by construction): logged and thrown, never fatal.
+    static func unexpectedSourceError(_ device: CMIOExtensionDevice, in stream: String) -> NSError {
+        let description = "\(stream): unexpected device source \(String(describing: device.source))"
+        extensionLog.fault("\(description, privacy: .public)")
+        return NSError(domain: "com.twelve.daylight.camera", code: 1, userInfo: [NSLocalizedDescriptionKey: description])
     }
 
     /// Once per second in debug builds: consumed buffers and empty consumes (ARCHITECTURE 2.4 item 1).

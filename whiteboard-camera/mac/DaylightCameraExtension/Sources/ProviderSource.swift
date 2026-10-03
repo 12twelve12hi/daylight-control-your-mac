@@ -16,14 +16,19 @@ final class DaylightProviderSource: NSObject, CMIOExtensionProviderSource {
         do {
             try provider.addDevice(deviceSource.device)
         } catch let error {
-            fatalError("Daylight camera extension: addDevice failed: \(error.localizedDescription)")
+            // No crash loop: the provider service still starts, without a Daylight Camera to show (so no card either).
+            // The host keeps reporting row 13 and the fault names the cause.
+            extensionLog.fault("addDevice failed: \(error.localizedDescription, privacy: .public); the provider runs without a device")
         }
     }
 
     func connect(to client: CMIOExtensionClient) throws {
     }
 
+    /// A client process went away (quit, crash, force quit). When it was the host feeding the sink, the sink is stopped
+    /// here too, so the card does not depend on CMIO also calling the sink's `stopStream` (camera review CAMA-03).
     func disconnect(from client: CMIOExtensionClient) {
+        deviceSource.clientDisconnected(client)
     }
 
     var availableProperties: Set<CMIOExtensionProperty> {

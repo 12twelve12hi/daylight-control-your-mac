@@ -3,21 +3,24 @@ import CoreMediaIO
 import Foundation
 import os
 
-let deviceUUIDString = Bundle.main.object(forInfoDictionaryKey: "DaylightCameraDeviceUUID") as? String
-let sourceUUIDString = Bundle.main.object(forInfoDictionaryKey: "DaylightCameraSourceUUID") as? String
-let sinkUUIDString = Bundle.main.object(forInfoDictionaryKey: "DaylightCameraSinkUUID") as? String
+/// The UUID under `key` in this bundle's Info.plist. A missing or invalid value is a packaging mistake: it is logged as
+/// a fault and the built-in value (the same as `project.yml`) is used, because a `fatalError` here would crash the
+/// extension again on every launch the system makes.
+func resolvedUUID(_ key: String, fallback: UUID) -> UUID {
+    let value = Bundle.main.object(forInfoDictionaryKey: key)
+    if let uuid = DaylightExtensionRules.uuid(fromPlistValue: value) {
+        return uuid
+    }
+    extensionLog.fault("Info.plist \(key, privacy: .public) is missing or not a UUID (\(String(describing: value), privacy: .public)); using the built-in \(fallback.uuidString, privacy: .public)")
+    return fallback
+}
 
-guard let deviceUUIDString = deviceUUIDString, let sourceUUIDString = sourceUUIDString, let sinkUUIDString = sinkUUIDString else {
-    fatalError("Daylight camera extension: UUID keys missing from Info.plist")
-}
-guard let deviceUUID = UUID(uuidString: deviceUUIDString), let sourceUUID = UUID(uuidString: sourceUUIDString),
-    let sinkUUID = UUID(uuidString: sinkUUIDString)
-else {
-    fatalError("Daylight camera extension: Info.plist UUID values are not UUIDs")
-}
+let deviceUUID = resolvedUUID("DaylightCameraDeviceUUID", fallback: DaylightExtensionRules.defaultDeviceUUID)
+let sourceUUID = resolvedUUID("DaylightCameraSourceUUID", fallback: DaylightExtensionRules.defaultSourceUUID)
+let sinkUUID = resolvedUUID("DaylightCameraSinkUUID", fallback: DaylightExtensionRules.defaultSinkUUID)
 
 let bundleVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?"
-Logger(subsystem: "com.twelve.daylight", category: "extension").info("starting build \(bundleVersion, privacy: .public) device=\(deviceUUIDString, privacy: .public)")
+extensionLog.info("starting build \(bundleVersion, privacy: .public) device=\(deviceUUID.uuidString, privacy: .public)")
 
 let providerSource = DaylightProviderSource(clientQueue: nil, deviceUUID: deviceUUID, sourceUUID: sourceUUID, sinkUUID: sinkUUID)
 CMIOExtensionProvider.startService(provider: providerSource.provider)

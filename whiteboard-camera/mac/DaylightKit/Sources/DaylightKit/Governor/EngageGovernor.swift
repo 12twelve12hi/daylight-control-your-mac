@@ -114,16 +114,19 @@ public struct EngageGovernor {
         var effects: [GovernorEffect] = []
         spring.evaluate(at: now)
 
-        // Rows that read "any state".
+        // Rows that read "any state": contacts are dropped, nothing transitions. When the drop removes the last contact
+        // of an ENGAGING or LIVE board the idle timer restarts from now (as lift and cancel do), so a contact that was
+        // open for longer than idleTimeout cannot return the board on the next tick with no pre-warning.
         switch event {
-        case .sourceChanged:
+        case .sourceChanged, .allClientsGone:
+            let had = !activeContacts.isEmpty
             activeContacts.removeAll()
+            noteContactsDropped(hadContacts: had, now: now)
             return output(now: now, effects: effects)
         case let .clientGone(ids):
+            let had = !activeContacts.isEmpty
             activeContacts.subtract(ids)
-            return output(now: now, effects: effects)
-        case .allClientsGone:
-            activeContacts.removeAll()
+            noteContactsDropped(hadContacts: had, now: now)
             return output(now: now, effects: effects)
         default:
             break
@@ -211,7 +214,10 @@ public struct EngageGovernor {
         switch event {
         case let .cancel(id):
             let others = activeContacts.subtracting([id])
-            if now - engageStart < config.snapBackWindow && spring.position < config.snapBackMaxProgress && others.isEmpty {
+            // Snap back only when the stroke itself caused the engage: a pin or a forced hold asked for the board
+            // regardless of the stroke, and PASSTHROUGH must never carry `pinned` or a forced hold.
+            if now - engageStart < config.snapBackWindow && spring.position < config.snapBackMaxProgress && others.isEmpty
+                && !pinned && hold == .auto {
                 activeContacts.remove(id)
                 spring.snap(to: 0, at: now)
                 transition(to: .passthrough, effects: &effects)   // snap-back, no save
@@ -348,28 +354,31 @@ public struct EngageGovernor {
         }
     }
 
+    /// Ink rows re-engage ("ink wins") only while auto-engage is armed: with `hold == .camera` or `autoEngage == false`
+    /// the return runs to completion and the ink is only recorded, as from PASSTHROUGH. Pin, engage, the layout hotkey
+    /// and hold(split or whiteboard) are explicit requests and re-engage regardless (D38).
     private mutating func handleReturning(_ event: GovernorEvent, now: Double, effects: inout [GovernorEffect]) {
         switch event {
         case let .contact(id, pointer, phase, pressure, _):
             guard isStylusContact(pointer: pointer, phase: phase, pressure: pressure) else { return }
             activeContacts.insert(id)
             markInk()
-            reengage(now: now, effects: &effects)
+            if autoEngageArmed { reengage(now: now, effects: &effects) }
         case let .motion(id):
             if activeContacts.contains(id) {
                 markInk()
-                reengage(now: now, effects: &effects)
+                if autoEngageArmed { reengage(now: now, effects: &effects) }
             }
         case let .penContact(down):
             if down {
                 activeContacts.insert(penSentinel)
                 markInk()
-                reengage(now: now, effects: &effects)
+                if autoEngageArmed { reengage(now: now, effects: &effects) }
             } else {
                 activeContacts.remove(penSentinel)
             }
         case let .eraserContact(down):
-            if down { reengage(now: now, effects: &effects) }   // D36: eraser contact cancels a return
+            if down && autoEngageArmed { reengage(now: now, effects: &effects) }   // D36: eraser contact cancels a return
         case let .pin(value):
             if value == 1 || (value < 0 && !pinned) {
                 setPinned(true, effects: &effects)
@@ -438,6 +447,14 @@ public struct EngageGovernor {
         engageStart = now
         lastActivity = now
         transition(to: .engaging, effects: &effects)
+    }
+
+    /// After an any-state contact drop: a board that just lost its last contact gets a fresh idle period. A drop that
+    /// removes nothing (the set was already empty) leaves the timer alone.
+    private mutating func noteContactsDropped(hadContacts: Bool, now: Double) {
+        if hadContacts && activeContacts.isEmpty && (state == .engaging || state == .live) {
+            lastActivity = max(lastActivity, now)
+        }
     }
 
     private mutating func touch(now: Double, effects: inout [GovernorEffect]) {

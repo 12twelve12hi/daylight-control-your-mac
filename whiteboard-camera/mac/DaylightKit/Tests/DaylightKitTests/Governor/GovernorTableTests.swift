@@ -208,6 +208,48 @@ final class GovernorTableTests: XCTestCase {
         XCTAssertEqual(h.send(.motion(strokeID: id)).state, .engaging, "ink wins")
     }
 
+    func testReturningInkUnderHoldCameraDoesNotReengage() {
+        // Hold: Camera picked while a pen is on the glass: the next chunk of that stroke must not bring the board back.
+        var h = GovernorHarness()
+        h.goLive()
+        let id = UUID()
+        h.send(GovernorHarness.stylus(id))
+        let held = h.send(.hold(.camera))
+        XCTAssertEqual(held.state, .returning)
+        XCTAssertEqual(held.hold, .camera)
+        XCTAssertEqual(h.send(.motion(strokeID: id)).state, .returning, "ink does not win against hold camera")
+        XCTAssertTrue(h.last.effects.isEmpty)
+        XCTAssertEqual(h.send(GovernorHarness.stylus()).state, .returning, "a new contact is recorded only")
+        XCTAssertEqual(h.last.activeContacts, 2)
+        XCTAssertEqual(h.send(.penContact(down: true)).state, .returning)
+        XCTAssertEqual(h.send(.eraserContact(down: true)).state, .returning)
+        XCTAssertNotNil(h.tickUntil(state: .passthrough, maxSeconds: 1))
+        XCTAssertEqual(h.last.hold, .camera)
+        XCTAssertEqual(h.last.activeContacts, 0, "completion clears the contacts")
+        // Explicit requests still re-engage under hold camera (D38): pin keeps it.
+        var p = GovernorHarness()
+        p.goLive()
+        p.send(.hold(.camera))
+        XCTAssertEqual(p.send(.pin(1)).state, .engaging)
+        XCTAssertTrue(p.last.pinned)
+    }
+
+    func testReturningInkWithAutoEngageOffDoesNotReengage() {
+        var config = GovernorConfig()
+        config.autoEngage = false
+        var h = GovernorHarness(config: config)
+        h.send(.pin(1))
+        XCTAssertNotNil(h.tickUntil(state: .live, maxSeconds: 1))
+        h.send(.returnNow)
+        XCTAssertEqual(h.state, .returning)
+        let id = UUID()
+        XCTAssertEqual(h.send(GovernorHarness.stylus(id)).state, .returning, "auto-engage off: ink is recorded, the return continues")
+        XCTAssertEqual(h.last.activeContacts, 1)
+        XCTAssertEqual(h.send(.motion(strokeID: id)).state, .returning)
+        XCTAssertEqual(h.send(.penContact(down: true)).state, .returning)
+        XCTAssertEqual(h.send(.engage).state, .engaging, "an explicit engage still re-engages")
+    }
+
     func testReturningPinOffAndToggleWhenPinned() {
         var h = GovernorHarness()
         h.goLive()

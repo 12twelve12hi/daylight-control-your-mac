@@ -146,6 +146,38 @@ final class GovernorScenarioTests: XCTestCase {
         XCTAssertEqual(h3.governor.handle(.cancel(strokeID: a), now: 0.015).state, .engaging, "another pen is still down")
     }
 
+    func testSnapBackNeedsAnEngageCausedByTheStroke() {
+        // A pin or a forced hold asked for the board regardless of the stroke, so a cancelled dab inside the snap-back
+        // window keeps the board coming (PASSTHROUGH must never carry `pinned` or a forced hold).
+        var config = GovernorConfig()
+        config.springK = 90
+        var pinned = GovernorHarness(config: config)
+        pinned.send(.pin(1))
+        let id = UUID()
+        pinned.send(GovernorHarness.stylus(id))
+        var out = pinned.governor.handle(.cancel(strokeID: id), now: 0.02)
+        XCTAssertEqual(out.state, .engaging, "pinned: no snap-back")
+        XCTAssertTrue(out.pinned)
+        XCTAssertEqual(out.activeContacts, 0)
+        XCTAssertTrue(out.effects.isEmpty)
+
+        var held = GovernorHarness(config: config)
+        held.send(.hold(.split))
+        let id2 = UUID()
+        held.send(GovernorHarness.stylus(id2))
+        out = held.governor.handle(.cancel(strokeID: id2), now: 0.02)
+        XCTAssertEqual(out.state, .engaging, "forced hold: no snap-back")
+        XCTAssertEqual(out.hold, .split)
+
+        var plain = GovernorHarness(config: config)
+        let id3 = UUID()
+        plain.send(GovernorHarness.stylus(id3))
+        out = plain.governor.handle(.cancel(strokeID: id3), now: 0.02)
+        XCTAssertEqual(out.state, .passthrough, "the stroke caused the engage: snap-back as before")
+        XCTAssertFalse(out.pinned)
+        XCTAssertEqual(out.hold, .auto)
+    }
+
     // "pre-warning at exactly 85.0 s, RETURNING at 90.0 s, PASSTHROUGH 0.251 s later with exactly one savePage(.returned)"
 
     func testPreWarningAt85ReturnAt90PassthroughWithOneSave() throws {
@@ -371,6 +403,53 @@ final class GovernorScenarioTests: XCTestCase {
     }
 
     // "sourceChanged clears contacts"
+
+    func testClientGoneAfterALongContactGivesAFreshIdlePeriod() {
+        // A pen resting on the glass freezes the timer; when its client drops off, the board gets a full idle period
+        // with its pre-warning instead of returning on the next tick.
+        var h = GovernorHarness()
+        h.goLive()
+        h.tickUntil(10)
+        let id = UUID()
+        h.send(GovernorHarness.stylus(id))
+        h.tickUntil(110)
+        XCTAssertEqual(h.state, .live, "the open contact freezes the timer")
+        XCTAssertEqual(h.last.msToReturn, StateReport.noReturnScheduled)
+        let gone = h.send(.clientGone(strokeIDs: [id]))
+        XCTAssertEqual(gone.state, .live)
+        XCTAssertTrue(gone.effects.isEmpty)
+        XCTAssertEqual(gone.msToReturn, 90_000)
+        h.tickUntil(194.9)
+        XCTAssertEqual(h.state, .live)
+        XCTAssertEqual(h.count { $0 == .preWarningStarted }, 0)
+        h.tickUntil(195)
+        XCTAssertEqual(h.count { $0 == .preWarningStarted }, 1, "pre-warning at 195 s")
+        XCTAssertEqual(h.state, .live)
+        h.tickUntil(199.9)
+        XCTAssertEqual(h.state, .live)
+        h.tickUntil(200)
+        XCTAssertEqual(h.state, .returning, "return at 200 s")
+
+        // The same for allClientsGone and sourceChanged; a drop that removes nothing leaves the timer alone.
+        var a = GovernorHarness()
+        a.goLive()
+        a.send(GovernorHarness.stylus())
+        a.tickUntil(100)
+        a.send(.allClientsGone)
+        XCTAssertEqual(a.last.msToReturn, 90_000)
+        var s = GovernorHarness()
+        s.goLive()
+        s.send(.penContact(down: true))
+        s.tickUntil(100)
+        s.send(.sourceChanged(.web))
+        XCTAssertEqual(s.last.msToReturn, 90_000)
+        var idle = GovernorHarness()
+        idle.goLive()
+        idle.tickUntil(30)
+        let before = idle.last.msToReturn
+        idle.send(.clientGone(strokeIDs: [UUID()]))
+        XCTAssertEqual(idle.last.msToReturn, before, "no contact removed: the timer carries on")
+    }
 
     func testSourceChangedClearsContacts() {
         var h = GovernorHarness()

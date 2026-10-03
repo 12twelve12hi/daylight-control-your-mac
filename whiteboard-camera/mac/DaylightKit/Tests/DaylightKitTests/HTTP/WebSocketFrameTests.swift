@@ -173,6 +173,26 @@ final class WebSocketFrameTests: XCTestCase {
         XCTAssertThrowsError(try parse(server))
     }
 
+    func testReservedOpcodesFailTheConnection() {
+        // RFC 6455 section 5.2: 0x3 to 0x7 and 0xB to 0xF are reserved; the server closes with 1002 on the throw.
+        for op: UInt8 in [0x3, 0x4, 0x5, 0x6, 0x7, 0xB, 0xC, 0xD, 0xE, 0xF] {
+            let bytes = WebSocketFrame.encodeMasked(opcode: op, payload: [1, 2, 3], key: key)
+            XCTAssertThrowsError(try parse(bytes), "opcode \(op)") { XCTAssertEqual($0 as? WebSocketError, .reservedOpcode(op)) }
+            // Also as the first fragment of a would-be message, and as an empty frame.
+            let fragment = WebSocketFrame.encodeMasked(fin: false, opcode: op, payload: [1], key: key)
+            XCTAssertThrowsError(try parse(fragment)) { XCTAssertEqual($0 as? WebSocketError, .reservedOpcode(op)) }
+            let empty = WebSocketFrame.encodeMasked(opcode: op, payload: [], key: key)
+            XCTAssertThrowsError(try parse(empty)) { XCTAssertEqual($0 as? WebSocketError, .reservedOpcode(op)) }
+        }
+        // The reserved check comes before the masking check, so an unmasked reserved frame reports the opcode.
+        XCTAssertThrowsError(try parse([0x83, 0x00])) { XCTAssertEqual($0 as? WebSocketError, .reservedOpcode(0x3)) }
+        // The six defined opcodes still parse.
+        for op in [WebSocketFrame.opcodeContinuation, WebSocketFrame.opcodeText, WebSocketFrame.opcodeBinary,
+                   WebSocketFrame.opcodeClose, WebSocketFrame.opcodePing, WebSocketFrame.opcodePong] {
+            XCTAssertNotNil(try parse(WebSocketFrame.encodeMasked(opcode: op, payload: [], key: key)), "opcode \(op)")
+        }
+    }
+
     func testServerEncoding() {
         XCTAssertEqual(WebSocketFrame.encode(opcode: 2, payload: payload(126)).prefix(4), [0x82, 126, 0x00, 0x7E])
         XCTAssertEqual(WebSocketFrame.encode(opcode: 2, payload: payload(65536)).prefix(10), [0x82, 127, 0, 0, 0, 0, 0, 1, 0, 0])

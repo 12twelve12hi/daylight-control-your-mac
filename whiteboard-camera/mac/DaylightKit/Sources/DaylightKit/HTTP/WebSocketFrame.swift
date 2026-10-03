@@ -2,6 +2,8 @@ import Foundation
 
 public enum WebSocketError: Error, Equatable {
     case reservedBits
+    /// A reserved opcode (0x3 to 0x7 or 0xB to 0xF); RFC 6455 section 5.2 says the endpoint must fail the connection.
+    case reservedOpcode(UInt8)
     case unmaskedClientFrame
     case oversize(Int)
     case controlFrameTooLong
@@ -38,7 +40,7 @@ public struct WebSocketFrame: Equatable {
 
     /// Parses one client frame from the start of `buffer`. Returns nil while the frame is incomplete (the buffer is left
     /// alone), otherwise the frame with its payload unmasked (also unmasked in place) and the number of bytes consumed,
-    /// which the caller removes from the front of the buffer. Throws on reserved bits, an unmasked client frame, a payload
+    /// which the caller removes from the front of the buffer. Throws on reserved bits, a reserved opcode, an unmasked client frame, a payload
     /// above `maxPayload` (checked from the header, before the payload arrives), a control frame over 125 bytes or a
     /// fragmented control frame.
     public static func parse(_ buffer: inout [UInt8], maxPayload: Int) throws -> (frame: WebSocketFrame, consumed: Int)? {
@@ -48,6 +50,7 @@ public struct WebSocketFrame: Equatable {
         if b0 & 0x70 != 0 { throw WebSocketError.reservedBits }
         let fin = b0 & 0x80 != 0
         let opcode = b0 & 0x0F
+        if (opcode >= 0x3 && opcode <= 0x7) || opcode >= 0xB { throw WebSocketError.reservedOpcode(opcode) }
         let masked = b1 & 0x80 != 0
         let lengthCode = Int(b1 & 0x7F)
         var offset = 2

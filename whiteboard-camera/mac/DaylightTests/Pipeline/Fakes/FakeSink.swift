@@ -12,6 +12,8 @@ final class FakeSink: VirtualCameraSink {
     private var count = 0
     private var last: CVPixelBuffer?
     private var first: CVPixelBuffer?
+    /// Identities of every buffer pushed since the last reset (the tests keep the buffers they ask about alive).
+    private var identities = Set<ObjectIdentifier>()
     var acceptPushes = true
     var onStatusChange: ((SinkStatus) -> Void)?
     var onQueueAltered: (() -> Void)?
@@ -48,6 +50,7 @@ final class FakeSink: VirtualCameraSink {
         count += 1
         if first == nil { first = buffer }
         last = buffer
+        if let buffer = buffer { identities.insert(ObjectIdentifier(buffer)) }
         lock.unlock()
         return true
     }
@@ -70,11 +73,19 @@ final class FakeSink: VirtualCameraSink {
         return first
     }
 
+    /// True when `buffer` itself was pushed since the last reset.
+    func didPush(_ buffer: CVPixelBuffer) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return identities.contains(ObjectIdentifier(buffer))
+    }
+
     func resetRecording() {
         lock.lock()
         count = 0
         first = nil
         last = nil
+        identities.removeAll()
         lock.unlock()
     }
 }

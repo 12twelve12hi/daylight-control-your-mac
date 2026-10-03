@@ -1,6 +1,7 @@
 import CoreMedia
 import CoreVideo
 import DaylightKit
+import QuartzCore
 import XCTest
 @testable import Daylight
 
@@ -61,6 +62,15 @@ final class OutputPoolTests: XCTestCase {
 }
 
 final class FrameClockTests: XCTestCase {
+    private func waitUntil(_ timeout: Double, _ condition: () -> Bool) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() { return true }
+            Thread.sleep(forTimeInterval: 0.02)
+        }
+        return condition()
+    }
+
     func testThirtyHertzTicksArriveAndStopStops() {
         let queue = DispatchQueue(label: "clock-test")
         let clock = FrameClock(queue: queue, fps: 30)
@@ -73,16 +83,32 @@ final class FrameClockTests: XCTestCase {
             stamps.append(now)
             lock.unlock()
         }
+        // Bounds against the measured window, not a fixed sleep: a test thread that wakes late must not read as a
+        // clock running fast, and a strict timer coalesces missed fires, so it can never over-fire.
+        let t0 = CACurrentMediaTime()
         queue.sync { clock.start() }
         XCTAssertTrue(queue.sync { clock.isRunning })
-        Thread.sleep(forTimeInterval: 1.0)
+        XCTAssertTrue(waitUntil(5) {
+            lock.lock()
+            defer { lock.unlock() }
+            return ticks >= 20
+        }, "ticks arrive")
         queue.sync { clock.stop() }
+        let elapsed = CACurrentMediaTime() - t0
         lock.lock()
         let counted = ticks
         let monotonic = zip(stamps, stamps.dropFirst()).allSatisfy { $0 < $1 }
+        let intervals = zip(stamps, stamps.dropFirst()).map { $1 - $0 }.sorted()
         lock.unlock()
-        XCTAssertGreaterThanOrEqual(counted, 20, "about 30 ticks in one second")
-        XCTAssertLessThanOrEqual(counted, 40)
+        XCTAssertGreaterThanOrEqual(counted, 20)
+        XCTAssertGreaterThanOrEqual(counted, Int(elapsed * 30) - 10, "about 30 ticks per measured second")
+        XCTAssertLessThanOrEqual(counted, Int((elapsed * 30).rounded(.up)) + 1, "never more ticks than 30 Hz allows in the measured window")
+        if intervals.isEmpty {
+            XCTFail("no tick intervals")
+        } else {
+            let median = intervals[intervals.count / 2]
+            XCTAssertTrue((0.030...0.037).contains(median), "the median tick interval is 33 ms (was \(median))")
+        }
         XCTAssertTrue(monotonic)
         Thread.sleep(forTimeInterval: 0.1)
         lock.lock()

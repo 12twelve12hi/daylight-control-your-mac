@@ -25,8 +25,13 @@ final class PipelineSmokeTests: XCTestCase {
         let pipeline = try makePipeline(sink: sink, capture: capture)
         pipeline.start()
         XCTAssertTrue(waitUntil(2) { capture.isRunning }, "capture starts because the sink is not connected (D32)")
-        Thread.sleep(forTimeInterval: 1.0)
-        XCTAssertGreaterThanOrEqual(sink.pushCount, 25, "about 30 pushes in one second of passthrough")
+        // Count frames, not wall-clock time: a stalled fake capture queue delivers fewer frames, never fewer pushes
+        // per frame. After the drain every delivered frame has been pushed (synchronously on the capture queue).
+        XCTAssertTrue(waitUntil(5) { capture.frames >= 30 }, "about one second of camera frames")
+        capture.stop()
+        capture.queue.sync {}
+        pipeline.renderQueue.sync {}
+        XCTAssertEqual(sink.pushCount, capture.frames + 1, "every camera frame is forwarded, plus the one cream card the start pushed from the empty slot")
         XCTAssertTrue(sink.lastPixelBuffer === capture.buffer, "zero copy: the camera's own buffer reaches the sink")
         let stats = pipeline.stats
         XCTAssertTrue(stats.passthroughZeroCopy)
@@ -65,8 +70,10 @@ final class PipelineSmokeTests: XCTestCase {
             let coldDrops = pipeline.stats.dropped
             XCTAssertLessThanOrEqual(coldDrops, 2, "at most a couple of ticks skipped while the GPU warms up")
             let before = sink.pushCount
-            XCTAssertTrue(waitUntil(1.0) { sink.pushCount >= before + 8 }, "frames keep flowing")
-            XCTAssertEqual(pipeline.stats.dropped, coldDrops, "no drops once the GPU is warm")
+            XCTAssertTrue(waitUntil(5) { sink.pushCount >= before + 8 }, "frames keep flowing")
+            XCTAssertLessThanOrEqual(pipeline.pool?.inFlight ?? 0, 3)
+            XCTAssertEqual(pipeline.feeder.droppedFrames, 0, "the prompt fake sink never refuses a frame (no back-pressure drops at all)")
+            XCTAssertEqual(pipeline.stats.dropped, coldDrops, "no drops once the GPU is warm (LOOSE_ENDS B24 (2))")
         } else {
             print("PipelineSmokeTests: no Metal device; composed frame assertions skipped")
         }
@@ -189,6 +196,8 @@ final class PipelineSmokeTests: XCTestCase {
         let seen = failures
         lock.unlock()
         XCTAssertTrue(seen.contains(.webcamFormatComposed), "row 5 is reported for the new format")
+        // SPEC 16 B3 "logs exactly once otherwise": several 720p frames went out composed, one report.
+        XCTAssertEqual(seen.filter { $0 == .webcamFormatComposed }.count, 1, "row 5 is reported once per format, not per frame")
         pipeline.shutdown()
     }
 
@@ -199,14 +208,110 @@ final class PipelineSmokeTests: XCTestCase {
         pipeline.start()
         XCTAssertTrue(waitUntil(2) { sink.pushCount > 3 })
         capture.stop()   // an unplugged webcam delivers nothing more
-        Thread.sleep(forTimeInterval: 0.15)
+        capture.queue.sync {}   // a frame handler already running finishes (and pushes) before the reset
+        pipeline.renderQueue.sync {}
         sink.resetRecording()
         capture.simulateLost()
-        XCTAssertTrue(waitUntil(1.0) { sink.pushCount >= 1 }, "viewers get one more frame instead of a frozen face")
+        XCTAssertTrue(waitUntil(5) { sink.pushCount >= 1 }, "viewers get one more frame instead of a frozen face")
+        pipeline.renderQueue.sync {}
+        XCTAssertEqual(sink.pushCount, 1, "exactly the card after the loss")
         let frame = sink.lastPixelBuffer!
         XCTAssertFalse(frame === capture.buffer)
         XCTAssertTrue(SelfTest.matches(SelfTest.pixel(frame, 100, 100), Tokens.surfaceCream), "the cream card")
         XCTAssertFalse(pipeline.stats.cameraAttached)
+        pipeline.shutdown()
+    }
+
+    /// PIPA-05: a 720p camera's passthrough frames are composed on the GPU. A frame that arrived just before the loss
+    /// must not complete after the card and freeze the face again. The render queue is held so the frame's render
+    /// block and the card block are both queued before either runs (the order the race needs, made certain).
+    func testLostCameraDuringComposedPassthroughEndsOnTheCard() throws {
+        guard MTLCreateSystemDefaultDevice() != nil else { throw XCTSkip("no Metal device; nothing is composed") }
+        let sink = FakeSink()
+        let capture = FakeCapture(width: 1280, height: 720)
+        let pipeline = try makePipeline(sink: sink, capture: capture)
+        pipeline.start()
+        XCTAssertTrue(waitUntil(10) { sink.pushCount > 3 }, "composed passthrough frames flow")
+        capture.stop()
+        capture.queue.sync {}
+        pipeline.renderQueue.sync {}
+        XCTAssertTrue(waitUntil(10) { pipeline.pool?.inFlight == 0 }, "every earlier GPU pass completed")
+        sink.resetRecording()
+        let gate = DispatchSemaphore(value: 0)
+        pipeline.renderQueue.async { gate.wait() }
+        capture.queue.sync { capture.deliverFrame() }   // queues its GPU pass behind the gate
+        capture.simulateLost()                          // queues the card behind it
+        gate.signal()
+        XCTAssertTrue(waitUntil(10) { sink.pushCount >= 1 && pipeline.pool?.inFlight == 0 }, "the card went out and no GPU pass is left")
+        pipeline.renderQueue.sync {}
+        XCTAssertEqual(sink.pushCount, 1, "the frame from before the loss is dropped, only the card goes out")
+        let frame = try XCTUnwrap(sink.lastPixelBuffer)
+        XCTAssertTrue(SelfTest.matches(SelfTest.pixel(frame, 100, 100), Tokens.surfaceCream), "the last frame is the cream card")
+        pipeline.shutdown()
+    }
+
+    /// PIPA-02 / PIPB-01 at the pipeline level: WebcamCapture falls back to another present camera, so `.lost` is
+    /// followed by `.restored` and frames; the camera bit comes back and camera frames replace the card.
+    func testLostCameraFallsBackToAnotherCameraAndFramesResume() throws {
+        let sink = FakeSink()
+        let capture = FakeCapture()
+        let pipeline = try makePipeline(sink: sink, capture: capture)
+        pipeline.start()
+        XCTAssertTrue(waitUntil(2) { sink.pushCount > 3 })
+        capture.stop()
+        capture.queue.sync {}
+        pipeline.renderQueue.sync {}
+        sink.resetRecording()
+        capture.simulateLostWithFallback()
+        XCTAssertTrue(waitUntil(10) { pipeline.stats.cameraAttached && sink.pushCount >= 5 }, "the replacement camera is attached and its frames flow")
+        let resumed = sink.pushCount
+        XCTAssertTrue(waitUntil(10) { sink.pushCount > resumed + 2 })
+        XCTAssertTrue(sink.lastPixelBuffer === capture.buffer, "camera frames, not the card, after the fallback")
+        pipeline.shutdown()
+    }
+
+    /// PIPA-01 / PIPB-02 (row 3): the card pushed when access was found missing went nowhere (no app was streaming);
+    /// a viewer who opens Daylight Camera later gets it again instead of no frame at all.
+    func testLateViewerGetsTheCreamCardWhileUnauthorized() throws {
+        let sink = FakeSink()
+        let capture = FakeCapture()
+        let pipeline = try makePipeline(sink: sink, capture: capture)
+        sink.setStatus(.connected)
+        pipeline.setSinkConnected(true)
+        pipeline.setCaptureAuthorized(false)
+        pipeline.start()
+        XCTAssertTrue(waitUntil(10) { sink.pushCount >= 1 }, "the first card")
+        pipeline.renderQueue.sync {}
+        sink.resetRecording()
+        pipeline.setViewerCount(1)
+        pipeline.renderQueue.sync {}
+        XCTAssertEqual(sink.pushCount, 1, "the arriving viewer gets one card")
+        let card = try XCTUnwrap(sink.lastPixelBuffer)
+        XCTAssertTrue(SelfTest.matches(SelfTest.pixel(card, 100, 100), Tokens.surfaceCream), "the cream card")
+        XCTAssertEqual(capture.startCount, 0, "row 3: still nothing opens the camera")
+        pipeline.shutdown()
+    }
+
+    /// PIPA-01 / PIPB-02 (row 4): the camera was lost while capture runs; a viewer arriving afterwards gets the card.
+    func testLateViewerGetsTheCreamCardAfterCameraLost() throws {
+        let sink = FakeSink()
+        let capture = FakeCapture()
+        let pipeline = try makePipeline(sink: sink, capture: capture)
+        pipeline.start()
+        XCTAssertTrue(waitUntil(2) { sink.pushCount > 3 })
+        capture.stop()
+        capture.queue.sync {}
+        capture.simulateLost()
+        pipeline.renderQueue.sync {}   // the loss's own card went out here
+        pipeline.setViewerCount(0)
+        pipeline.renderQueue.sync {}
+        sink.resetRecording()
+        pipeline.setViewerCount(1)
+        pipeline.renderQueue.sync {}
+        XCTAssertEqual(sink.pushCount, 1, "the arriving viewer gets one card")
+        let card = try XCTUnwrap(sink.lastPixelBuffer)
+        XCTAssertFalse(card === capture.buffer)
+        XCTAssertTrue(SelfTest.matches(SelfTest.pixel(card, 100, 100), Tokens.surfaceCream), "the cream card")
         pipeline.shutdown()
     }
 
@@ -234,14 +339,83 @@ final class PipelineSmokeTests: XCTestCase {
         XCTAssertTrue(waitUntil(1.0) { sink.pushCount > 3 })
         pipeline.setViewerCount(0)
         XCTAssertTrue(waitUntil(2.0) { !capture.isRunning }, "capture stops after the (shortened) hysteresis")
+        pipeline.renderQueue.sync {}   // the idle stop writes its flags after stopping the capture
         XCTAssertEqual(pipeline.stats.captureIdleReason, "viewers=0 preview=hidden")
         XCTAssertFalse(pipeline.stats.capturing)
+        // The camera's next frames are fresh buffers, so the cached frame is told apart from live ones by identity.
+        let cached = capture.buffer
+        let live = capture.replaceBuffer()
+        let pushesWhenStartBegan = Locked<Int?>(nil)
+        capture.onStart = { pushesWhenStartBegan.withLock { $0 = sink.pushCount } }
         sink.resetRecording()
         pipeline.setViewerCount(2)
         XCTAssertTrue(waitUntil(1.0) { sink.pushCount >= 1 })
         XCTAssertTrue(sink.firstPixelBuffer === capture.buffer, "the first frame after restart is the cached camera frame")
+        XCTAssertTrue(sink.firstPixelBuffer === cached)
+        XCTAssertFalse(sink.firstPixelBuffer === live)
         XCTAssertTrue(waitUntil(1.0) { capture.isRunning })
+        pipeline.renderQueue.sync {}   // startCapture clears the idle reason after start() returns
+        XCTAssertEqual(pushesWhenStartBegan.withLock { $0 }, 1, "the cached frame went out before start() began the camera's warm-up")
         XCTAssertNil(pipeline.stats.captureIdleReason)
+        pipeline.shutdown()
+    }
+
+    /// PIPB-03: a viewer arriving while the board is up restarts the camera, but no raw camera buffer goes into the
+    /// composed stream (the next tick draws the cached frame as the presenter).
+    func testRestartWhileLiveNeverPushesARawCameraFrame() throws {
+        let sink = FakeSink()
+        let capture = FakeCapture()
+        let pipeline = try makePipeline(sink: sink, capture: capture)
+        pipeline.idleStopOverrideSeconds = 0.4
+        sink.setStatus(.connected)
+        pipeline.setSinkConnected(true)
+        pipeline.start()
+        pipeline.setViewerCount(1)
+        XCTAssertTrue(waitUntil(10) { capture.isRunning && sink.pushCount > 3 })
+        pipeline.setViewerCount(0)
+        XCTAssertTrue(waitUntil(10) { !capture.isRunning })
+        pipeline.renderQueue.sync {}
+        pipeline.post(.hold(.split))
+        XCTAssertTrue(waitUntil(10) { pipeline.governorSnapshot.state == .live })
+        let cached = capture.buffer
+        let live = capture.replaceBuffer()
+        sink.resetRecording()
+        pipeline.setViewerCount(1)
+        XCTAssertTrue(waitUntil(10) { capture.isRunning })
+        pipeline.renderQueue.sync {}
+        if pipeline.compositor != nil {
+            XCTAssertTrue(waitUntil(10) { sink.pushCount >= 3 }, "composed frames keep flowing")
+        }
+        XCTAssertFalse(sink.didPush(cached), "the cached camera frame never goes raw into a composed stream")
+        XCTAssertFalse(sink.didPush(live), "nor does a live one")
+        pipeline.post(.hold(.auto))
+        pipeline.shutdown()
+    }
+
+    /// PIPA-04: the cached frame of a 720p camera is composed on restart like every frame of that camera, so the
+    /// 1080p sink never receives the raw 720p buffer.
+    func testRestartWithANon1080pCameraComposesTheCachedFrame() throws {
+        guard MTLCreateSystemDefaultDevice() != nil else { throw XCTSkip("no Metal device; nothing is composed") }
+        let sink = FakeSink()
+        let capture = FakeCapture(width: 1280, height: 720)
+        let pipeline = try makePipeline(sink: sink, capture: capture)
+        pipeline.idleStopOverrideSeconds = 0.4
+        sink.setStatus(.connected)
+        pipeline.setSinkConnected(true)
+        pipeline.start()
+        pipeline.setViewerCount(1)
+        XCTAssertTrue(waitUntil(10) { capture.isRunning && sink.pushCount > 3 })
+        pipeline.setViewerCount(0)
+        XCTAssertTrue(waitUntil(10) { !capture.isRunning })
+        pipeline.renderQueue.sync {}
+        XCTAssertTrue(waitUntil(10) { pipeline.pool?.inFlight == 0 })
+        sink.resetRecording()
+        pipeline.setViewerCount(2)
+        XCTAssertTrue(waitUntil(10) { sink.pushCount >= 1 })
+        let first = try XCTUnwrap(sink.firstPixelBuffer)
+        XCTAssertFalse(first === capture.buffer, "the 720p buffer never reaches the 1080p sink directly")
+        XCTAssertEqual(CVPixelBufferGetWidth(first), 1920)
+        XCTAssertEqual(CVPixelBufferGetHeight(first), 1080)
         pipeline.shutdown()
     }
 
@@ -291,7 +465,10 @@ final class PipelineSmokeTests: XCTestCase {
         pipeline.start()
         XCTAssertTrue(waitUntil(2) { sink.pushCount > 3 })
         pipeline.post(.penContact(down: true))
-        XCTAssertTrue(waitUntil(1.0) { pipeline.governorSnapshot.state != .passthrough })
+        // Probe a settled frame: mid-slide (progress 0.50 to 0.68) x=640 is the cream behind the sliding slot, and
+        // the 67 ms tick lands there. LIVE snaps the spring to 1, and a frame still in flight is already near 1.
+        XCTAssertTrue(waitUntil(2.0) { pipeline.governorSnapshot.state == .live }, "ENGAGING settles to LIVE")
+        pipeline.renderQueue.sync {}
         sink.resetRecording()
         XCTAssertTrue(waitUntil(1.0) { sink.pushCount >= 3 })
         let frame = sink.lastPixelBuffer!

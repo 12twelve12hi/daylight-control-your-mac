@@ -71,6 +71,9 @@ final class FramePipeline: PipelineControl {
         var inkArrivalNs: UInt64?
     }
     private let counters = Locked<Counters>(Counters())
+    /// Bumped by a lost camera. A composed passthrough frame carries the value from its arrival and is pushed only if
+    /// it is still current, under this lock, so a GPU completion can never land after the lost-camera card.
+    private let passthroughGeneration = Locked<UInt64>(0)
     private var stateLimiter = RateLimiter(minInterval: FramePipeline.stateIntervalAnimating)
     private var lastReportKey: (UInt8, UInt8, UInt8, UInt8)?
     private var perfTimer: DispatchSourceTimer?
@@ -145,27 +148,56 @@ final class FramePipeline: PipelineControl {
     }
 
     func setViewerCount(_ n: Int) {
-        flags.withLock { $0.viewers = max(0, n) }
+        let arrived = flags.withLock { (f: inout Flags) -> Bool in
+            let count = max(0, n)
+            let rose = count > f.viewers
+            f.viewers = count
+            return rose
+        }
         renderQueue.async { [weak self] in
             self?.recomputeCapture()
+            if arrived { self?.pushCardIfNoCameraPicture() }
             self?.publishFlagsChange()
         }
     }
 
     func setPreviewVisible(_ visible: Bool) {
-        flags.withLock { $0.previewVisible = visible }
+        let opened = flags.withLock { (f: inout Flags) -> Bool in
+            let opening = visible && !f.previewVisible
+            f.previewVisible = visible
+            return opening
+        }
         renderQueue.async { [weak self] in
             self?.recomputeCapture()
+            if opened { self?.pushCardIfNoCameraPicture() }
             self?.publishFlagsChange()
         }
     }
 
     func setSinkConnected(_ connected: Bool) {
-        flags.withLock { $0.sinkConnected = connected }
+        let connecting = flags.withLock { (f: inout Flags) -> Bool in
+            let rising = connected && !f.sinkConnected
+            f.sinkConnected = connected
+            return rising
+        }
         renderQueue.async { [weak self] in
             self?.recomputeCapture()
+            if connecting { self?.pushCardIfNoCameraPicture() }
             self?.publishFlagsChange()
         }
+    }
+
+    /// Render queue: a viewer, the preview or a (re)connected sink arrives while no camera picture flows (access not
+    /// granted, or the camera lost while capture runs). The card pushed when that state began went to nobody (the
+    /// extension drops frames while no app streams), so the newcomer gets it now instead of no frame at all (SPEC B4,
+    /// rows 3 and 4). A capture that is not running needs nothing here: `startCapture` pushes the cached frame or card.
+    private func pushCardIfNoCameraPicture() {
+        let f = flags.withLock { $0 }
+        guard !f.captureAuthorized || (f.captureRunning && !f.cameraAttached) else { return }
+        guard f.viewers > 0 || f.previewVisible else { return }
+        guard governor.withLock({ $0.state }) == .passthrough, let card = creamCardBuffer() else { return }
+        feeder.push(card, hostTimeNs: nil)
+        onPreviewFrame?(card)
     }
 
     // MARK: Wiring
@@ -453,11 +485,15 @@ final class FramePipeline: PipelineControl {
     }
 
     /// Passthrough for a camera that is not IOSurface-backed 1920x1080 BGRA: one GPU pass with the passthrough frame.
-    private func renderPassthroughComposed(_ pixelBuffer: CVPixelBuffer) {
+    /// `generation` is `passthroughGeneration` when the frame arrived; a camera lost since then drops it.
+    private func renderPassthroughComposed(_ pixelBuffer: CVPixelBuffer, generation: UInt64) {
         guard let compositor = compositor, let pool = pool else {
-            feeder.push(pixelBuffer, hostTimeNs: nil)
+            passthroughGeneration.withLock { current in
+                if current == generation { feeder.push(pixelBuffer, hostTimeNs: nil) }
+            }
             return
         }
+        if passthroughGeneration.withLock({ $0 }) != generation { return }
         guard let target = pool.acquire() else {
             counters.withLock { $0.dropped += 1 }
             return
@@ -465,11 +501,25 @@ final class FramePipeline: PipelineControl {
         let inputs = Compositor.Inputs(presenter: pixelBuffer, canvas: .none, frame: StudioLayout.passthrough())
         compositor.render(inputs, into: target) { [weak self] gpuSeconds in
             guard let self = self else { return }
-            self.feeder.push(target, hostTimeNs: nil)
-            self.onPreviewFrame?(target)
+            // Checked and pushed under the lock the lost-camera card is pushed under: either this frame goes out
+            // before the card, or the bumped generation drops it (it would otherwise freeze the face after the card).
+            let pushed = self.passthroughGeneration.withLock { (current: inout UInt64) -> Bool in
+                guard current == generation else { return false }
+                self.feeder.push(target, hostTimeNs: nil)
+                self.onPreviewFrame?(target)
+                return true
+            }
             pool.release(target)
-            self.recordComposedFrame(gpuMs: gpuSeconds * 1000, progress: 0)
+            if pushed { self.recordComposedFrame(gpuMs: gpuSeconds * 1000, progress: 0) }
         }
+    }
+
+    /// Zero-copy eligibility (SPEC 4, row 5): IOSurface-backed 1920x1080 BGRA goes to the sink untouched.
+    static func isZeroCopyEligible(_ pixelBuffer: CVPixelBuffer) -> Bool {
+        return CVPixelBufferGetIOSurface(pixelBuffer) != nil
+            && CVPixelBufferGetWidth(pixelBuffer) == outputWidth
+            && CVPixelBufferGetHeight(pixelBuffer) == outputHeight
+            && CVPixelBufferGetPixelFormatType(pixelBuffer) == kCVPixelFormatType_32BGRA
     }
 
     private func recordComposedFrame(gpuMs: Double, progress: Double) {
@@ -513,7 +563,7 @@ final class FramePipeline: PipelineControl {
             let backed = CVPixelBufferGetIOSurface(pixelBuffer) != nil
             // Zero-copy eligibility is decided per frame (SPEC 4, row 5): a camera switch or a reconnect can change
             // the format at any time, and a non-1080p or non-BGRA buffer must take the composed path.
-            let eligible = backed && width == FramePipeline.outputWidth && height == FramePipeline.outputHeight && fourcc == kCVPixelFormatType_32BGRA
+            let eligible = FramePipeline.isZeroCopyEligible(pixelBuffer)
             let format = (width, height, fourcc, backed)
             var firstFacts: String?
             flags.withLock { f in
@@ -543,7 +593,8 @@ final class FramePipeline: PipelineControl {
                     let now = CACurrentMediaTime()
                     counters.withLock { FramePipeline.countFrame(&$0, now: now) }
                 } else {
-                    renderQueue.async { [weak self] in self?.renderPassthroughComposed(pixelBuffer) }
+                    let generation = passthroughGeneration.withLock { $0 }
+                    renderQueue.async { [weak self] in self?.renderPassthroughComposed(pixelBuffer, generation: generation) }
                 }
             }
             telemetry.end(signpost, "capture")
@@ -556,6 +607,8 @@ final class FramePipeline: PipelineControl {
                 f.lastFormat = nil
             }
             cameraSlot.clear()
+            // Composed passthrough frames that arrived before the loss are dropped from here on (PIPA-05).
+            passthroughGeneration.withLock { $0 &+= 1 }
             telemetry.note("capture", "camera lost")
             onCameraPresence?(false)
             let state = governor.withLock { $0.state }
@@ -564,8 +617,10 @@ final class FramePipeline: PipelineControl {
                 // PASSTHROUGH: viewers would keep the last camera frame frozen; the cream card says it plainly.
                 // Composed states already draw the cream presenter area because the slot is empty.
                 if state == .passthrough, let card = self.creamCardBuffer() {
-                    self.feeder.push(card, hostTimeNs: nil)
-                    self.onPreviewFrame?(card)
+                    self.passthroughGeneration.withLock { _ in
+                        self.feeder.push(card, hostTimeNs: nil)
+                        self.onPreviewFrame?(card)
+                    }
                 }
                 self.publishFlagsChange()
             }
@@ -614,6 +669,25 @@ final class FramePipeline: PipelineControl {
             flags.withLock { $0.cameraAttached = false }
             return
         }
+        // The viewer never sees the extension placeholder: the last frame or a cream card goes out at once, before
+        // `start()` blocks for the camera's warm-up (SPEC B4). Only in PASSTHROUGH: composed states draw the slot's
+        // frame (or the cream presenter) on their next tick, and a raw buffer would flash into their stream. A cached
+        // frame that is not zero-copy eligible (720p, say) is composed like every passthrough frame of that camera.
+        var cardPushed = false
+        if governor.withLock({ $0.state }) == .passthrough {
+            if let cached = cameraSlot.take()?.buffer {
+                if FramePipeline.isZeroCopyEligible(cached) {
+                    feeder.push(cached, hostTimeNs: nil)
+                    onPreviewFrame?(cached)
+                } else {
+                    renderPassthroughComposed(cached, generation: passthroughGeneration.withLock { $0 })
+                }
+            } else if let card = creamCardBuffer() {
+                feeder.push(card, hostTimeNs: nil)
+                onPreviewFrame?(card)
+                cardPushed = true
+            }
+        }
         do {
             try capture.start()
             flags.withLock { f in
@@ -623,14 +697,6 @@ final class FramePipeline: PipelineControl {
             }
             let f = flags.withLock { $0 }
             telemetry.note("capture", "capture started (viewers=\(f.viewers) preview=\(f.previewVisible) sink=\(f.sinkConnected))")
-            // The viewer never sees the extension placeholder: the last frame or a cream card goes out at once.
-            if let cached = cameraSlot.take()?.buffer {
-                feeder.push(cached, hostTimeNs: nil)
-                onPreviewFrame?(cached)
-            } else if let card = creamCardBuffer() {
-                feeder.push(card, hostTimeNs: nil)
-                onPreviewFrame?(card)
-            }
             onCameraPresence?(capture.hasDevice)
         } catch {
             // Denied camera access surfaces as AVError.applicationIsNotAuthorizedToUseDevice from AVCaptureDeviceInput:
@@ -644,7 +710,7 @@ final class FramePipeline: PipelineControl {
             telemetry.note("capture", FailureText.logLine(failure) + " (\(error))")
             onFailure?(failure, [])
             if !denied { onCameraPresence?(false) }
-            if let card = creamCardBuffer() {
+            if !cardPushed, let card = creamCardBuffer() {
                 feeder.push(card, hostTimeNs: nil)
                 onPreviewFrame?(card)
             }

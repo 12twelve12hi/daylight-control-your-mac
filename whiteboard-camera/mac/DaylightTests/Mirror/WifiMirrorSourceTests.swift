@@ -111,6 +111,36 @@ final class WifiMirrorSourceTests: XCTestCase {
         XCTAssertTrue(feed(source, c, .status(WifiMirrorSourceTests.idle)))
     }
 
+    /// Finder P14-A3: a reserved opcode of the family (0x0083 to 0x008F) was consumed here and never logged; it now
+    /// goes to the router, which ignores it and logs it once per opcode. Before the fix `ingest` returned true.
+    func testReservedMirrorOpcodesGoToTheRouter() {
+        let source = makeSource()
+        source.setActive(true)
+        let (c, transport) = makeConnection()
+        for opcode: UInt16 in [0x0083, 0x0085, 0x008F] {
+            let frame: [UInt8] = [SolStream.magic, SolStream.version, UInt8(opcode & 0xFF), UInt8(opcode >> 8)] + [UInt8](repeating: 0, count: 12)
+            XCTAssertEqual(MirrorStream.peekOpcode(frame), opcode)
+            XCTAssertFalse(ink.sync { source.ingest(frame, from: c, hostTimeNs: 1) }, "0x\(String(opcode, radix: 16)) is the router's")
+        }
+        drain(source)
+        XCTAssertTrue(transport.sent.isEmpty)
+    }
+
+    /// Finder P14-A3: MIRROR_CONTROL from a client was logged on every frame, before the receiver's once-guard.
+    func testControlFromAClientIsLoggedOnce() {
+        let source = makeSource()
+        let lines = Locked<[String]>([])
+        source.onLog = { line in lines.withLock { $0.append(line) } }
+        source.setActive(true)
+        let (c, transport) = makeConnection()
+        feed(source, c, .status(WifiMirrorSourceTests.idle))
+        XCTAssertTrue(feed(source, c, .control(.stop)))
+        XCTAssertTrue(feed(source, c, .control(.stop)))
+        drain(source)
+        XCTAssertEqual(lines.withLock { $0 }.filter { $0.contains("MIRROR_CONTROL") }.count, 1)
+        XCTAssertEqual(transport.commands, [.start], "a client's STOP changes nothing")
+    }
+
     func testStartOnlyToAConnectionThatAnnouncedStatusWithProtocolDefaults() {
         let source = makeSource()
         source.setActive(true)

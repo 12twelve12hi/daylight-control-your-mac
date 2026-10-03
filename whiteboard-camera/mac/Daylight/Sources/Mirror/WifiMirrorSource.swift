@@ -342,6 +342,10 @@ final class WifiMirrorSource: MirrorFrameSource {
     @discardableResult
     func ingest(_ bytes: [UInt8], from c: InkConnection, hostTimeNs: UInt64) -> Bool {
         guard let opcode = MirrorStream.peekOpcode(bytes), MirrorStream.isMirrorOpcode(opcode) else { return false }
+        // Reserved opcodes of the family (0x0083 to 0x008F): the router ignores them like any unknown opcode and logs
+        // each once per connection (PROTOCOL 5 and 9; finder P14-A3).
+        let known: Set<UInt16> = [MirrorStream.opcodeControl, MirrorStream.opcodeHello, MirrorStream.opcodePacket, MirrorStream.opcodeStatus]
+        guard known.contains(opcode) else { return false }
         c.lastRxHostTimeNs = hostTimeNs
         guard WifiMirrorSource.mayStream(c) else {
             // PROTOCOL 14.5: from a pending, denied, unhandshaken or web connection the mirror family is dropped.
@@ -363,7 +367,8 @@ final class WifiMirrorSource: MirrorFrameSource {
         do {
             let message = try MirrorStream.decode(bytes).message
             if case .control = message {
-                log("mirror stream: MIRROR_CONTROL from \(c.label) dropped (server to client only)")
+                // Server to client only: the receiver logs it once per connection.
+                handle(peer.receiver.receive(message, now: clock()), from: peer)
                 return true
             }
             if case .status = message, peer.order == nil {

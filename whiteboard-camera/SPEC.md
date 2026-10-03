@@ -74,6 +74,7 @@ Every row is binding. `Owner` means the owner said it (DECISIONS.md, grill sessi
 | D54 | An explicit request that brings the board up (pin from camera; pin, engage or a layout hotkey during a return) releases Hold: Camera to Auto, so unpinning gives the fresh 90 s of section 7 instead of a board that never returns. | Resolved (review round 2, KITB-02) |
 | D55 | In LIVE, an `engage` or a `hold(auto)` is activity like ink: it cancels a showing pre-warning. | Resolved (review round 2, KITB-01) |
 | D56 | The snap-back of a stray cancel applies only to a board a stroke brought up (`strokeCausedEngage`); a board a hotkey, the menu, a pin or a hold brought up never snaps back. | Resolved (review round 2, KITB-03) |
+| D57 | Presenter Overlay (section 6.7) ships in v2 as a third layout, off by default (`overlayEnabled` false): with it off nothing of it runs and no menu item, hotkey or picker option appears, so D2 still describes the default product. There is no Hold > Overlay, because HoldMode is the STATE `mode` byte (PROTOCOL 6.14) and a new value would be a protocol change in another domain; the layout itself is not on the wire. After 15 segmentation failures in a row Overlay falls back to Studio Split (row 48) until it is turned off and on; when the mask covers too little of the picture (low light, nobody in view) the cutout shows the plain camera rectangle instead of a broken matte (row 49). | Resolved (Presenter Overlay, v2) |
 
 ---
 
@@ -103,6 +104,7 @@ Design tokens: InkBlack `#111111`, InkSubtle `#1E1D1B`, TextMuted `#736F68`, Pap
 | Passthrough | the webcam frame, untouched, camera-paced | zero pixel work: the captured `CVPixelBuffer` is re-wrapped in a host-clock `CMSampleBuffer` and handed to the extension (logged fallback: one GPU copy when a camera hands out non-IOSurface or non-BGRA or non-1080p buffers) |
 | Studio Split | canvas left two thirds, presenter crop right third (section 6) | one Metal pass at 30 Hz |
 | Whiteboard Only | canvas centred, cream margins, no presenter | one Metal pass at 30 Hz; with `frameReuse` on, zero GPU when the canvas is unchanged |
+| Overlay (v2, off by default, section 6.7) | the Whiteboard Only board with the presenter cut out of the background in one corner | one Metal pass at 30 Hz plus person segmentation on its own queue at camera rate while the board is up; never in Passthrough |
 | Idle (no viewer, preview closed, extension connected) | the extension emits nothing (Zoom is not open) | capture stopped after 60 s (D32); the camera LED is off; under 1 percent of one core |
 
 Studio Split is the default layout when engaging; Whiteboard Only is reached by its hotkey or by the Settings default `preferredLayout`. The extension shows a cream card "Daylight is not running. Open Daylight from the menu bar." only when the host is not connected and a viewer is streaming; it never draws text in a working call.
@@ -235,6 +237,30 @@ The cropped tablet image is aspect-fitted into the canvas slot with cream bars: 
 
 Ink and highlighter are 1200x1600 premultiplied BGRA IOSurfaces sampled with linear filtering into the slot (1.48x supersample). Fragment: `paper = PaperBg; hl = sample(highlight); under = paper * ((1 - hl.a) + hl.rgb); ink = sample(ink); out = ink.rgb + (1 - ink.a) * under; alpha = 1`. Stroke width per segment: `baseWidth * (0.55 + 0.9 * pressure)`, round caps and joins.
 
+### 6.7 Overlay (v2, off by default)
+
+Shown only while `overlayEnabled` is on (D57). The board is exactly Whiteboard Only (6.3) for the same orientation and canvas aspect, sliding in from the left with `ox = 1920 (s - 1)`, scissored, with border lines and no divider (divider alpha 0). There is no full-frame presenter quad at any s: the presenter is drawn only as the cutout, a person matte from segmentation of the camera frame.
+
+| Element | Value | Notes |
+|---|---|---|
+| Cutout side at s = 1 | `L = overlayScale * 1080` | default 0.28 gives 302.4 |
+| Inset from the corner | 32 px | |
+| Cutout at s = 1, bottomRight (default) | (1585.6, 745.6, 302.4, 302.4) | x = 1920 - 32 - L, y = 1080 - 32 - L |
+| bottomLeft, topRight, topLeft | (32, 745.6), (1585.6, 32), (32, 32), side 302.4 | |
+| Source at s = 1 | the central 1080x1080 square of the camera frame: UV u in [0.21875, 0.78125], v in [0, 1] | square, no distortion |
+
+Animation (the morph, no distortion at any s), with (tx, ty) the target origin above:
+
+- Source crop width `cw = 1920 + (1080 - 1920) s`, centred, full height; UV `u0 = (1920 - cw) / 3840`, `u1 = 1 - u0`, v 0 to 1.
+- Uniform scale `k = 1 + (L / 1080 - 1) s`; dest `(tx s, ty s, cw k, 1080 k)`.
+- Mask strength `s` (0 draws the plain rectangle, 1 the full matte); opacity `1 + (overlayOpacity - 1) s`.
+- At s = 0 the cutout is dest (0, 0, 1920, 1080), UV full, mask strength 0, opacity 1: frame 0 of the slide is pixel-identical to passthrough.
+- At s = 0.5 with the defaults: cw = 1500, k = 0.64, dest (792.8, 372.8, 960, 691.2), u0 = 0.109375.
+
+Mask: temporal smoothing `out = overlaySmoothing * previous + (1 - overlaySmoothing) * new`, then a separable Gaussian feather of radius `overlayFeather` mask texels (2r + 1 taps, sigma = max(r, 1) / 2, weights sum to 1; radius 0 means no blur). The optional outline (`overlayHalo`) is Amber `#D97706`.
+
+Health: the cutout shows the plain camera rectangle (mask strength ignored) while no mask has arrived yet, while the newest mask is older than 0.5 s, or while the mask covers less than 0.01 of the picture (row 49, reported once per drop). After 15 failed segmentations in a row the board falls back to Studio Split geometry (row 48, reported once) until Overlay is turned off and on or the quality changes. A success resets the failure count.
+
 ---
 
 ## 7. Pin, Clear, Return, New page (one place)
@@ -342,14 +368,14 @@ Gestures: tap = pin toggle (during a countdown this is "keep it"); long press 60
 | `onboardingDone`, `onboardingVersion` | Bool, Int | false, 1 | onboarding; menu "Setup again" resets the flag |
 | `cameraUniqueID` | String? | nil (= `AVCaptureDevice.userPreferredCamera`) | WebcamCapture |
 | `inkSource` | web / native / mirror | web | InkRouter, MirrorSource, STATE |
-| `preferredLayout` | studioSplit / whiteboardOnly | studioSplit | compositor, hotkeys |
+| `preferredLayout` | studioSplit / whiteboardOnly / overlay (overlay is offered only while `overlayEnabled`; a stored overlay with the feature off engages in Studio Split and is kept for re-enabling; an unknown stored value loads as studioSplit) | studioSplit | compositor, hotkeys |
 | `holdMode` | auto / camera / studioSplit / whiteboardOnly | auto (not persisted across launches) | governor |
 | `autoEngage` | Bool | true | governor |
 | `idleTimeoutSeconds` | Int 15...600 | 90 | governor |
 | `preWarningSeconds` | Int 0...30 | 5 | governor |
 | `springK` | Double 300...2400 | 1200 | governor (hidden; 600 for a slower slide) |
 | `engageOnEraser` | Bool | false | governor (advanced) |
-| `hotkeys` | action -> {keyCode, modifiers} | Ctrl+Opt+Cmd + W / D / K / C / Esc | Hotkeys (Carbon) |
+| `hotkeys` | action -> {keyCode, modifiers} | Ctrl+Opt+Cmd + W / D / K / C / Esc, plus O (Overlay, registered only while `overlayEnabled`) | Hotkeys (Carbon) |
 | `port` | UInt16 | 7788 | WebServer (tries 7788...7799 when busy and shows the bound port) |
 | `bonjourName` | String | "Daylight Camera on <hostname>" | WebServer |
 | `trustLoopback` | Bool | true | ClientRegistry (advanced) |
@@ -372,6 +398,14 @@ Gestures: tap = pin toggle (during a countdown this is "keep it"); long press 60
 | `saveDirectory`, `saveStrokesJSON`, `autosaveSeconds` | URL?, Bool, Int 15...600 | ~/Documents/Daylight Camera, true, 60 | SessionSaver |
 | `previewOnLaunch`, `previewFloats` | Bool, Bool | false (true on unsigned builds), true | PreviewWindow |
 | `frameReuse`, `deadlineIdle`, `perfLog` | Bool | false, false, false | pipeline (D34), Telemetry |
+| `overlayEnabled` | Bool | false | Overlay (6.7, D57): with it off nothing of Overlay runs or shows |
+| `overlayQuality` | fast / balanced / accurate; an unknown stored value loads as fast | fast | person segmentation quality |
+| `overlaySmoothing` | Double 0...0.9 | 0.6 | mask temporal smoothing |
+| `overlayFeather` | Int 0...8 (mask texels) | 2 | mask edge softness |
+| `overlayHalo` | Bool | false | amber outline around the person |
+| `overlayScale` | Double 0.15...0.5 (fraction of output height) | 0.28 | cutout size |
+| `overlayPosition` | bottomRight / bottomLeft / topRight / topLeft; an unknown stored value loads as bottomRight | bottomRight | cutout corner |
+| `overlayOpacity` | Double 0.3...1.0 | 1.0 | cutout opacity at s = 1 |
 | `launchAtLogin` | read live from `SMAppService.mainApp.status` | | Settings toggle |
 
 Tablet side (SharedPreferences / `localStorage`): `clientId`, `deviceName`, `manualHost`, `frontBuffer`, `unbufferedInput`, `sendPerEvent`, `pillsAtBoot`, `pillsPosition`, `flagHintDismissed`.
@@ -465,6 +499,8 @@ Shows: build signed or not; extension status and the two `kCMIOStreamPropertyDir
 | 45 | diagnostics export, saved | "Diagnostics saved as <file> in Documents > Daylight Camera. Send this file back after the test." | `diagnostics export: wrote <name> (<bytes> bytes, <n> files)` | informational; Finder reveals the zip |
 | 46 | diagnostics export, part missing | "The diagnostics file was saved without <part>: <reason>." | `diagnostics export: <part> unavailable: <error>` | a bounded command (`log show`, `systemextensionsctl list`, the self-test) timed out or failed; the rest of the zip is complete and MANIFEST.txt names the gap |
 | 47 | diagnostics export, failed | "Could not save the diagnostics file: <reason>. Use Diagnostics > Copy diagnostics instead." | `diagnostics export failed: <error>` | the zip could not be written (disk full, Documents not writable) |
+| 48 | overlay segmentation failed | "Overlay mode could not find you in the camera picture, so Daylight is showing Studio Split. Turn Overlay off and on in Settings > Overlay to try again." | `overlay: segmentation failed <n> frames in a row: <error>` | person segmentation unavailable or failing; falls back to Studio Split until Overlay is toggled |
+| 49 | overlay low coverage | "Overlay is showing your whole camera picture because it cannot separate you from the background (too dark, or nobody in view)." | `overlay: mask coverage <fraction> below 0.01; showing the camera rectangle` | low light or empty frame; informational, Diagnostics only |
 
 `docs/TESTING-CHECKLIST.md` lists rows 1, 12, 13, 19, 21, 22, 28, 33 as the ones the owner triggers on purpose on day one.
 
@@ -472,7 +508,7 @@ Shows: build signed or not; extension status and the two `kCMIOStreamPropertyDir
 
 ## 14. Hotkeys
 
-Carbon `RegisterEventHotKey` (no Accessibility permission). Defaults Ctrl+Opt+Cmd + W (Whiteboard Only toggle), D (Studio Split toggle), K (Keep/Pin toggle), C (Clear), Esc (Camera). Key codes: W 0x0D, D 0x02, K 0x28, C 0x08, Escape 0x35; modifiers cmdKey 1<<8, optionKey 1<<11, controlKey 1<<12. Semantics in section 7. Recorded in Settings; chords are registered with `kEventHotKeyExclusive`; a conflict shows "Already used by another app" (another process holds the chord exclusively) or "Already used by <Daylight action>" (the same chord bound twice inside Daylight). A chord another app registered non-exclusively fires in both apps and cannot be detected, a Carbon limit.
+Carbon `RegisterEventHotKey` (no Accessibility permission). Defaults Ctrl+Opt+Cmd + W (Whiteboard Only toggle), D (Studio Split toggle), K (Keep/Pin toggle), C (Clear), Esc (Camera), and O (Overlay toggle, registered only while `overlayEnabled`, 6.7). Key codes: W 0x0D, D 0x02, K 0x28, C 0x08, Escape 0x35, O 0x1F; modifiers cmdKey 1<<8, optionKey 1<<11, controlKey 1<<12. Semantics in section 7. Recorded in Settings; chords are registered with `kEventHotKeyExclusive`; a conflict shows "Already used by another app" (another process holds the chord exclusively) or "Already used by <Daylight action>" (the same chord bound twice inside Daylight). A chord another app registered non-exclusively fires in both apps and cannot be detected, a Carbon limit.
 
 ---
 
@@ -488,6 +524,8 @@ Carbon `RegisterEventHotKey` (no Accessibility permission). Defaults Ctrl+Opt+Cm
 | Slide | 8 distinct frames, no dropped frame during the slide |
 
 Measurement: `OSSignposter` intervals (`capture`, `composite`, `ink.apply`, `sink.push`, `decode`), `Daylight --perf-log` (one line per second: mode, fps pushed, dropped, CPU ms per frame, GPU ms per frame, in-flight, zero-copy flag, capture running or idle), `docs/PERFORMANCE.md` with the owner's Activity Monitor readings.
+
+Overlay (6.7): only while `overlayEnabled` is on, `--perf-log` adds one line per second, `perf overlay seg_ms=... mask_age_ms=...` (segmentation time per frame and the age of the newest mask). No budget is set until the owner's readings exist; with Overlay off the existing perf line is unchanged.
 
 ---
 

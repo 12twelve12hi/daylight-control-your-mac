@@ -78,6 +78,10 @@ Mirror mode has two transports since mirror v2 (LOOSE_ENDS A9), chosen in Settin
 
 The engage detector, the slide, the 90 s return, the 85 s warning and the pin rules are the same value type for all three sources, so any difference you feel is transport latency and rendering, not governor behaviour.
 
+### 3.1 Layouts: Overlay (v2, off by default) versus Studio Split
+
+Overlay puts the board full width (the Whiteboard Only picture) and cuts you out of your background into a small square in one corner, 28 percent of the picture height by default. It beats Studio Split for a presenter-led talk where your face matters but the board should get every pixel: a lecture, a walkthrough, a pitch. Studio Split stays the better choice when your face must be large (a one-to-one conversation, a small laptop screen at the far end) or when the lighting is poor, because Overlay then shows your whole camera picture as a plain rectangle (row 49) or, after repeated failures, falls back to Studio Split (row 48). The cost is on the Mac: while the board is up in Overlay, macOS's Vision person segmentation runs on every camera frame on its own queue (a frame is dropped rather than queued when it is busy), on top of the same single 30 Hz render pass. Fast quality is the default because it costs least; Balanced and Accurate look cleaner at the edges and cost more. The real numbers are unmeasured until you read the `perf overlay seg_ms=... mask_age_ms=...` lines from `--perf-log` (LOOSE_ENDS E30). Overlay never runs in the camera state (Passthrough stays zero pixel work), and with "Enable overlay mode" off nothing of it runs at all.
+
 ## 4. Measurement plan (one evening, about 45 minutes)
 
 Do each block for each source. Write the numbers into the "Measured" rows above and into `docs/PERFORMANCE.md`.

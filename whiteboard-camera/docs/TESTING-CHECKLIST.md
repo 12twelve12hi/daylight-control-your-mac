@@ -1,8 +1,8 @@
 # Testing checklist: the device run
 
-Everything the code could not prove without hardware, as atomic steps grouped into six sessions (Session 4b is mirror over Wi-Fi) you can do on different days. Each row says what you do, what you see (or the exact log line), how long it takes, and which `docs/LOOSE_ENDS.md` row it answers (D1 to D23, E2 and so on, G rows), or "note" when a tick is enough. You never paste lines into LOOSE_ENDS: on a 📋 row you tap "Send facts to Mac" on the tablet (the web page's "?" card, or Daylight Ink > Settings > "This tablet"), and at the end of the day you choose menu bar > "Export diagnostics..." once and send back the zip it reveals in Finder. `docs/FEEDBACK.md` says what is inside and which file answers each D row. Results that surprise you: a sentence in your note, sent with the zip.
+Everything the code could not prove without hardware, as atomic steps grouped into seven sessions (Session 4b is mirror over Wi-Fi, Session 6 is the optional Overlay mode) you can do on different days. Each row says what you do, what you see (or the exact log line), how long it takes, and which `docs/LOOSE_ENDS.md` row it answers (D1 to D23, E2 and so on, G rows), or "note" when a tick is enough. You never paste lines into LOOSE_ENDS: on a 📋 row you tap "Send facts to Mac" on the tablet (the web page's "?" card, or Daylight Ink > Settings > "This tablet"), and at the end of the day you choose menu bar > "Export diagnostics..." once and send back the zip it reveals in Finder. `docs/FEEDBACK.md` says what is inside and which file answers each D row. Results that surprise you: a sentence in your note, sent with the zip.
 
-Prerequisites per session are at the top of each one. Sessions 1 to 4b run on the unsigned build (the preview window stands in for the camera); session 5 needs the signed, notarized build of `docs/SIGNING.md`. Legend: 🟢 setup, ✍️ draw something, 🟡 make it fail on purpose, 🟣 confirm a file or a value, 📋 a fact the export collects (tap "Send facts to Mac" where the row says so; Export diagnostics once at the end), ⏱️ a timed wait.
+Prerequisites per session are at the top of each one. Sessions 1 to 4b and 6 run on the unsigned build (the preview window stands in for the camera); session 5 needs the signed, notarized build of `docs/SIGNING.md`. Legend: 🟢 setup, ✍️ draw something, 🟡 make it fail on purpose, 🟣 confirm a file or a value, 📋 a fact the export collects (tap "Send facts to Mac" where the row says so; Export diagnostics once at the end), ⏱️ a timed wait.
 
 Writing rules: no em-dashes; LivePaper is a transflective LCD; the backlight is DC dimming; VRR is 45 to 90 Hz.
 
@@ -176,6 +176,28 @@ Prerequisites: `Daylight.dmg` from a `v*` tag or a notarize run (`docs/SIGNING.m
 | 5.15 | 🟣 | Terminal `spctl -a -vv /Applications/Daylight.app` | `accepted`, `source=Notarized Developer ID` | 30 s | G8 |
 | 5.16 | 📋 | `release-logs` of the run: `profile-check.txt`, `signed-flag.txt`, `notarytool-submit.json`, `codesign-vendor-adb.txt` | anything surprising; `codesign -dvv /Applications/Daylight.app/Contents/Resources/Vendor/adb` shows a Developer ID signature and `Timestamp=` | 2 min | G, B6 |
 | 5.17 | 🟣 | Activity Monitor, the `com.twelve.daylight.camera` process, while a call is on and nothing is drawn | near zero CPU (the 90 Hz consume timer only while the sink is started) | 1 min | E1 |
+
+---
+
+## Session 6: Overlay mode (optional, v2) (⏱️ about 20 minutes, unsigned or signed build, no tablet needed)
+
+Prerequisites: Daylight running with a webcam and the preview window open, in a normally lit room. For 6.11 quit Daylight and start it from Terminal with `/Applications/Daylight.app/Contents/MacOS/Daylight --perf-log`. Overlay is SPEC 6.7; the hotkey works from the camera state without a tablet.
+
+| # | | Step | You see, or the log line | ⏱️ | Answers |
+|---|---|---|---|---|---|
+| 6.1 | 🟣 | Before enabling anything: read the menu bar, Settings > Hotkeys and Settings > General > "Layout when engaging"; press Ctrl+Opt+Cmd+O | no "Whiteboard now (Overlay)" item, no Overlay row in Hotkeys, only "Studio Split" and "Whiteboard Only" in the picker; the hotkey does nothing (off by default, invisible) | 1 min | note |
+| 6.2 | 🟢 | Settings > Overlay > switch on "Enable overlay mode" | "Whiteboard now (Overlay)" appears after "Whiteboard now (Whiteboard Only)"; Hotkeys lists Overlay as Ctrl+Opt+Cmd+O; the picker offers "Overlay" | 1 min | note |
+| 6.3 | ✍️ | Press Ctrl+Opt+Cmd+O from the camera state | the board slides in from the left; the menu status reads "Overlay" | 30 s | note |
+| 6.4 | 🟣 | Look at the cutout once the slide has settled | a square in the bottom-right corner, about 28 percent of the picture height (302 of 1080 px), 32 px from the edges, showing the middle of your camera picture with the background removed; the board is fully readable behind it | 1 min | E31 |
+| 6.5 | 🟣 | Press Ctrl+Opt+Cmd+O twice more and watch the slide both ways | the cutout starts as the full camera picture and shrinks into the corner without stretching your face (no pop at the first frame); the second press returns to the camera the same way | 1 min | note |
+| 6.6 | 🟣 | Settings > Overlay: switch on the amber outline; try Size, Position and Opacity | an amber ring follows your outline; the square changes size, corner and transparency at once | 2 min | E31 |
+| 6.7 | 🟣 | Sit still for 30 s, then wave a hand near your face | the edge does not flicker while still; the hand shows when it is in the square | 1 min | E31 |
+| 6.8 | 🟡 | Dim the room (or step out of view) with the board up | the square shows your whole camera picture as a plain rectangle; Diagnostics shows "Overlay is showing your whole camera picture because it cannot separate you from the background (too dark, or nobody in view)." (row 49) and the log `overlay: mask coverage <fraction> below 0.01; showing the camera rectangle`; light back on: the cutout returns | 2 min | E31 |
+| 6.9 | 🟡 | Cover the camera lens completely for 5 s with the board up (a failure on purpose; if segmentation keeps succeeding on a covered lens, note that instead) | either the rectangle of 6.8, or after 15 failed frames the board switches to Studio Split and the menu shows the line "Overlay mode could not find you in the camera picture, so Daylight is showing Studio Split. Turn Overlay off and on in Settings > Overlay to try again." (row 48), log `overlay: segmentation failed <n> frames in a row: <error>`; toggling "Enable overlay mode" off and on brings Overlay back | 2 min | note |
+| 6.10 | 🟣 | Settings > Overlay > Segmentation quality: Fast, then Balanced, then Accurate | edges get cleaner with each step; the picture keeps moving smoothly | 2 min | E31 |
+| 6.11 | 📋 | With `--perf-log`, hold the board up in Overlay for 20 s at each quality | one `perf overlay seg_ms=... mask_age_ms=... seg_dropped=... state=...` line per second next to the usual `perf` line; copy one line per quality into your note for the zip | 3 min | E30, PERFORMANCE.md |
+| 6.12 | 🟣 | Diagnostics or the log during Overlay | no line saying the mask had to be copied (if there is one, note it) | 30 s | E29 |
+| 6.13 | 🟢 | Settings > Overlay > switch off "Enable overlay mode"; return to the camera and wait 10 s | the Overlay menu item, the Hotkeys row and the picker choice are gone; Ctrl+Opt+Cmd+O does nothing; the `perf overlay` lines stop and the passthrough `perf` line reads as before Overlay (same fields, our code under 0.1 ms per frame) | 1 min | note |
 
 ---
 

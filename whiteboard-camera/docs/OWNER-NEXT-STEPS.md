@@ -22,6 +22,7 @@ Order of the day, and why: try the web whiteboard first (nothing to install on t
 | 6 | The first notarized build | 25 min, mostly waiting | step 5 |
 | 7 | Install the signed app and approve the camera extension | 10 min | step 6 |
 | 8 | Pick Daylight Camera in Zoom, Meet or FaceTime | 5 min | step 7 |
+| 8b | Try overlay mode (optional) | 10 min | step 1 (the preview window is enough) |
 | 9 | Run the testing checklist and paste the facts | 60 to 90 min | everything above |
 
 ---
@@ -179,6 +180,22 @@ Done looks like: the call shows your webcam; touching the pen slides it into Stu
 
 ---
 
+## Step 8b: try overlay mode (10 min, optional)
+
+Why: Overlay keeps the board full width and puts you, cut out of your background, in a small square in a corner (SPEC 6.7). It suits a talk where your face matters but the board should get the whole picture; Studio Split stays better when your face must be large or the room is dark (`docs/COMPARE.md` section 3.1). It is off by default, and while it is off nothing of it runs or shows.
+
+Done looks like: drawing (or Ctrl+Opt+Cmd+O) slides the board in from the left while your full camera picture shrinks into a square in the bottom-right corner, about a quarter of the picture height, with your background removed.
+
+1. Mac: menu bar > "Settings..." > Overlay > switch on "Enable overlay mode".
+2. Pick Overlay: either Settings > General > "Layout when engaging" > "Overlay" (then simply draw), or press Ctrl+Opt+Cmd+O at any time (press it again to go back to the camera). The menu bar also gains "Whiteboard now (Overlay)".
+3. Look for: a clean edge around your head and shoulders, no flicker when you sit still, your hands showing when you gesture near your face, and the board fully readable behind the square. Try the other Overlay settings if something looks off: Smoothing (less flicker, slower to follow you), Edge softness, the amber outline, Size, Position and Opacity.
+4. Look for the two safety nets: dim the room or step out of view and the square shows your whole camera picture as a plain rectangle (row 49); if segmentation fails repeatedly, the board falls back to Studio Split and the menu shows "Overlay mode could not find you in the camera picture, so Daylight is showing Studio Split. Turn Overlay off and on in Settings > Overlay to try again." (row 48).
+5. To turn it off: Settings > Overlay > switch off "Enable overlay mode". The Overlay menu item, the hotkey and the "Overlay" choice disappear, and a stored "Overlay" layout engages as Studio Split until you switch it on again.
+
+If you run with `--perf-log`, Overlay adds `perf overlay seg_ms=... mask_age_ms=...` lines; paste one into `docs/LOOSE_ENDS.md` E30. The full owner run is `docs/TESTING-CHECKLIST.md` session "Overlay mode (optional, v2)".
+
+---
+
 ## The daily gestures, once everything is paired
 
 | You want | Tablet | Pen side button (mirror mode) | Mac hotkey (Ctrl+Opt+Cmd + key) | Menu bar |
@@ -187,7 +204,7 @@ Done looks like: the call shows your webcam; touching the pen slides it into Stu
 | Keep the board up (pin) | tap the chip ("KEEP WHITEBOARD"), or the "Pin" pill | double press | K | "Keep whiteboard" |
 | Clear the page (saves first, returns unless pinned) | toolbar "Clear", or the "Clear" pill | hold 0.7 s | C | "Clear" |
 | Back to the camera now | hold the chip 0.6 s | | Esc | "Camera" |
-| Board up without drawing | | | D (Studio Split), W (Whiteboard Only) | "Whiteboard now (Studio Split)", "Whiteboard now (Whiteboard Only)" |
+| Board up without drawing | | | D (Studio Split), W (Whiteboard Only), O (Overlay, only while enabled) | "Whiteboard now (Studio Split)", "Whiteboard now (Whiteboard Only)", "Whiteboard now (Overlay)" (only while enabled) |
 | New page (saves the old one, board stays) | toolbar "New page" | | | |
 | Force a layout, no idle return | | | | "Hold" > "Camera" / "Studio Split" / "Whiteboard Only" / "Auto" |
 
@@ -246,5 +263,6 @@ Switching ink sources: menu bar > "Ink source" > "Web whiteboard" / "Daylight In
 - [ ] 🟢 FaceTime > Video > "Daylight Camera". You see: your webcam. Touch the pen: the call slides to Studio Split. You feel: this is the whole product. ⏱️ 2 minutes
 - [ ] 🟡 Quit Daylight while FaceTime is open. You see: a cream card "Daylight is not running. Open Daylight from the menu bar." Reopen Daylight: your webcam is back within 2 s. ⏱️ 1 minute
 - [ ] ⏱️ Close FaceTime and wait 60 s. You see and feel: the webcam LED goes off. Open FaceTime again: the picture is back within a second. ⏱️ 2 minutes
+- [ ] 🟢 Optional: Settings > Overlay > "Enable overlay mode", then Ctrl+Opt+Cmd+O. You see: the board slides in and your camera picture shrinks into a cut-out square in the bottom-right corner. Switch it off again afterwards if you prefer Studio Split. ⏱️ 5 minutes
 - [ ] 📋 Tell the integrator whether the "Open System Settings" button landed on the right pane (LOOSE_ENDS E13). The decisions A2 (macOS 26), A3, A4, A5, A6 and A14 are already settled (2026-10-03). ⏱️ 1 minute
 - [ ] 📋 Then run `docs/TESTING-CHECKLIST.md`, one session at a time (Mac only, web, Daylight Ink, mirror with the adb source rows 4.19 to 4.21, mirror over Wi-Fi in Session 4b, signed camera). ⏱️ 90 to 120 minutes, in pieces

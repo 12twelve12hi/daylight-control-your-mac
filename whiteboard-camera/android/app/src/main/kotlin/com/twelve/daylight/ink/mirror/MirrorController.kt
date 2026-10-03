@@ -305,6 +305,7 @@ class MirrorController(context: Context, private val uplink: MirrorUplink) {
             val n = data.remaining()
             if (n > MirrorFraming.MAX_ANNEX_B_BYTES) {
                 Log.w(TAG, "access unit of $n bytes exceeds the 1 MiB payload cap; dropped, sync frame requested")
+                backpressure.markGap()          // the deltas that follow reference it: dropped until a key frame
                 encoder?.requestSyncFrameNow()
                 return
             }

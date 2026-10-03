@@ -131,6 +131,9 @@ class SourceRulesTest {
         assertTrue(read("net/Link.kt").contains("is ServerMessage.Mirror -> if (phase == Phase.LIVE) actions.mirrorControl(msg.control)"))
         val m = read("mirror/MirrorController.kt")
         assertTrue(m.contains("backpressure.admit(queued, keyFrame || config)"))
+        // PROTOCOL 14.2: an oversize access unit is a gap too, so the deltas after it wait for a key frame.
+        val oversize = m.substringAfter("if (n > MirrorFraming.MAX_ANNEX_B_BYTES) {").substringBefore("return")
+        assertTrue(oversize.contains("backpressure.markGap()"))
         assertTrue(m.contains("uplink.acquireForMirror(HOLDER)"))
         assertTrue(conn.contains("override fun acquireForMirror(tag: String) = acquire(tag, Identity.ROLE_OVERLAY)"))
     }

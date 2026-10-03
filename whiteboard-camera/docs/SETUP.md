@@ -78,6 +78,21 @@ Cable free (optional): Settings > Mirror > "Mirror over Wi-Fi after a USB sessio
 
 If the menu says "Another adb is running (Android Studio?). Daylight is using its own copy; a tablet already claimed by the other adb will not be visible." (row 24), quit the other adb or accept that the tablet is invisible until you do.
 
+### 2.4 Mirror over Wi-Fi without USB debugging (Daylight Ink screen stream)
+
+The second mirror transport: Daylight Ink captures the tablet screen itself and sends it to the Mac over the Wi-Fi connection it already uses for ink and the pills. No developer options, no cable. It needs Daylight Ink installed and allowed once (section 2.2).
+
+1. On the Mac: Settings > Mirror > "Transport" > "Wi-Fi (Daylight Ink screen stream)". Then menu bar > "Ink source" > "Mirror the tablet".
+2. On the tablet: open Daylight Ink > Settings. Under "Share this screen with the Mac over Wi-Fi (no cable, no USB debugging)" tap "Share screen with your Mac".
+3. Android shows its screen-capture prompt (on Android 13 it reads like "Start recording or casting with Daylight Ink?", with Cancel and Start now; the SolOS wording may differ). Tap "Start now". This is Android's rule: an app must ask before it can see the screen, and it asks again whenever sharing ends.
+4. A notification "Sharing screen with your Mac" stays while sharing is ready; its "Stop" ends sharing. The Daylight Ink state line reads "Ready. The Mac starts the picture when it needs it", then "Sharing with your Mac" once the Mac asks for the picture. Within a couple of seconds the Mac's preview shows the tablet when the screen changes.
+5. Open the SolOS note app and write. The board slides in when the screen changes inside the canvas crop (frame differencing); Pin and Clear are the floating pills. If the tablet is also plugged in with USB debugging on, the Mac uses the pen stream instead and the slide is as fast as the USB transport.
+
+If the Mac asks for the picture while Daylight Ink is closed, the tablet shows a notification "Your Mac wants to mirror this screen. Tap to allow."; tap it, then "Start now". That notification needs the "Notifications" permission for Daylight Ink (the USB setup grants it; otherwise Android asks the first time). The Mac shows these failure lines: "Daylight Ink was not allowed to share the tablet screen. Tap the Daylight Ink notification on the tablet and choose Start now." (row 34), "Your Daylight could not start its screen encoder. Restart Daylight Ink, or use Mirror over USB." (row 35), "The tablet's screen stream paused. Reconnecting..." (row 36), "Mirror over Wi-Fi starts the whiteboard when the tablet screen changes. Plug in with USB debugging for pen-exact engage." (row 37, information) and "Open Daylight Ink on your Daylight to mirror over Wi-Fi." (row 38).
+
+Battery: the tablet encodes its screen continuously while sharing and nothing charges it; stop sharing from the notification when the call ends. Details and honest expectations in `docs/COMPARE.md` section 2.1.
+
+
 ---
 
 ## 3. Networking
@@ -140,6 +155,12 @@ Every key of SPEC section 11, by tab, in plain words. Values outside the range a
 | "Long press N ms" | `sideButtonLongPressMs` | 700 | holding the side button this long = Clear |
 | "Swap: double press = Clear, long press = Pin" | `sideButtonSwap` | off | |
 | "Pills position" | `mirrorPillsPosition` | "Top" | "Top" or "Bottom"; sent to the APK |
+| "Transport" | `mirrorTransport` | "USB (adb)" | or "Wi-Fi (Daylight Ink screen stream)" (section 2.4) |
+| "Stream size N px" | `mirrorStreamMaxSize` | 1600 | Wi-Fi transport: the long side of the tablet's encoded picture, 320 to 1600 |
+| "Bit rate N Mbit/s" | `mirrorStreamBitRate` | 7.0 | Wi-Fi transport: 1 to 8 Mbit/s |
+| "Frame rate N fps" | `mirrorStreamMaxFps` | 30 | Wi-Fi transport: 1 to 30 |
+| "Key frame every N ms" | `mirrorStreamKeyIntervalMs` | 2000 | Wi-Fi transport: 500 to 10000; shorter recovers faster after a dropped frame, longer saves bandwidth |
+| "Change threshold N % of the screen" | `mirrorDiffThreshold` | 0.20 % | Wi-Fi transport without the USB pen stream: how much of the canvas crop must change on two frames in a row to start the slide; raise it if scrolling or animations start the board |
 | "Mirror over Wi-Fi after a USB session", "Try Wi-Fi mirror now" | `mirrorOverWiFi` | off | the `adb connect <ip>:5555` interim (LOOSE_ENDS C1) |
 | "Quality" | `mirrorMaxSize`, `mirrorBitRate`, `mirrorMaxFps` | "Standard (1600 px, 8 Mbit/s, 30 fps)" | or "Low bandwidth (1200 px, 4 Mbit/s, 24 fps)"; applies to the next session (replug or rotate) |
 | "Crop (portrait, tablet pixels; the top strip hides the pills)" with the Top and Bottom steppers and the live crop view | `mirrorCropInsetsPortrait`, `mirrorCropInsetsLandscape` | top 96 portrait, top 72 landscape, 0 elsewhere | what part of the tablet screen fills the board slot; the top inset is 0 when the pills are off |
@@ -208,6 +229,7 @@ Ctrl+Opt+Cmd+W Whiteboard Only, Ctrl+Opt+Cmd+D Studio Split, Ctrl+Opt+Cmd+K Keep
 - [ ] 🟢 Web: type the menu-bar address into Chrome on the tablet, "Tap to start", "Allow" on the Mac. You see: chip "Camera". ⏱️ 3 minutes
 - [ ] 🟢 Daylight Ink: cable in, "Ink source" > "Daylight Ink app", "Set up over USB". You see: the app opens, chip "Camera". ⏱️ 3 minutes
 - [ ] 🟢 Mirror: "Ink source" > "Mirror the tablet"; "Diagnostics..." shows `mirror.status: mirroring`. ⏱️ 1 minute
+- [ ] 📶 Mirror without a cable (optional): Settings > Mirror > "Transport" > "Wi-Fi (Daylight Ink screen stream)"; on the tablet Daylight Ink > Settings > "Share screen with your Mac" > "Start now". You see: the notification "Sharing screen with your Mac" and, in Diagnostics, `mirror.wifi.tabletState` reading streaming. ⏱️ 3 minutes
 - [ ] ✍️ In each source, write one word. You see: the slide, the ink, "LIVE". ⏱️ 3 minutes
 - [ ] 🟣 Settings > Hotkeys: the five defaults listed, none marked "Already used". ⏱️ 30 seconds
 - [ ] 🟣 Settings > Network > "Allowed tablets" lists your tablet. ⏱️ 30 seconds

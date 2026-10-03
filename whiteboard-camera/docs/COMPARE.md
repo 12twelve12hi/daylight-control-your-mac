@@ -42,6 +42,28 @@ Sending "delta operations" between frames is what an H.264 encoder already does;
 | Measured Mac CPU, Activity Monitor (percent) | | | |
 | Measured tablet battery drop over 30 min (percent) | | | |
 
+### 2.1 Mirror transports: USB (adb) versus Wi-Fi (Daylight Ink screen stream)
+
+Mirror mode has two transports since mirror v2 (LOOSE_ENDS A9), chosen in Settings > Mirror > "Transport". Both put the same picture in the same crop; they differ in how the picture and the engage signal reach the Mac. The Wi-Fi numbers below are estimates from the design (nothing has run on a DC-1 yet); the "Measured" rows are for the owner.
+
+| | USB (adb) | Wi-Fi (Daylight Ink screen stream) |
+|---|---|---|
+| Tablet setup | USB debugging, the cable, the RSA prompt | none beyond Daylight Ink and one Allow; the Android screen-capture prompt (Cancel / Start now) once per sharing session |
+| Who captures and encodes | scrcpy-server started over adb | Daylight Ink itself (MediaProjection, MediaCodec H.264), sent on the WebSocket it already holds |
+| Picture size and rate | 1600 px, 8 Mbit/s, 30 fps | 1600 px long side, 7 Mbit/s by default (1 to 8 configurable), 30 fps cap, a key frame every 2 s |
+| Glass to the Mac's picture | 100 to 200 ms | estimate 120 to 250 ms: the same capture and encode, plus a Wi-Fi hop that adds a few ms on a quiet network and tens of ms of jitter on a busy one |
+| Pen contact to the slide starting | under 90 ms (the `getevent` pen stream, not the video) | estimate 150 to 300 ms: the slide starts when the captured screen changes inside the canvas crop on two frames in a row (frame differencing), so it waits for the ink to be drawn, captured, encoded, sent and decoded. With the tablet also plugged in with USB debugging, the pen stream is used instead and the slide is as fast as USB |
+| What can start the slide by mistake | nothing but the pen | any visible change inside the crop on two consecutive frames: a scrolling page, an animation, a video in the note app. A single changed frame (a status bar clock tick) never engages. Raise Settings > Mirror > "Change threshold" if it happens |
+| Pin and Clear | pills, pen side button, or both | the pills (the side button needs the USB pen stream) |
+| Bandwidth | about 1 MB/s | about 0.9 MB/s while the screen changes; a still page sends a few tiny repeat frames a second |
+| Tablet battery | the cable charges the tablet while mirroring | estimate: the encoder, the screen capture and Wi-Fi transmit cost roughly 0.5 to 1.5 W more than the stroke sources, with no cable to charge; expect the tablet to drain noticeably faster than with Daylight Ink (UNVERIFIED, measure it) |
+| Heat | the encoder runs continuously | the same; at the system's "severe" thermal status Daylight Ink halves the frame rate and the Mac's Diagnostics shows the flag |
+| Works on an isolated office network | yes (the cable) | only where the tablet reaches the Mac (same Wi-Fi, USB reverse, or Tailscale), like Daylight Ink |
+| What breaks it | as in section 2 | the consent prompt was declined (row 34); no H.264 encoder (row 35); a congested network (row 36, frames dropped first, ink and pills keep flowing); SolOS ending the capture when the screen locks |
+| Measured engage (ms) | | |
+| Measured picture delay (ms) | | |
+| Measured tablet battery drop over 30 min (percent) | | |
+
 ## 3. Recommendation per use case
 
 | Use case | Pick | Why |
@@ -50,6 +72,7 @@ Sending "delta operations" between frames is what an H.264 encoder already does;
 | A borrowed or second tablet, no time to install anything | Web whiteboard | nothing to install; one address, one Allow |
 | Office or school Wi-Fi that isolates clients | Web or Daylight Ink over USB, or over Tailscale | the cable is a network; Bonjour and `.local` do not cross isolation |
 | You want the SolOS note app (or any app) on camera | Mirror | the only source that shows another app |
+| The note app on camera, without USB debugging or a cable | Mirror over Wi-Fi (Daylight Ink screen stream) | no developer options; slower engage (frame differencing) and more battery than USB, see 2.1 |
 | Teaching with pages you keep | Web or Daylight Ink | the strokes JSON and the 1200x1600 PNG per page |
 | Judging whether to ship adb and scrcpy to customers (SPEC 17) | measure mirror against Daylight Ink for a week | the consumer default is the native app; mirror's end state is a SolOS service (LOOSE_ENDS A9) |
 
@@ -69,9 +92,9 @@ Do each block for each source. Write the numbers into the "Measured" rows above 
 
 Quit Daylight, then in Terminal run `/Applications/Daylight.app/Contents/MacOS/Daylight --latency-probe --perf-log`. Draw one stroke from the camera state per session. For web and Daylight Ink the Mac logs `engage probe: STROKE_START to first moved frame <ms>` (the first engage of each session; the Wi-Fi hop from glass to STROKE_START is not inside this number, add the RTT/2). For mirror the Mac logs `engage probe: pen contact at <t> (mirror)` followed by `first decoded frame at <t>`; the difference is the picture delay after engage, and the next `perf` line shows the mode change. Budgets: under 60 ms (web, native), under 90 ms (mirror).
 
-### 4.3 Picture delay, mirror only (5 min)
+### 4.3 Picture delay, mirror only (5 min per transport)
 
-Open a stopwatch app on the tablet showing hundredths. Photograph the tablet and the Mac preview in one frame (phone camera). The difference between the two readings is the glass-to-preview delay (expect 100 to 200 ms). Repeat three times; take the median. Diagnostics also shows `mirror.decoder.hardware` (whether VideoToolbox used the hardware decoder) and `mirror.session.size`.
+Open a stopwatch app on the tablet showing hundredths. Photograph the tablet and the Mac preview in one frame (phone camera). The difference between the two readings is the glass-to-preview delay (expect 100 to 200 ms). Repeat three times; take the median. Diagnostics also shows `mirror.decoder.hardware` (whether VideoToolbox used the hardware decoder) and `mirror.session.size`. For the Wi-Fi transport repeat it with Settings > Mirror > "Transport" on "Wi-Fi (Daylight Ink screen stream)" and read `mirror.wifi.decodeLatencyMs`, `mirror.wifi.fps` and `mirror.wifi.bitrate` in Diagnostics; write the engage number with `mirror.wifi.engageSource` ("frame difference" or "pen (USB getevent)") next to it.
 
 ### 4.4 Mac cost (5 min per source)
 
@@ -106,6 +129,7 @@ Daylight Ink is the recommended default: strokes, native input, self-reconnectin
 - [ ] 🟣 `adb logcat -s DaylightInk.net`, read `pong N rtt=<n>ms`. Write it down. ⏱️ 1 minute
 - [ ] ✍️ "Ink source" > "Mirror the tablet"; write in the note app. You see: `engage probe: pen contact at <t> (mirror)` and `first decoded frame at <t>`. Write the difference. ⏱️ 2 minutes
 - [ ] 🟣 Stopwatch on the tablet, photograph tablet and preview together, three times, median. Write it down. ⏱️ 5 minutes
+- [ ] 📶 Settings > Mirror > "Transport" > "Wi-Fi (Daylight Ink screen stream)", unplug the cable; repeat the stroke and the stopwatch photo. Write both numbers into the Wi-Fi column of section 2.1. ⏱️ 7 minutes
 - [ ] 🟣 Activity Monitor CPU and Memory for Daylight: one minute writing, one minute idle, per source. Write six numbers. ⏱️ 10 minutes
 - [ ] 🟣 Activity Monitor Network, Daylight "Rcvd Bytes" rate, per source. Write three numbers. ⏱️ 5 minutes
 - [ ] 🟣 Open `page-01.png` and `mirror-<HH-mm-ss>.png` at 200 percent. Which is crisper? Write one sentence. ⏱️ 3 minutes

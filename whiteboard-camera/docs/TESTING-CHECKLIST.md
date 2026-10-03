@@ -1,6 +1,6 @@
 # Testing checklist: the device run
 
-Everything the code could not prove without hardware, as atomic steps grouped into five sessions you can do on different days. Each row says what you do, what you see (or the exact log line), how long it takes, and where the result goes: a `docs/LOOSE_ENDS.md` row id (D1 to D18, E2 and so on, G rows) when a fact is collected, or "note" when a tick is enough. Results that surprise you go into a new row under LOOSE_ENDS section G with the Diagnostics report attached ("Diagnostics..." > "Copy diagnostics").
+Everything the code could not prove without hardware, as atomic steps grouped into five sessions you can do on different days. Each row says what you do, what you see (or the exact log line), how long it takes, and where the result goes: a `docs/LOOSE_ENDS.md` row id (D1 to D23, E2 and so on, G rows) when a fact is collected, or "note" when a tick is enough. Results that surprise you go into a new row under LOOSE_ENDS section G with the Diagnostics report attached ("Diagnostics..." > "Copy diagnostics").
 
 Prerequisites per session are at the top of each one. Sessions 1 to 4 run on the unsigned build (the preview window stands in for the camera); session 5 needs the signed, notarized build of `docs/SIGNING.md`. Legend: 🟢 setup, ✍️ draw something, 🟡 make it fail on purpose, 🟣 confirm a file or a value, 📋 paste a line into LOOSE_ENDS, ⏱️ a timed wait.
 
@@ -123,6 +123,30 @@ Prerequisites: USB debugging on, the cable, "Always allow from this computer" ac
 | 4.16 | 🟣 | Welcome window > "Set up over USB" with Web whiteboard selected, then with Daylight Ink app selected | the tablet opens `http://localhost:7788` (or the bound port); then the APK installs, the app opens with the Mac's address, the pills service starts | 2 min | D10, D15 |
 | 4.17 | 🟣 | After quitting Daylight: `adb shell ps -A \| grep getevent` with the bundled adb | no leftover `getevent` (or note it; harmless) | 1 min | D12 |
 | 4.18 | ⏱️ | Mirror for 30 minutes; Activity Monitor memory for Daylight before and after | the resident set does not grow (app-12, G14); budget under 180 MB | 30 min | G14, PERFORMANCE.md |
+
+---
+
+## Session 4b: mirror over Wi-Fi without USB debugging (⏱️ about 25 minutes plus one 60-minute battery run)
+
+Prerequisites: Daylight Ink installed and allowed (Session 3), the tablet and the Mac on the same Wi-Fi, the cable unplugged, USB debugging may stay off. On the Mac, "Ink source" > "Mirror the tablet" and Settings > Mirror > "Transport" > "Wi-Fi (Daylight Ink screen stream)". The tablet logs everything under `adb logcat -s DaylightInk.mirror` (only if you happen to have adb) and shows the same facts in Daylight Ink > Settings > "This tablet".
+
+| # | | Step | You see, or the log line | ⏱️ | Paste into |
+|---|---|---|---|---|---|
+| 4b.1 | 🟢 | Daylight Ink > Settings > "Share screen with your Mac" | the Android screen-capture prompt; write down its exact wording on SolOS; tap "Start now". The state line reads "Ready. The Mac starts the picture when it needs it" and the notification "Sharing screen with your Mac" appears | 2 min | D19 |
+| 4b.2 | 🟢 | Look at the Mac (Diagnostics...) | within 2 s `mirror.wifi.tabletState` reads streaming, `mirror.wifi.streamSize: 1200x1600`, `mirror.wifi.engageSource: frame difference`; the tablet reads "Sharing with your Mac"; the menu shows row 37 once as information | 1 min | note |
+| 4b.3 | ✍️ | Open the SolOS note app, write one word from the camera state | the board slides in after the ink appears; note roughly how late (Session 4 measures it). Then lift the pen and wait 90 s: the board returns | 3 min | D20 |
+| 4b.4 | ⏱️ | Leave the page still for 30 s; watch `mirror.wifi.fps` | the tablet fps stays above 0 (about 4 repeat frames a second) and "The tablet's screen stream paused. Reconnecting..." (row 36) never appears | 1 min | D21 |
+| 4b.5 | 🟡 | Scroll a long page or play an animation in the note app without the pen | does the board slide in by mistake? If yes, raise Settings > Mirror > "Change threshold" and note the value that stops it | 3 min | D20 |
+| 4b.6 | 🟣 | Tap the pills: Pin, then Clear | Pin keeps the board; Clear saves and returns; the pills are absent from the camera picture (top 96 px crop) | 1 min | D5 |
+| 4b.7 | 🟣 | Rotate the tablet | the picture comes back upright within about 2 s; `mirror.wifi.streamSize: 1600x1200` | 1 min | note |
+| 4b.8 | 🟣 | Plug the cable in with USB debugging on (if you have it), write again | `mirror.wifi.engageSource: pen (USB getevent)`; the slide starts as fast as Session 4 | 2 min | note |
+| 4b.9 | 🟡 | Mac: switch "Ink source" to "Daylight Ink app", then back to "Mirror the tablet" | the tablet reads "Ready..." while away and streams again on return with no new prompt | 1 min | note |
+| 4b.10 | 🟡 | Tap "Stop" in the tablet notification | the Mac shows the stream ended; the tablet reads "Sharing stopped on this tablet" | 1 min | note |
+| 4b.11 | 🟡 | Close Daylight Ink (swipe it away), keep the Mac on Mirror with Wi-Fi transport | the notification "Your Mac wants to mirror this screen. Tap to allow." appears (if the pills service keeps a connection); tap it, then "Start now"; the picture resumes. If nothing appears, the Mac shows "Open Daylight Ink on your Daylight to mirror over Wi-Fi." (row 38) | 2 min | D22 |
+| 4b.12 | 🟡 | Share again and tap "Cancel" in the Android prompt | the Mac shows "Daylight Ink was not allowed to share the tablet screen. Tap the Daylight Ink notification on the tablet and choose Start now." (row 34) | 1 min | note |
+| 4b.13 | 🟡 | Lock the tablet screen while sharing, unlock | does sharing end ("Sharing stopped on this tablet")? | 1 min | D19 |
+| 4b.14 | 📋 | Daylight Ink > Settings > "This tablet": copy `mirrorEncoders=`, `mirrorEncoder=`, `mirrorStream=`; Mac Diagnostics: `mirror.wifi.bitrate`, `mirror.wifi.fps`, `mirror.wifi.decodeLatencyMs` | the encoder name, the measured fps and bit rate, the decode latency | 2 min | D21 |
+| 4b.15 | ⏱️ | Battery and heat: charge to 100 percent, stream while writing for 60 minutes, note the percentage; copy `mirrorThermalMax=` | the drop per hour; thermal 3 or more means the frame rate was halved | 60 min | D23, COMPARE 2.1 |
 
 ---
 

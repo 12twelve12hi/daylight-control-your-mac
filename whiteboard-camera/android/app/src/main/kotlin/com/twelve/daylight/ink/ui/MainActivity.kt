@@ -7,6 +7,7 @@ import android.util.Log
 import android.view.Choreographer
 import android.view.ViewGroup
 import android.view.WindowInsets
+import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.Toast
 import com.twelve.daylight.ink.Facts
@@ -74,7 +75,14 @@ class MainActivity : Activity(), InkConnection.Listener, Toolbar.Actions {
         root.addView(canvas, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         toolbar = Toolbar(this)
         toolbar.actions = this
-        root.addView(toolbar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        // A dense screen (UNVERIFIED `wm density`, LOOSE_ENDS D2) must not clip the row: it scrolls sideways instead.
+        val toolbarScroll = HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            isFillViewport = true
+            setBackgroundColor(Tokens.SURFACE_CREAM)
+            addView(toolbar, ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        }
+        root.addView(toolbarScroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         setContentView(root)
 
         root.setOnApplyWindowInsetsListener { _, insets ->
@@ -137,7 +145,7 @@ class MainActivity : Activity(), InkConnection.Listener, Toolbar.Actions {
     override fun onState(state: StateReport) {
         chip.bind(conn.phase, state, conn.lastStateAtMs)
         toolbar.setDepths(state.undoDepth, state.redoDepth)
-        session.applyState(state.undoDepth, state.redoDepth, state.pageIndex)
+        session.applyState(state.undoDepth, state.redoDepth, state.pageIndex, state.strokeCount)
     }
 
     private fun chipAction(tap: ChipTap) {

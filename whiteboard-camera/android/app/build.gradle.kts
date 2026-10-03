@@ -66,7 +66,9 @@ kotlin {
 dependencies {
     // research-android-ink section 8: no AppCompat, Material, Compose or lifecycle. Views only.
     implementation("androidx.graphics:graphics-core:1.0.4")      // CanvasFrontBufferedRenderer (wet ink)
-    implementation("com.squareup.okhttp3:okhttp:5.5.0")          // WebSocket client (binary frames, pingInterval)
+    // The JVM artifact on purpose: the "okhttp" coordinate resolves to okhttp-android, whose AAR metadata demands
+    // compileSdk 37 (beyond AGP 8.13.2's maximum of 36; CI run 37112754944). okhttp-jvm is the same WebSocket client.
+    implementation("com.squareup.okhttp3:okhttp-jvm:5.5.0")      // WebSocket client (binary frames, pingInterval)
     testImplementation("junit:junit:4.13.2")
     // org.json on the unit-test classpath: the android.jar stub throws for every method.
     testImplementation("org.json:json:20250517")

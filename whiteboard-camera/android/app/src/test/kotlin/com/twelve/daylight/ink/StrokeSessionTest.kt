@@ -306,6 +306,7 @@ class StrokeSessionTest {
         val (s, _, _) = session()
         s.down(0f, 0f, 0.5f, 0); s.up()
         s.down(1f, 1f, 0.5f, 1); s.up()
+        s.undo()
         s.applyState(undoDepth = 1, redoDepth = 1, pageIndex = 0)
         s.down(2f, 2f, 0.5f, 2); s.up()
         assertEquals(2, s.history.size)
@@ -360,5 +361,82 @@ class StrokeSessionTest {
         assertEquals(1184f, PageGeometry.fit(1184, 1584).width, 0f)    // the SolOS viewport (1184 x 1584) is a hair taller than 3:4: width-limited
         assertEquals(Tools.PEN_WIDTH * 1.45f, Tools.segmentWidth(Tools.PEN_WIDTH, 1f), 1e-6f)
         assertEquals(Tools.PEN_WIDTH * 0.55f, Tools.segmentWidth(Tools.PEN_WIDTH, 0f), 1e-6f)
+    }
+}
+
+class StrokeSessionStateTest {
+    private class FakeTransport : com.twelve.daylight.ink.ink.Transport {
+        val sent = ArrayList<ByteArray>()
+        override var inkAllowed = true
+        override fun send(frame: ByteArray): Boolean { sent.add(frame); return true }
+        override fun queueBytes(): Long = 0L
+    }
+    private class FakeSink : InkSink {
+        var redraws = 0
+        var lastRedraw: List<LocalStroke>? = null
+        override fun segment(stroke: LocalStroke, from: LocalPoint, to: LocalPoint) {}
+        override fun dot(stroke: LocalStroke, at: LocalPoint) {}
+        override fun committed(stroke: LocalStroke) {}
+        override fun redraw(visible: List<LocalStroke>) { redraws++; lastRedraw = ArrayList(visible) }
+    }
+    private val frames = object : FrameScheduler { override fun requestFrame(callback: () -> Unit) { callback() } }
+
+    private fun twoStrokes(): Triple<StrokeSession, FakeTransport, FakeSink> {
+        val t = FakeTransport(); val k = FakeSink()
+        val s = StrokeSession(t, Encoder { 0L }, k, frames)
+        s.setViewSize(1200, 1600)
+        s.down(0f, 0f, 0.5f, 0); s.up()
+        s.down(1f, 1f, 0.5f, 1); s.up()
+        return Triple(s, t, k)
+    }
+
+    @Test
+    fun aStateBetweenStartAndCommitNeverHidesTheFreshStroke() {
+        val (s, _, k) = twoStrokes()
+        k.redraws = 0
+        s.applyState(undoDepth = 1, redoDepth = 0, pageIndex = 0, strokeCount = 1)   // the Mac has not seen the COMMIT yet
+        assertEquals(2, s.visibleCount)
+        assertEquals(0, k.redraws)
+        s.applyState(undoDepth = 2, redoDepth = 0, pageIndex = 0, strokeCount = 2)
+        assertEquals(2, s.visibleCount)
+        assertEquals(0, k.redraws)
+    }
+
+    @Test
+    fun ourOwnUndoIsHonouredOnceThenTheGuardIsBack() {
+        val (s, _, k) = twoStrokes()
+        s.undo()
+        s.applyState(undoDepth = 1, redoDepth = 1, pageIndex = 0, strokeCount = 1)
+        assertEquals(1, s.visibleCount)
+        k.redraws = 0
+        s.applyState(undoDepth = 0, redoDepth = 2, pageIndex = 0, strokeCount = 0)   // not asked for: the Mac cannot undo on its own
+        assertEquals(1, s.visibleCount)
+        assertEquals(0, k.redraws)
+    }
+
+    @Test
+    fun anEmptyMacPageBlanksTheTablet() {
+        val (s, _, k) = twoStrokes()
+        s.applyState(undoDepth = 0, redoDepth = 0, pageIndex = 0, strokeCount = 0)   // Clear from the Mac hotkey
+        assertEquals(0, s.visibleCount)
+        assertEquals(0, s.history.size)
+        assertEquals(0, k.lastRedraw!!.size)
+    }
+
+    @Test
+    fun aNewStrokeForgetsAnUnansweredUndo() {
+        val (s, _, _) = twoStrokes()
+        s.undo()                                                                        // dropped by the Mac, say
+        s.down(5f, 5f, 0.5f, 5); s.up()
+        s.applyState(undoDepth = 2, redoDepth = 0, pageIndex = 0, strokeCount = 2)   // in flight: the third COMMIT not yet counted
+        assertEquals(3, s.visibleCount)
+    }
+
+    @Test
+    fun aLargerDepthRevealsRedoneStrokes() {
+        val (s, _, _) = twoStrokes()
+        s.undo(); s.applyState(1, 1, 0, 1)
+        s.redo(); s.applyState(2, 0, 0, 2)
+        assertEquals(2, s.visibleCount)
     }
 }

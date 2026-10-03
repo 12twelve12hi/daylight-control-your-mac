@@ -72,6 +72,8 @@ class StrokeSession(
         private set
 
     private var current: LocalStroke? = null
+    /** UNDO or REDO requests sent and not yet answered by a STATE depth change (cleared by a new stroke). */
+    private var pendingDepthChanges = 0
     private var currentStartSent = false
     private var strokeStartMs = 0L
     private var sentPoints = 0
@@ -175,8 +177,8 @@ class StrokeSession(
     // ---- toolbar actions ----
 
     /** The Mac is the source of truth: nothing changes locally until STATE brings new depths (PROTOCOL 6.7). */
-    fun undo() { transport.send(encoder.undo(null)) }
-    fun redo() { transport.send(encoder.redo(null)) }
+    fun undo() { pendingDepthChanges += 1; transport.send(encoder.undo(null)) }
+    fun redo() { pendingDepthChanges += 1; transport.send(encoder.redo(null)) }
 
     /** SPEC 7 Clear: the Mac saves, clears both layers and returns to camera unless pinned. */
     fun clear() {
@@ -198,8 +200,12 @@ class StrokeSession(
         sink.redraw(visible)
     }
 
-    /** STATE arrived: redraw from the Mac's depths (the two lists hold the same strokes in the same order). */
-    fun applyState(undoDepth: Int, redoDepth: Int, pageIndex: Int) {
+    /**
+     * STATE arrived: redraw from the Mac's depths (the two lists hold the same strokes in the same order).
+     * A depth below ours is applied only after our own UNDO (or when the Mac's page is empty: Clear from a hotkey),
+     * because a 1 Hz STATE emitted between a STROKE_START and its COMMIT still counts the stroke as absent.
+     */
+    fun applyState(undoDepth: Int, redoDepth: Int, pageIndex: Int, strokeCount: Int = -1) {
         this.undoDepth = undoDepth
         this.redoDepth = redoDepth
         if (pageIndex != this.pageIndex && history.isNotEmpty()) {
@@ -207,8 +213,18 @@ class StrokeSession(
             history.clear()
         }
         this.pageIndex = pageIndex
-        val newVisible = undoDepth.coerceIn(0, history.size)
+        val macPageEmpty = undoDepth == 0 && redoDepth == 0 && strokeCount == 0
+        var newVisible = visibleCount
+        if (macPageEmpty) {
+            if (current == null) history.clear()
+            newVisible = 0
+        } else if (undoDepth > visibleCount) {
+            newVisible = undoDepth.coerceAtMost(history.size)
+        } else if (undoDepth < visibleCount && pendingDepthChanges > 0) {
+            newVisible = undoDepth.coerceAtLeast(0)
+        }
         if (newVisible != visibleCount) {
+            pendingDepthChanges = 0
             visibleCount = newVisible
             sink.redraw(visible)
         }
@@ -228,6 +244,7 @@ class StrokeSession(
         }
         val t = if (tool == Tools.ERASER) Tools.PEN else tool
         val s = LocalStroke(newId(), t, Tools.color(t), Tools.baseWidth(t))
+        pendingDepthChanges = 0
         strokeStartMs = timeMs
         sentPoints = 0
         pending.clear()

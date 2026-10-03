@@ -3,6 +3,7 @@ package com.twelve.daylight.ink.net
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import com.twelve.daylight.ink.ink.Transport
 import com.twelve.daylight.ink.prefs.Prefs
@@ -57,7 +58,8 @@ class InkConnection private constructor(context: Context) : LinkActions, Transpo
         .build()
     private val encoder = Encoder { System.currentTimeMillis() * 1000L }
     val candidates = Candidates()
-    private val link = Link(this, encoder, candidates)
+    // Uptime stamps: the chip counts down from `lastStateAtMs` with SystemClock.uptimeMillis().
+    private val link = Link(this, encoder, candidates) { SystemClock.uptimeMillis() }
     private val discovery = Discovery(app)
     private val listeners = LinkedHashSet<Listener>()
     private val holders = LinkedHashMap<String, String>()     // tag -> role
@@ -198,7 +200,6 @@ class InkConnection private constructor(context: Context) : LinkActions, Transpo
             .url(url)
             .header("Sec-WebSocket-Protocol", SolStream.SUBPROTOCOL)
             .build()
-        var created: WebSocket? = null
         val listener = object : WebSocketListener() {
             private fun mine(socket: WebSocket) = socket === ws
             override fun onOpen(webSocket: WebSocket, response: Response) {
@@ -221,8 +222,9 @@ class InkConnection private constructor(context: Context) : LinkActions, Transpo
                 }
             }
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                // A socket we closed ourselves (redial, role change, stop) reports here too; `mine` filters it out.
                 main.post {
-                    if (mine(webSocket) || (ws == null && webSocket === created)) {
+                    if (mine(webSocket)) {
                         ws = null
                         Log.i(TAG, "failure ${t.javaClass.simpleName}: ${t.message} (http ${response?.code})")
                         link.closed(failure = true)
@@ -230,7 +232,6 @@ class InkConnection private constructor(context: Context) : LinkActions, Transpo
                 }
             }
         }
-        created = client.newWebSocket(request, listener)
-        ws = created
+        ws = client.newWebSocket(request, listener)
     }
 }

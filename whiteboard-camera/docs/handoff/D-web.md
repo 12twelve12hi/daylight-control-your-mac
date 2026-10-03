@@ -100,7 +100,7 @@ Console lines to copy into LOOSE_ENDS section D (Chrome menu > More tools is not
 
 CI facts (for ARCHITECTURE section 18 and LOOSE_ENDS): actions run 37108373686 (commit 312c82d), job `web` 111161238913: `make web` 8 s (npm ci, three tsc passes, Vite build: `index.html` 2.19 kB, CSS 4.44 kB, JS 31.64 kB); `make web-test` 72 s including the Chromium Headless Shell 141.0.7390.37 download (Playwright build 1194, the same build this box has at `/opt/pw-browsers`); 17 Node tests and `Running 46 tests using 1 worker ... 46 passed (43.1s)`; `web-dist` artifact 15823 bytes, 7 files. Slowest specs: the incompatibility probe (14.2 s, five backoff dials) and the backoff test (5.9 s).
 
-Red CI runs caused by someone else's files: none at the time of writing.
+Red CI runs caused by someone else's files: run 37108597555 (commit 9c2829d), job `kit-linux` failed (DaylightKit, component A); the web job of that run was then cancelled by the next push to the branch (`cancel-in-progress`), as were runs 37108373686 (web job already green) and 37108531802. With six agents pushing to one branch, a run survives only when no push lands within about five minutes; the web job needs about 2 min 30 s from queue to green.
 
 ---
 

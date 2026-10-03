@@ -71,6 +71,9 @@ Every row is binding. `Owner` means the owner said it (DECISIONS.md, grill sessi
 | D51 | The owner's Mac (M5 Max) most likely runs macOS 26. Every approval-pane text names macOS 26 first ("macOS 26 and 15": System Settings > General > Login Items & Extensions > Camera Extensions); the macOS 13 and 14 path (Privacy & Security > Security) stays as the legacy variant. CI keeps the macos-15 image. | Owner-confirmed (2026-10-03, LOOSE_ENDS A2) |
 | D52 | The one-time `chrome://flags/#unsafely-treat-insecure-origin-as-secure` paste stays an optional, offered onboarding step for wireless web use (section 9.2 item 4); it is never required. | Owner-confirmed (2026-10-03, LOOSE_ENDS A5) |
 | D53 | The project is licensed under the Apache License 2.0 (`LICENSE`, the standard text). Bundled third parties: scrcpy-server (Apache-2.0) and adb (Google's notice and SDK terms), listed in `THIRD_PARTY_NOTICES.md`. | Owner-confirmed (2026-10-03, LOOSE_ENDS A14) |
+| D54 | An explicit request that brings the board up (pin from camera; pin, engage or a layout hotkey during a return) releases Hold: Camera to Auto, so unpinning gives the fresh 90 s of section 7 instead of a board that never returns. | Resolved (review round 2, KITB-02) |
+| D55 | In LIVE, an `engage` or a `hold(auto)` is activity like ink: it cancels a showing pre-warning. | Resolved (review round 2, KITB-01) |
+| D56 | The snap-back of a stray cancel applies only to a board a stroke brought up (`strokeCausedEngage`); a board a hotkey, the menu, a pin or a hold brought up never snaps back. | Resolved (review round 2, KITB-03) |
 
 ---
 
@@ -135,7 +138,7 @@ Guards used below: STYLUS = `pointer == stylus && phase == contact && pressure >
 | PASSTHROUGH | contact | stylus but eraser tool and `!engageOnEraser` | PASSTHROUGH | id tracked (so lift clears it); no engage |
 | PASSTHROUGH | contact | finger, palm, mouse, hover, or pressure 0 | PASSTHROUGH | dropped (the stroke's chunks are dropped too) |
 | PASSTHROUGH | penContact(down) | ink source is mirror | ENGAGING | as the first row with the sentinel id |
-| PASSTHROUGH | pin(1 or -1) | | ENGAGING | `pinned = true`; pinChanged; as the first row (the pill brings the board up without drawing) |
+| PASSTHROUGH | pin(1 or -1) | | ENGAGING | `pinned = true`; pinChanged; if `hold == camera`: `hold = auto`, holdChanged (D54); as the first row (the pill brings the board up without drawing) |
 | PASSTHROUGH | pin(0) | | PASSTHROUGH | nothing |
 | PASSTHROUGH | engage or layoutHotkey(L) | hold != camera | ENGAGING | `preferredLayout = L` for the hotkey; as the first row |
 | PASSTHROUGH | hold(split or whiteboard) | | ENGAGING | `hold = m`; `preferredLayout` follows m; idle timer disabled; as the first row |
@@ -144,7 +147,7 @@ Guards used below: STYLUS = `pointer == stylus && phase == contact && pressure >
 | PASSTHROUGH | motion, lift, cancel, activity, returnNow | | PASSTHROUGH | bookkeeping only (lift and cancel remove the id) |
 | PASSTHROUGH | tick | | PASSTHROUGH | nothing; no timer runs in PASSTHROUGH |
 | ENGAGING | tick | SETTLED | LIVE | `spring.snap(1)`; stateChanged |
-| ENGAGING | cancel(id) | `now - engageStart < 0.080 && position < 0.15 && activeContacts \ {id} is empty && !pinned && hold == auto` | PASSTHROUGH | snap-back: `spring.snap(0)`; stop clock; stateChanged; no save (a board a pin, a hold or a hotkey brought up never snaps back on a stray cancel) |
+| ENGAGING | cancel(id) | `now - engageStart < 0.080 && position < 0.15 && activeContacts \ {id} is empty && !pinned && hold == auto && strokeCausedEngage` | PASSTHROUGH | snap-back: `spring.snap(0)`; stop clock; stateChanged; no save (a board a pin, a hold or a hotkey brought up never snaps back on a stray cancel) |
 | ENGAGING | cancel(id) | otherwise | ENGAGING | remove id; `lastActivity = now` |
 | ENGAGING | contact (STYLUS), motion, activity | | ENGAGING | track id; `lastActivity = now` |
 | ENGAGING | lift | | ENGAGING | remove id; `lastActivity = now` |
@@ -161,16 +164,16 @@ Guards used below: STYLUS = `pointer == stylus && phase == contact && pressure >
 | LIVE | pin(v) | | LIVE | `pinned` set per v; if it became false: `lastActivity = now` (fresh 90 s); pre-warning cancelled if on; pinChanged |
 | LIVE | clear | | LIVE or RETURNING | `savePage(.cleared)` if dirty; `clearCanvas`; if `!pinned` -> RETURNING (as above) else `lastActivity = now` |
 | LIVE | returnNow or hold(camera) | | RETURNING | `pinned = false`; `spring.retarget(0)`; generation += 1; stateChanged |
-| LIVE | engage | | LIVE | `lastActivity = now` |
+| LIVE | engage | | LIVE | `lastActivity = now`; if `preWarningFired` -> `preWarningFired = false`, preWarningCancelled (D55) |
 | LIVE | layoutHotkey(L) | L == preferredLayout | RETURNING | as returnNow |
 | LIVE | layoutHotkey(L) | L != preferredLayout | LIVE | `preferredLayout = L` (layout switches; no slide) |
 | LIVE | hold(split or whiteboard) | | LIVE | `hold = m`; `preferredLayout` follows m; idle timer disabled; pre-warning cancelled if on; holdChanged |
-| LIVE | hold(auto) | | LIVE | `hold = auto`; `lastActivity = now`; `pinned` unchanged; holdChanged |
+| LIVE | hold(auto) | | LIVE | `hold = auto`; `lastActivity = now`; `pinned` unchanged; pre-warning cancelled if on (D55); holdChanged |
 | RETURNING | contact (STYLUS), motion(active id), penContact(down), eraserContact(down) | `autoEngage && hold != camera` (auto-engage armed) | ENGAGING | ink wins: `spring.retarget(1)` from the current position and velocity (no discontinuity); generation += 1; `lastActivity = now`; stateChanged (eraserContact per D36) |
 | RETURNING | contact (STYLUS), motion(active id), penContact(down), eraserContact(down) | hold == camera, or auto-engage off | RETURNING | bookkeeping only: id tracked, ink recorded in the stroke store; the owner asked for the camera, so the return completes |
-| RETURNING | pin(1), or pin(-1) when `!pinned` | | ENGAGING | keep it: `pinned = true`; pinChanged; `spring.retarget(1)`; generation += 1; stateChanged |
+| RETURNING | pin(1), or pin(-1) when `!pinned` | | ENGAGING | keep it: `pinned = true`; pinChanged; if `hold == camera`: `hold = auto`, holdChanged (D54); `spring.retarget(1)`; generation += 1; stateChanged |
 | RETURNING | pin(0), or pin(-1) when pinned | | RETURNING | `pinned = false` |
-| RETURNING | engage, layoutHotkey(L), hold(split or whiteboard) | | ENGAGING | set `preferredLayout` / `hold`; `spring.retarget(1)`; stateChanged |
+| RETURNING | engage, layoutHotkey(L), hold(split or whiteboard) | | ENGAGING | set `preferredLayout` / `hold`; for engage and layoutHotkey, if `hold == camera`: `hold = auto`, holdChanged (D54); `spring.retarget(1)`; stateChanged |
 | RETURNING | tick | SETTLED at 0 | PASSTHROUGH | `spring.snap(0)`; `activeContacts` cleared; `pinned = false`; pre-warning cleared; `savePage(.returned)` if dirty; stop clock; stateChanged |
 | RETURNING | clear | | RETURNING | `savePage(.cleared)` if dirty; `clearCanvas`; no transition |
 | RETURNING | returnNow, hold(camera), lift, cancel | | RETURNING | bookkeeping only |
@@ -189,7 +192,7 @@ Closed form for the critically damped case, exact at any dt: `x(t) = T + (A + B 
 
 ### 5.4 Scenario list (each is a DaylightKit test)
 
-Engage only on stylus contact with pressure > 0 (finger, palm, hover, pressure 0, mouse rejected); eraser contact engages only with `engageOnEraser`; ENGAGING settles to LIVE at 0.251 s (within one tick); progress at 0.100 s = 0.8603 within 1e-3; snap-back at cancel 60 ms with progress 0.11 -> PASSTHROUGH, cancel at 90 ms stays ENGAGING; pre-warning at exactly 85.0 s, RETURNING at 90.0 s, PASSTHROUGH 0.251 s later with exactly one `savePage(.returned)`; any ink cancels pre-warning; ink mid-return retargets with |progress(t+) - progress(t-)| < 1e-9; pin during RETURNING -> ENGAGING pinned; engage during RETURNING -> ENGAGING; pin suppresses return at 200 s, unpin returns at unpin + 90 s; pin from PASSTHROUGH engages; pen on glass (start without commit at 80 s) freezes the timer (no return at 300 s); clear unpinned -> [savePage, clearCanvas] then RETURNING; clear pinned -> [savePage, clearCanvas], stays LIVE; clear twice on a pinned board saves once; clientGone and allClientsGone never change state; sourceChanged clears contacts; hold modes disable the timer and `hold(auto)` restarts it without touching `pinned`; layout hotkey toggle semantics; `ms_to_return` values per state; STATE fields derived from output; ink during RETURNING under `hold(camera)` or with auto-engage off stays RETURNING (bookkeeping only); a snap-back needs an engage the stroke itself caused (`!pinned`, `hold == auto`); a clientGone that empties the contacts of a LIVE board at 110 s gives the pre-warning at 195 s and the return at 200 s.
+Engage only on stylus contact with pressure > 0 (finger, palm, hover, pressure 0, mouse rejected); eraser contact engages only with `engageOnEraser`; ENGAGING settles to LIVE at 0.251 s (within one tick); progress at 0.100 s = 0.8603 within 1e-3; snap-back at cancel 60 ms with progress 0.11 -> PASSTHROUGH, cancel at 90 ms stays ENGAGING; pre-warning at exactly 85.0 s, RETURNING at 90.0 s, PASSTHROUGH 0.251 s later with exactly one `savePage(.returned)`; any ink cancels pre-warning; ink mid-return retargets with |progress(t+) - progress(t-)| < 1e-9; pin during RETURNING -> ENGAGING pinned; engage during RETURNING -> ENGAGING; pin suppresses return at 200 s, unpin returns at unpin + 90 s; pin from PASSTHROUGH engages; pen on glass (start without commit at 80 s) freezes the timer (no return at 300 s); clear unpinned -> [savePage, clearCanvas] then RETURNING; clear pinned -> [savePage, clearCanvas], stays LIVE; clear twice on a pinned board saves once; clientGone and allClientsGone never change state; sourceChanged clears contacts; hold modes disable the timer and `hold(auto)` restarts it without touching `pinned`; layout hotkey toggle semantics; `ms_to_return` values per state; STATE fields derived from output; ink during RETURNING under `hold(camera)` or with auto-engage off stays RETURNING (bookkeeping only); a snap-back needs an engage the stroke itself caused (`!pinned`, `hold == auto`, `strokeCausedEngage`: a hotkey or menu engage never snaps back, D56); pin under Hold: Camera releases the hold and unpinning returns 90 s later (D54); an engage or `hold(auto)` during the pre-warning cancels it (D55); a clientGone that empties the contacts of a LIVE board at 110 s gives the pre-warning at 195 s and the return at 200 s.
 
 ---
 

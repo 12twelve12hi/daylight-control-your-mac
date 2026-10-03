@@ -18,7 +18,10 @@ if have xcode-select; then echo "  xcode-select -p: $(xcode-select -p 2>/dev/nul
 if [[ -n "${DAYLIGHT_XCODE_PATH:-}" ]]; then
   if [[ -d "$DAYLIGHT_XCODE_PATH" ]]; then
     export DEVELOPER_DIR="$DAYLIGHT_XCODE_PATH/Contents/Developer"
-    echo "  DEVELOPER_DIR set from DAYLIGHT_XCODE_PATH: $DEVELOPER_DIR"
+    # An export reaches only this process; GitHub Actions carries a step's variables to the later steps of the job
+    # through $GITHUB_ENV, so write it there too (the workflows map vars.DAYLIGHT_XCODE_PATH into the mac job env).
+    if [[ -n "${GITHUB_ENV:-}" ]]; then echo "DEVELOPER_DIR=$DEVELOPER_DIR" >> "$GITHUB_ENV"; fi
+    echo "  DEVELOPER_DIR set from DAYLIGHT_XCODE_PATH: $DEVELOPER_DIR${GITHUB_ENV:+ (written to GITHUB_ENV for the later steps)}"
   else
     echo "  DAYLIGHT_XCODE_PATH is set but does not exist, keeping the default Xcode"
   fi

@@ -63,6 +63,14 @@ kotlin {
     jvmToolchain(17)
 }
 
+// Every JVM test is named in the CI log (the acceptance cites the class names from the android job's log).
+tasks.withType<Test>().configureEach {
+    testLogging {
+        events("passed", "skipped", "failed")
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+    }
+}
+
 dependencies {
     // research-android-ink section 8: no AppCompat, Material, Compose or lifecycle. Views only.
     implementation("androidx.graphics:graphics-core:1.0.4")      // CanvasFrontBufferedRenderer (wet ink)

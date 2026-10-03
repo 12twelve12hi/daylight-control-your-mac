@@ -22,7 +22,8 @@ import os
 final class CMIOSinkClient: VirtualCameraSink {
     static let log = Logger(subsystem: "com.twelve.daylight", category: "camera")
     static let retryInterval: Double = 2
-    /// SPEC row 13: after this long without the device the second sentence is appended.
+    /// SPEC row 13: after this long without the device the second sentence is appended. The clock starts when the
+    /// searching status first reads "installed but not found" and restarts at every connect (camera review CAMA-01).
     static let notFoundFollowUpDelay: Double = 30
     /// Consecutive dropped pushes while connected (about 2 s at 30 fps) before the stale-queue notice is logged.
     static let staleDropThreshold: UInt64 = 60
@@ -56,7 +57,7 @@ final class CMIOSinkClient: VirtualCameraSink {
     private var loggedStaleDrops = false
     private var running = false
     private var extensionStatus: ExtensionInstaller.Status = .unknown
-    private var installedSince: Double?
+    private var notFoundSince: Double?
     private var loggedNotFound = false
     private var loggedLayout = false
     /// Tests shorten these.
@@ -116,15 +117,36 @@ final class CMIOSinkClient: VirtualCameraSink {
 
     func stop() {
         queue.async { [weak self] in
-            guard let self = self else { return }
-            self.running = false
-            self.retryTimer?.cancel()
-            self.retryTimer = nil
-            for observer in self.observers { NotificationCenter.default.removeObserver(observer) }
-            self.observers.removeAll()
-            self.viewers.stop()
-            self.disconnect()
+            self?.stopOnQueue()
         }
+    }
+
+    /// Quit (SPEC 4: the extension's card shows once Daylight is gone): runs `stop()` on `queue` and waits for it at
+    /// most `timeout` seconds, so `CMIODeviceStopStream` reaches the extension before the process exits. The camera
+    /// queue never waits on main, so this cannot deadlock; the timeout keeps a hung extension from hanging Quit.
+    /// Returns false when the wait timed out (camera review CAMB-02).
+    @discardableResult
+    func stopAndWait(timeout: Double) -> Bool {
+        let done = DispatchSemaphore(value: 0)
+        queue.async {
+            self.stopOnQueue()
+            done.signal()
+        }
+        let finished = done.wait(timeout: .now() + timeout) == .success
+        if !finished {
+            CMIOSinkClient.log.notice("sink stop did not finish within \(timeout) s; quitting anyway")
+        }
+        return finished
+    }
+
+    private func stopOnQueue() {
+        running = false
+        retryTimer?.cancel()
+        retryTimer = nil
+        for observer in observers { NotificationCenter.default.removeObserver(observer) }
+        observers.removeAll()
+        viewers.stop()
+        disconnect()
     }
 
     @discardableResult
@@ -169,11 +191,9 @@ final class CMIOSinkClient: VirtualCameraSink {
             guard let self = self else { return }
             self.extensionStatus = status
             switch status {
-            case .installed:
-                if self.installedSince == nil { self.installedSince = ProcessInfo.processInfo.systemUptime }
             case .notInstalled, .unknown:
                 // The extension was removed (deactivation completed): a later activation starts its own 30 s.
-                self.installedSince = nil
+                self.notFoundSince = nil
                 self.loggedNotFound = false
             default:
                 break
@@ -275,6 +295,7 @@ final class CMIOSinkClient: VirtualCameraSink {
         connection.withLock { $0 = Connection(device: found.device, sinkStream: sinkStream, sourceStream: sourceStream, queue: simpleQueue) }
         counters.withLock { $0.consecutiveDrops = 0 }
         loggedStaleDrops = false
+        restartNotFoundClock()
         viewers.setSourceStream(sourceStream)
         CMIOSinkClient.log.info("sink connected: device=\(found.device) sink=\(sinkStream) capacity=\(CMSimpleQueueGetCapacity(simpleQueue)) directions=\(layout.directions, privacy: .public)")
         setStatus(.connected)
@@ -325,11 +346,19 @@ final class CMIOSinkClient: VirtualCameraSink {
         timer.resume()
     }
 
+    /// A connect ends the outage: the next loss of the device starts a fresh 30 s and writes the row 13 log line again.
+    private func restartNotFoundClock() {
+        notFoundSince = nil
+        loggedNotFound = false
+    }
+
     #if DEBUG
     /// Tests only: adopt a `CMSimpleQueue` as if the sink stream had been copied, so `push` runs against a real queue
-    /// without a Daylight Camera on the machine. `disconnect()` skips the CMIO calls for this unknown device id.
+    /// without a Daylight Camera on the machine. `disconnect()` skips the CMIO calls for this unknown device id. Call it
+    /// on `queue` once the client is started (it restarts the row 13 clock, which lives on `queue`).
     func adoptQueueForTesting(_ q: CMSimpleQueue) {
         connection.withLock { $0 = Connection(device: CMIODeviceID(kCMIOObjectUnknown), sinkStream: 0, sourceStream: nil, queue: q) }
+        restartNotFoundClock()
         setStatus(.connected)
     }
     #endif
@@ -353,8 +382,10 @@ final class CMIOSinkClient: VirtualCameraSink {
                 loggedNotFound = true
                 CMIOSinkClient.log.error("\(FailureText.logLine(.sinkDeviceNotFound, [uuid, self.locator.deviceUIDs().description]), privacy: .public)")
             }
+            let now = ProcessInfo.processInfo.systemUptime
+            if notFoundSince == nil { notFoundSince = now }
             var detail = uuid
-            if let since = installedSince, ProcessInfo.processInfo.systemUptime - since >= notFoundFollowUpDelay, let followUp = FailureText.followUp(.sinkDeviceNotFound) {
+            if let since = notFoundSince, now - since >= notFoundFollowUpDelay, let followUp = FailureText.followUp(.sinkDeviceNotFound) {
                 detail = followUp
             }
             setStatus(.error(.sinkDeviceNotFound, detail))
@@ -365,17 +396,21 @@ final class CMIOSinkClient: VirtualCameraSink {
         }
     }
 
-    /// Owner-facing sentence for the current status (row 13 gains its second sentence after 30 s).
+    /// Owner-facing sentence for the current status (row 13 gains its second sentence after 30 s). The menu status
+    /// line and Diagnostics use the same rule through `FailureText.sentence(_:detail:)`.
     static func sentence(for status: SinkStatus) -> String? {
         switch status {
         case let .error(failure, detail):
-            if failure == .sinkDeviceNotFound, let followUp = FailureText.followUp(.sinkDeviceNotFound), detail == followUp {
-                return FailureText.sentence(failure) + " " + followUp
-            }
-            return FailureText.sentence(failure)
+            return FailureText.sentence(failure, detail: detail)
         case .notInstalled, .awaitingApproval, .installed, .connected:
             return nil
         }
+    }
+
+    /// True when the status is row 13 after its 30 s, so the onboarding row shows the second sentence too.
+    static func followUpDue(_ status: SinkStatus) -> Bool {
+        guard case let .error(failure, detail) = status, let followUp = FailureText.followUp(failure) else { return false }
+        return detail == followUp
     }
 
     private func setStatus(_ new: SinkStatus) {

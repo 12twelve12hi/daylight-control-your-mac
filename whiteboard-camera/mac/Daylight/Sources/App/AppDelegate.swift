@@ -107,6 +107,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hotkeys?.unregisterAll()
         server?.stop()
         pipeline?.shutdown()
+        // After the pipeline (no more pushes): stop the sink stream so the extension shows its card (SPEC 4).
+        (sink as? CMIOSinkClient)?.stopAndWait(timeout: 0.5)
         mirror?.stop()
         model.stop()
         return .terminateNow
@@ -305,6 +307,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let state = AppDelegate.extensionState(signed: signed, installer: installerStatus, sink: status, bundlePath: Bundle.main.bundlePath)
         model.setExtensionState(state)
         onboardingModel.inputs.extensionState = state
+        onboardingModel.inputs.sinkFollowUpDue = CMIOSinkClient.followUpDue(status)
     }
 
     private func governorChanged(from: GovernorState, to: GovernorState) {

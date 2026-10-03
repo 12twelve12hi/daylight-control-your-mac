@@ -160,6 +160,15 @@ public enum FailureText {
         }
     }
 
+    /// Owner-facing text for a status that carries a row and a detail (the sink status): the sentence with the detail as
+    /// its argument, or, when the detail is the row's follow-up (row 13 after 30 s), the sentence and then the follow-up.
+    public static func sentence(_ c: Case, detail: String) -> String {
+        if let followUp = followUp(c), detail == followUp {
+            return sentence(c) + " " + followUp
+        }
+        return sentence(c, detail.isEmpty ? [] : [detail])
+    }
+
     /// The "Log line" column with the same placeholder rule.
     public static func logLine(_ c: Case, _ args: [String] = []) -> String {
         let template: String

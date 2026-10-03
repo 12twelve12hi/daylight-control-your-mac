@@ -59,6 +59,11 @@ final class FailureTextTests: XCTestCase {
         XCTAssertEqual(FailureText.sentence(.sinkDeviceNotFound), "Daylight Camera is installed but not found yet. Retrying...")
         XCTAssertEqual(FailureText.followUp(.sinkDeviceNotFound), "Open Zoom or FaceTime once, or restart your Mac.")
         XCTAssertNil(FailureText.followUp(.noWebcam))
+        // Row 13 after 30 s: the menu status line and the onboarding row show both sentences (camera review CAMA-01).
+        XCTAssertEqual(FailureText.sentence(.sinkDeviceNotFound, detail: "Open Zoom or FaceTime once, or restart your Mac."), "Daylight Camera is installed but not found yet. Retrying... Open Zoom or FaceTime once, or restart your Mac.")
+        XCTAssertEqual(FailureText.sentence(.sinkDeviceNotFound, detail: "AB51C6BA-17FD-4A67-BE3A-06A8540BA6AA"), "Daylight Camera is installed but not found yet. Retrying...", "before 30 s the detail is the UUID, which no placeholder takes")
+        XCTAssertEqual(FailureText.sentence(.scrcpyServerFailed, detail: "boom"), "The screen mirror could not start: boom", "any other detail fills the placeholder")
+        XCTAssertEqual(FailureText.sentence(.sinkStreamLayout, detail: ""), "Daylight Camera has an unexpected stream layout.")
         XCTAssertEqual(FailureText.sentence(.sinkStreamLayout), "Daylight Camera has an unexpected stream layout.")
         XCTAssertEqual(FailureText.sentence(.viewerShowsBlack), "If Zoom shows a black picture, quit and reopen Zoom.")
         XCTAssertEqual(FailureText.sentence(.portInUse, ["7788", "7789"]), "Port 7788 is in use. Daylight is using 7789.")

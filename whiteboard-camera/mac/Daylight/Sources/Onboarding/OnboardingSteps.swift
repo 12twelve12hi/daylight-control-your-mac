@@ -44,6 +44,8 @@ struct OnboardingSteps: Equatable {
         var camera: CameraPermission = .notDetermined
         var cameraName: String? = nil
         var extensionState: ExtensionState = .notInstalled
+        /// Row 13 has been showing for 30 s: the second sentence is added (SPEC 13.3).
+        var sinkFollowUpDue = false
         var modernApprovalPath = true
         var clientsAllowed = 0
         var clientsPending = 0
@@ -130,7 +132,8 @@ struct OnboardingSteps: Equatable {
             let path = i.modernApprovalPath ? FailureText.approvalPathModern : FailureText.approvalPathLegacy
             return Row(index: 2, title: title, detail: FailureText.sentence(.extensionNeedsApproval, [path]), status: .active, failure: .extensionNeedsApproval)
         case .installed:
-            return Row(index: 2, title: title, detail: FailureText.sentence(.sinkDeviceNotFound), status: .active, failure: .sinkDeviceNotFound)
+            let followUp = i.sinkFollowUpDue ? FailureText.followUp(.sinkDeviceNotFound) ?? "" : ""
+            return Row(index: 2, title: title, detail: FailureText.sentence(.sinkDeviceNotFound, detail: followUp), status: .active, failure: .sinkDeviceNotFound)
         case .connected:
             return Row(index: 2, title: title, detail: "Daylight Camera is installed and connected.", status: .done, failure: nil)
         case .needsReboot:

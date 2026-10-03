@@ -125,7 +125,7 @@ final class AppModel: ObservableObject {
         case .awaitingApproval: sinkStatusText = "waiting for approval"
         case .installed: sinkStatusText = "installed, sink not open"
         case .connected: sinkStatusText = "connected"
-        case let .error(failure, detail): sinkStatusText = FailureText.sentence(failure, detail.isEmpty ? [] : [detail])
+        case let .error(failure, detail): sinkStatusText = FailureText.sentence(failure, detail: detail)
         }
     }
 

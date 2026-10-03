@@ -114,20 +114,119 @@ final class CMIOSinkClientTests: XCTestCase {
         lock.unlock()
     }
 
+    /// An expectation fulfilled by the status change itself (CAMB-03: the follow-up lands on a 0.2 s tick with 0.2 s
+    /// leeway after a CMIO device walk, which a shared runner can delay past any fixed window).
+    private func expectStatus(_ client: CMIOSinkClient, _ wanted: SinkStatus, _ description: String) -> XCTestExpectation {
+        let reached = expectation(description: description)
+        reached.assertForOverFulfill = false
+        client.onStatusChange = { status in
+            if status == wanted { reached.fulfill() }
+        }
+        return reached
+    }
+
     func testRow13GainsItsSecondSentenceAfterTheFollowUpDelay() {
         let queue = DispatchQueue(label: "camera-tests.sink")
         let client = makeClient(queue: queue)
         client.notFoundFollowUpDelay = 0.3
+        let followUp = expectStatus(client, .error(.sinkDeviceNotFound, "Open Zoom or FaceTime once, or restart your Mac."), "row 13 follow-up")
         client.noteExtensionStatus(.installed)
         client.start()
         drain(queue)
         XCTAssertEqual(client.status, .error(.sinkDeviceNotFound, CMIOSinkClientTests.deviceUUID.uuidString))
-        let waited = expectation(description: "follow-up")
-        queue.asyncAfter(deadline: .now() + 0.8) { waited.fulfill() }
-        wait(for: [waited], timeout: 5)
+        wait(for: [followUp], timeout: 10)
         XCTAssertEqual(client.status, .error(.sinkDeviceNotFound, "Open Zoom or FaceTime once, or restart your Mac."))
         XCTAssertEqual(CMIOSinkClient.sentence(for: client.status), "Daylight Camera is installed but not found yet. Retrying... Open Zoom or FaceTime once, or restart your Mac.")
+        XCTAssertTrue(CMIOSinkClient.followUpDue(client.status))
         client.stop()
+        drain(queue)
+    }
+
+    /// CAMA-01: the 30 s of row 13 count time without the device, not time since the installer said installed. After
+    /// a connect, losing the device starts with the first sentence again (the UUID detail), not the follow-up.
+    func testRow13ClockRestartsWhenTheDeviceIsLostAfterAConnect() throws {
+        let queue = DispatchQueue(label: "camera-tests.sink")
+        let client = makeClient(queue: queue)
+        client.notFoundFollowUpDelay = 0.3
+        let followUp = expectStatus(client, .error(.sinkDeviceNotFound, "Open Zoom or FaceTime once, or restart your Mac."), "row 13 follow-up")
+        client.noteExtensionStatus(.installed)
+        client.start()
+        wait(for: [followUp], timeout: 10)
+
+        // Connect, then lose the device: the extension status re-validates, the unknown device is not located, the
+        // connection is dropped as stale and the sink searches again.
+        var afterConnect: [SinkStatus] = []
+        let lock = NSLock()
+        let searching = expectation(description: "searching again after the connect")
+        searching.assertForOverFulfill = false
+        let holder = try QueueSink(capacity: 1)
+        queue.sync {
+            client.onStatusChange = { status in
+                lock.lock()
+                afterConnect.append(status)
+                lock.unlock()
+                if case .error(.sinkDeviceNotFound, _) = status { searching.fulfill() }
+            }
+            client.adoptQueueForTesting(holder.queue)
+        }
+        client.noteExtensionStatus(.installed)
+        wait(for: [searching], timeout: 10)
+        lock.lock()
+        let firstNotFound = afterConnect.first { if case .error = $0 { return true } else { return false } }
+        lock.unlock()
+        XCTAssertEqual(firstNotFound, .error(.sinkDeviceNotFound, CMIOSinkClientTests.deviceUUID.uuidString), "a fresh outage starts with the first sentence: \(afterConnect)")
+        client.stop()
+        drain(queue)
+    }
+
+    /// CAMA-01: the menu status line (and Diagnostics, which copies it) shows both sentences of row 13 after 30 s.
+    func testMenuStatusLineShowsRow13FollowUp() throws {
+        let suite = "camera-tests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let model = AppModel(settingsStore: SettingsStore(defaults: defaults), signed: true, version: "0", build: "0")
+        model.setSinkStatus(.error(.sinkDeviceNotFound, CMIOSinkClientTests.deviceUUID.uuidString))
+        XCTAssertEqual(model.sinkStatusText, "Daylight Camera is installed but not found yet. Retrying...")
+        model.setSinkStatus(.error(.sinkDeviceNotFound, try XCTUnwrap(FailureText.followUp(.sinkDeviceNotFound))))
+        XCTAssertEqual(model.sinkStatusText, "Daylight Camera is installed but not found yet. Retrying... Open Zoom or FaceTime once, or restart your Mac.")
+    }
+
+    /// CAMA-01: the onboarding camera row gains the second sentence too.
+    func testOnboardingRowShowsRow13FollowUp() {
+        var inputs = OnboardingSteps.Inputs(bundlePath: "/Applications/Daylight.app", signed: true)
+        inputs.extensionState = .installed
+        XCTAssertEqual(OnboardingSteps.extensionRow(inputs, misplaced: false).detail, "Daylight Camera is installed but not found yet. Retrying...")
+        inputs.sinkFollowUpDue = CMIOSinkClient.followUpDue(.error(.sinkDeviceNotFound, "Open Zoom or FaceTime once, or restart your Mac."))
+        XCTAssertTrue(inputs.sinkFollowUpDue)
+        XCTAssertEqual(OnboardingSteps.extensionRow(inputs, misplaced: false).detail, "Daylight Camera is installed but not found yet. Retrying... Open Zoom or FaceTime once, or restart your Mac.")
+        XCTAssertFalse(CMIOSinkClient.followUpDue(.error(.sinkDeviceNotFound, CMIOSinkClientTests.deviceUUID.uuidString)))
+        XCTAssertFalse(CMIOSinkClient.followUpDue(.connected))
+    }
+
+    /// CAMB-02: Quit stops the sink stream before the process exits; `stop()` alone is asynchronous.
+    func testStopAndWaitStopsSynchronously() throws {
+        let queue = DispatchQueue(label: "camera-tests.sink")
+        let client = makeClient(queue: queue)
+        client.start()
+        drain(queue)
+        let holder = try QueueSink(capacity: 1)
+        queue.sync { client.adoptQueueForTesting(holder.queue) }
+        XCTAssertTrue(client.isConnected)
+        XCTAssertTrue(client.stopAndWait(timeout: 10))
+        XCTAssertFalse(client.isConnected, "stopped before stopAndWait returned, with no drain")
+        XCTAssertEqual(client.status, .notInstalled)
+    }
+
+    /// CAMB-02: a camera queue that does not answer cannot hang Quit; the wait gives up after its timeout.
+    func testStopAndWaitIsBoundedByItsTimeout() {
+        let queue = DispatchQueue(label: "camera-tests.sink")
+        let client = makeClient(queue: queue)
+        let release = DispatchSemaphore(value: 0)
+        queue.async { _ = release.wait(timeout: .now() + 30) }
+        let started = Date()
+        XCTAssertFalse(client.stopAndWait(timeout: 0.2), "the queue is blocked, so the stop cannot finish")
+        XCTAssertLessThan(Date().timeIntervalSince(started), 5, "returned at about the timeout")
+        release.signal()
         drain(queue)
     }
 

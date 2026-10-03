@@ -6,7 +6,15 @@ import DaylightKit
 /// wall-clock number; the functional invariants are asserted once after each measured block.
 final class PerfTests: XCTestCase {
     func testDecodeFullChunkPerformance() throws {
-        let points = (0..<4096).map { SolStream.Point(x32: Int32($0 * 7), y32: Int32($0 * 11), pressure: UInt8($0 & 0xFF), deltaMs: UInt16($0 & 0xFFFF)) }
+        var points: [SolStream.Point] = []
+        points.reserveCapacity(4096)
+        for i in 0..<4096 {
+            let x: Int32 = Int32(i * 7)
+            let y: Int32 = Int32(i * 11)
+            let p: UInt8 = UInt8(i & 0xFF)
+            let d: UInt16 = UInt16(i & 0xFFFF)
+            points.append(SolStream.Point(x32: x, y32: y, pressure: p, deltaMs: d))
+        }
         let bytes = Codec.encode(.strokeChunk(id: UUID(), points: points), timestampUs: 1)
         XCTAssertEqual(bytes.count, 16 + 18 + 11 * 4096)
         var decodedPoints = 0
@@ -65,7 +73,12 @@ final class PerfTests: XCTestCase {
         var store = StrokeStore()
         let id = UUID()
         store.start(StrokeStart(id: id, tool: .pen, colorARGB: 0xFF11_1111, baseWidth: 3.2, pointer: .stylus, phase: .contact, pressure: 0.5))
-        let chunk = (0..<64).map { SolStream.Point(x: Double($0), y: Double($0) * 1.5, pressure: 0.5, deltaMs: $0) }
+        var chunk: [SolStream.Point] = []
+        for i in 0..<64 {
+            let x: Double = Double(i)
+            let y: Double = Double(i) * 1.5
+            chunk.append(SolStream.Point(x: x, y: y, pressure: 0.5, deltaMs: i))
+        }
         measure {
             for i in 0..<200 {
                 _ = store.append(id: id, points: chunk, now: Double(i))

@@ -43,7 +43,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let cameraQueue = DispatchQueue(label: "com.twelve.daylight.camera", qos: .userInitiated)
     private var mirrorSessionStart: Date?
     private var lastApplied: Settings
-    private var onboardingTimer: Timer?
 
     init(arguments: LaunchArguments) {
         self.arguments = arguments
@@ -507,15 +506,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if onboarding == nil {
             wireOnboardingActions()
             onboarding = OnboardingWindowController(model: onboardingModel)
-            onboarding?.onClose = { [weak self] in
-                self?.onboardingTimer?.invalidate()
-                self?.onboardingTimer = nil
-            }
         }
         refreshOnboardingInputs()
         onboarding?.show()
-        onboardingTimer?.invalidate()
-        onboardingTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in self?.refreshOnboardingInputs() }
+        onboarding?.startPolling(every: 1) { [weak self] in self?.refreshOnboardingInputs() }
     }
 
     private func refreshOnboardingInputs() {

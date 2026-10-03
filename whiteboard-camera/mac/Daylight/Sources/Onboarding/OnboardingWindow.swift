@@ -114,6 +114,7 @@ struct OnboardingView: View {
 final class OnboardingWindowController: NSObject, NSWindowDelegate {
     let model: OnboardingModel
     private var window: NSWindow?
+    private var pollTimer: Timer?
     var onClose: (() -> Void)?
 
     init(model: OnboardingModel) {
@@ -136,13 +137,30 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
         NSApp.activate()
     }
 
+    /// Runs `poll` every `interval` seconds while the window is open (the inputs the rows follow); closing the window
+    /// by Done or by its close button stops it.
+    func startPolling(every interval: TimeInterval, _ poll: @escaping () -> Void) {
+        pollTimer?.invalidate()
+        pollTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { _ in poll() }
+    }
+
+    var isPolling: Bool { return pollTimer?.isValid ?? false }
+
+    /// `close` (not `orderOut`) so `windowWillClose` runs and the poll stops after Done too.
     func close() {
-        window?.orderOut(nil)
+        stopPolling()
+        window?.close()
     }
 
     var isVisible: Bool { return window?.isVisible ?? false }
 
     func windowWillClose(_ notification: Notification) {
+        stopPolling()
         onClose?()
+    }
+
+    private func stopPolling() {
+        pollTimer?.invalidate()
+        pollTimer = nil
     }
 }

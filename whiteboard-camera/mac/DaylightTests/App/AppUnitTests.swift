@@ -129,6 +129,36 @@ final class OnboardingStepsTests: XCTestCase {
     }
 }
 
+/// APPA-01: Done closes the Welcome window for real, so its 1 s poll (adb, AVFoundation, SMAppService) stops; it used
+/// to only order the window out, `windowWillClose` never ran and the poll lived for the whole session.
+final class OnboardingWindowTests: XCTestCase {
+    func testCloseStopsThePoll() {
+        guard Thread.isMainThread else { return }
+        let model = OnboardingModel(inputs: OnboardingSteps.Inputs(bundlePath: "/Applications/Daylight.app", signed: true))
+        let controller = OnboardingWindowController(model: model)
+        var closed = false
+        controller.onClose = { closed = true }
+        controller.show()
+        let polled = expectation(description: "polled while open")
+        var polls = 0
+        controller.startPolling(every: 0.05) {
+            polls += 1
+            if polls == 1 { polled.fulfill() }
+        }
+        wait(for: [polled], timeout: 10)
+        XCTAssertTrue(controller.isPolling)
+        controller.close()   // what Done's `actions.finish` calls
+        XCTAssertTrue(closed, "windowWillClose ran")
+        XCTAssertFalse(controller.isPolling, "the poll stops with the window")
+        XCTAssertFalse(controller.isVisible)
+        controller.show()
+        controller.startPolling(every: 1) {}
+        XCTAssertTrue(controller.isPolling, "Set up again reopens and polls again")
+        controller.close()
+        XCTAssertFalse(controller.isPolling)
+    }
+}
+
 /// SPEC 7: the menu's "Whiteboard now" engages without drawing; only the hotkeys toggle.
 final class AppModelMenuTests: XCTestCase {
     func testWhiteboardNowFromTheMenuNeverReturnsToTheCamera() {

@@ -96,9 +96,11 @@ Console lines to copy into LOOSE_ENDS section D (Chrome menu > More tools is not
 
 ---
 
-## 5. Red CI runs caused by someone else's files
+## 5. CI facts and red runs
 
-None at the time of writing (the last run before D's first push, 37106402207, was green).
+CI facts (for ARCHITECTURE section 18 and LOOSE_ENDS): actions run 37108373686 (commit 312c82d), job `web` 111161238913: `make web` 8 s (npm ci, three tsc passes, Vite build: `index.html` 2.19 kB, CSS 4.44 kB, JS 31.64 kB); `make web-test` 72 s including the Chromium Headless Shell 141.0.7390.37 download (Playwright build 1194, the same build this box has at `/opt/pw-browsers`); 17 Node tests and `Running 46 tests using 1 worker ... 46 passed (43.1s)`; `web-dist` artifact 15823 bytes, 7 files. Slowest specs: the incompatibility probe (14.2 s, five backoff dials) and the backoff test (5.9 s).
+
+Red CI runs caused by someone else's files: none at the time of writing.
 
 ---
 

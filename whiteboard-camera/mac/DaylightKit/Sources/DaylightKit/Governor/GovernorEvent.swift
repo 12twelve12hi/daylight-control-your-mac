@@ -7,22 +7,51 @@ public enum GovernorState: UInt8 {
     case returning = 3
 }
 
-public enum HoldMode: UInt8 {
+/// Raw values equal the STATE `mode` byte (PROTOCOL 6.14).
+public enum HoldMode: UInt8, Codable {
     case auto = 0
     case split = 1
     case whiteboard = 2
     case camera = 3
+
+    /// The layout a hold mode forces (nil for auto and camera).
+    public var forcedLayout: LayoutStyle? {
+        switch self {
+        case .split: return .studioSplit
+        case .whiteboard: return .whiteboardOnly
+        case .auto, .camera: return nil
+        }
+    }
 }
 
-public enum LayoutStyle: UInt8 {
+public enum LayoutStyle: UInt8, Codable {
     case studioSplit = 0
     case whiteboardOnly = 1
 }
 
-public enum InkSource: UInt8 {
+/// Raw values equal the STATE `ink_source` byte.
+public enum InkSource: UInt8, Codable {
     case web = 0
     case native = 1
     case mirror = 2
+
+    /// The word the tablet chip shows: "Ink source is <web / Daylight Ink / mirror> on the Mac".
+    public var displayName: String {
+        switch self {
+        case .web: return "web"
+        case .native: return "Daylight Ink"
+        case .mirror: return "mirror"
+        }
+    }
+
+    /// The `/api/info` and JSON value.
+    public var jsonName: String {
+        switch self {
+        case .web: return "web"
+        case .native: return "native"
+        case .mirror: return "mirror"
+        }
+    }
 }
 
 public enum GovernorEvent: Equatable {
@@ -53,4 +82,15 @@ public struct GovernorConfig: Equatable {
     public var engageOnEraser: Bool = false
     public var autoEngage: Bool = true
     public init() {}
+
+    /// The governor settings of SPEC section 11 (`idleTimeoutSeconds`, `preWarningSeconds`, `springK`,
+    /// `engageOnEraser`, `autoEngage`), after `validated()`.
+    public init(settings: Settings) {
+        let s = settings.validated()
+        idleTimeout = Double(s.idleTimeoutSeconds)
+        preWarningLead = Double(s.preWarningSeconds)
+        springK = s.springK
+        engageOnEraser = s.engageOnEraser
+        autoEngage = s.autoEngage
+    }
 }

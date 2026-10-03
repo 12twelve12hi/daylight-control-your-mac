@@ -337,6 +337,29 @@ final class InkRouterTests: XCTestCase {
         XCTAssertEqual(secondDoc.strokes.map { $0.id }, ["20212223-2425-2627-2829-2a2b2c2d2e2f"])
     }
 
+    func testLateGovernorClearEffectsLeaveInkDrawnAfterTheClear() {
+        // The governor answers the Clear with `savePage(.cleared)` and `clearCanvas`, which AppDelegate routes back to
+        // ink.queue after a render-queue hop. A stroke drawn in between must survive both (SPEC 7: Clear saves and
+        // clears the ink present at the Clear only).
+        let (connection, _) = connect(address: "127.0.0.1")
+        drawGoldenStroke(connection)
+        XCTAssertEqual(waitForSave { router.clearRequested() }, ["page-01.json", "page-01.png"])
+        XCTAssertEqual(router.store.committedCount, 0)
+        drawSecondStroke(connection)
+        XCTAssertEqual(router.store.committedCount, 1)
+        router.onSaveResult = { _ in XCTFail("the governor's late savePage(.cleared) writes nothing") }
+        router.applyGovernorEffect(.savePage(reason: .cleared))
+        router.applyGovernorEffect(.clearCanvas)
+        inkQueue.sync {}
+        ioQueue.sync {}
+        inkQueue.sync {}
+        router.onSaveResult = nil
+        XCTAssertEqual(router.store.committedCount, 1, "the stroke drawn after the Clear stays on the board")
+        XCTAssertEqual(pngCount(), 1, "only the cleared board was written")
+        // The other governor saves still go through: the return saves the new board.
+        XCTAssertEqual(waitForSave { router.applyGovernorEffect(.savePage(reason: .returned)) }, ["page-01-2.json", "page-01-2.png"])
+    }
+
     func testAutosaveThenClearKeepsOnePairPerBoard() throws {
         let (connection, _) = connect(address: "127.0.0.1")
         drawGoldenStroke(connection)

@@ -429,14 +429,28 @@ final class InkRouter {
     }
 
     /// Clear from any input (SPEC 7): save if ink, clear both layers and the undo stack, then let the governor
-    /// decide the return. The governor's own `savePage`/`clearCanvas` effects find nothing left to do.
+    /// decide the return. The governor's own `savePage(.cleared)`/`clearCanvas` effects are not applied (see
+    /// `applyGovernorEffect`).
     func clearRequested() {
         savePage(reason: .cleared)
         clearCanvas()
         pipeline.post(.clear)
     }
 
-    /// Governor effect `clearCanvas` (also used directly by `clearRequested`).
+    /// The governor's page effects, as the app routes them here on ink.queue. Every app Clear (tablet, hotkey, menu)
+    /// already saved and cleared synchronously in `clearRequested`, and a mirror-mode Clear must not touch the store
+    /// (SPEC 7: step 2 is skipped there). The governor's `savePage(.cleared)` and `clearCanvas` reach this queue only
+    /// after a render-queue hop, so applying them could save or wipe a stroke drawn after the Clear: they are ignored.
+    func applyGovernorEffect(_ effect: GovernorEffect) {
+        switch effect {
+        case let .savePage(reason):
+            if reason != .cleared { savePage(reason: reason) }
+        case .clearCanvas, .stateChanged, .preWarningStarted, .preWarningCancelled, .pinChanged, .holdChanged:
+            break
+        }
+    }
+
+    /// Clears both layers and the undo stack (used by `clearRequested`).
     func clearCanvas() {
         let hadInk = store.hasInk
         let op = store.clear()

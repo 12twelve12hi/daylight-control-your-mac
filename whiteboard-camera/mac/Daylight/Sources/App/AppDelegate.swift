@@ -363,8 +363,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         router.onSaving = { [weak pipeline] saving in pipeline?.setSaving(saving) }
         router.onEngagingStart = { [weak pipeline] ns in pipeline?.noteInkArrival(hostTimeNs: ns) }
         pipeline.onStateForClients = { [weak self] report in self?.inkQueue.async { self?.router?.receiveState(report) } }
-        pipeline.onSavePage = { [weak self] reason in self?.inkQueue.async { self?.router?.savePage(reason: reason) } }
-        pipeline.onClearCanvas = { [weak self] in self?.inkQueue.async { self?.router?.clearCanvas() } }
+        pipeline.onSavePage = { [weak self] reason in self?.inkQueue.async { self?.router?.applyGovernorEffect(.savePage(reason: reason)) } }
+        pipeline.onClearCanvas = { [weak self] in self?.inkQueue.async { self?.router?.applyGovernorEffect(.clearCanvas) } }
         registry.onChange = { [weak self] records in
             DispatchQueue.main.async { self?.settingsContext.allowedClients = records }
         }

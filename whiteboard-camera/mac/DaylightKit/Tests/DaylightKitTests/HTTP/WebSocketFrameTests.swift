@@ -44,10 +44,10 @@ final class WebSocketFrameTests: XCTestCase {
             XCTAssertTrue(parsed.frame.fin)
         }
         // The length encodings themselves.
-        XCTAssertEqual(Array(WebSocketFrame.encodeMasked(opcode: 2, payload: payload(125), key: key).prefix(2)), [0x82, 0x80 | 125])
-        XCTAssertEqual(Array(WebSocketFrame.encodeMasked(opcode: 2, payload: payload(126), key: key).prefix(4)), [0x82, 0x80 | 126, 0x00, 0x7E])
-        XCTAssertEqual(Array(WebSocketFrame.encodeMasked(opcode: 2, payload: payload(65535), key: key).prefix(4)), [0x82, 0x80 | 126, 0xFF, 0xFF])
-        XCTAssertEqual(Array(WebSocketFrame.encodeMasked(opcode: 2, payload: payload(65536), key: key).prefix(10)), [0x82, 0x80 | 127, 0, 0, 0, 0, 0, 1, 0, 0])
+        XCTAssertEqual(Array(WebSocketFrame.encodeMasked(opcode: 2, payload: payload(125), key: key).prefix(2)), [0x82, 0xFD])
+        XCTAssertEqual(Array(WebSocketFrame.encodeMasked(opcode: 2, payload: payload(126), key: key).prefix(4)), [0x82, 0xFE, 0x00, 0x7E])
+        XCTAssertEqual(Array(WebSocketFrame.encodeMasked(opcode: 2, payload: payload(65535), key: key).prefix(4)), [0x82, 0xFE, 0xFF, 0xFF])
+        XCTAssertEqual(Array(WebSocketFrame.encodeMasked(opcode: 2, payload: payload(65536), key: key).prefix(10)), [0x82, 0xFF, 0, 0, 0, 0, 0, 1, 0, 0])
     }
 
     func testIncompleteFramesReturnNilWithoutTouchingTheBuffer() throws {
@@ -145,15 +145,15 @@ final class WebSocketFrameTests: XCTestCase {
 
     func testOversizeRejectedFromTheHeader() throws {
         // A 16-bit length over the cap fails before the payload arrives.
-        let header: [UInt8] = [0x82, 0x80 | 126, 0x10, 0x00, 1, 2, 3, 4]
+        let header: [UInt8] = [0x82, 0xFE, 0x10, 0x00, 1, 2, 3, 4]
         XCTAssertThrowsError(try parse(header, maxPayload: 4095)) { XCTAssertEqual($0 as? WebSocketError, .oversize(4096)) }
         // A 64-bit length of 2 MiB + 1 against the 2 MiB cap.
         let big = 2 * 1024 * 1024 + 1
-        var header64: [UInt8] = [0x82, 0x80 | 127]
+        var header64: [UInt8] = [0x82, 0xFF]
         for i in (0..<8).reversed() { header64.append(UInt8(truncatingIfNeeded: UInt64(big) >> (8 * UInt64(i)))) }
         XCTAssertThrowsError(try parse(header64)) { XCTAssertEqual($0 as? WebSocketError, .oversize(big)) }
         // The top bit of a 64-bit length is never valid.
-        let absurd: [UInt8] = [0x82, 0x80 | 127, 0x80, 0, 0, 0, 0, 0, 0, 0]
+        let absurd: [UInt8] = [0x82, 0xFF, 0x80, 0, 0, 0, 0, 0, 0, 0]
         XCTAssertThrowsError(try parse(absurd)) { XCTAssertEqual($0 as? WebSocketError, .oversize(Int.max)) }
         // Exactly the cap is fine.
         let ok = WebSocketFrame.encodeMasked(opcode: 2, payload: payload(4096), key: key)

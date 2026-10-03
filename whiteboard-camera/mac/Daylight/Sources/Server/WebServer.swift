@@ -2,8 +2,9 @@ import DaylightKit
 import Foundation
 import Network
 
-/// One TCP listener (ARCHITECTURE section 5): static files, `/healthz`, `/api/info`, `/daylight-ink.apk`, and the
-/// `/ink` WebSocket upgrade with a hand-written RFC 6455 frame loop. Ports 7788...7799 are tried in order when the
+/// One TCP listener (ARCHITECTURE section 5): static files, `/healthz`, `/api/info`, `/daylight-ink.apk`,
+/// `POST /api/facts` (PROTOCOL 15, the only route with a body), and the `/ink` WebSocket upgrade with a hand-written
+/// RFC 6455 frame loop. Ports 7788...7799 are tried in order when the
 /// preferred one is busy (failure row 16); the Bonjour service is set before `start`. Everything runs on `queue`.
 final class WebServer {
     static let defaultPort: UInt16 = SolStream.defaultPort
@@ -64,6 +65,12 @@ final class WebServer {
     var onInkMessage: ((InkConnection, [UInt8], UInt64) -> Void)?
     var onInkClientOpened: ((InkConnection) -> Void)?
     var onInkClientClosed: ((InkConnection) -> Void)?
+    /// `POST /api/facts` (PROTOCOL 15) stores here; nil answers that path with 404. Set before `start`.
+    var factsStore: TabletFactsStore?
+    /// True when a client id is an allowed tablet (`ClientRegistry.isAllowed`); called on `queue`.
+    var factsAllowed: ((String) -> Bool)?
+    /// PROTOCOL 15.1: the body must arrive within this many seconds of the head.
+    static let factsBodyTimeout: Double = 10
 
     init(config: Config, info: @escaping () -> [String: Any], queue: DispatchQueue) {
         self.config = config
@@ -203,6 +210,15 @@ final class WebServer {
         }
     }
 
+    /// The facts route once the body is in (PROTOCOL 15.3); called on `queue`.
+    fileprivate func facts(_ request: HTTPRequest, body: [UInt8], remoteAddress: String) -> HTTPResponse {
+        guard let store = factsStore else { return HTTPResponse.text(404, "Not found") }
+        let allowed = factsAllowed ?? { _ in false }
+        let response = ApiRoutes.facts(request, body: body, remoteAddress: remoteAddress, now: Date(), isAllowed: allowed, store: store)
+        onLog?("facts from \(remoteAddress): \(response.status)\(response.status == 200 ? "" : " " + String(decoding: response.body, as: UTF8.self))")
+        return response
+    }
+
     /// The `/api/info` origin for this listener when the request carries no usable Host: the first address, or loopback.
     static func origin(port: UInt16) -> String {
         return LocalAddresses.primaryURL(port: port) ?? "http://127.0.0.1:\(port)"
@@ -273,6 +289,7 @@ private final class HTTPConnection: InkTransport {
     private var ink: InkConnection?
     private var handshakeDeadline: DispatchWorkItem?
     private var idleDeadline: DispatchWorkItem?
+    private var bodyDeadline: DispatchWorkItem?
     private var sawHandshake = false
     private var closed = false
     var onClosed: (() -> Void)?
@@ -372,7 +389,70 @@ private final class HTTPConnection: InkTransport {
             })
             return
         }
+        if request.path == ApiRoutes.factsPath {
+            handleFacts(request, server: server)
+            return
+        }
         respond(server.route(request))
+    }
+
+    // MARK: POST /api/facts (PROTOCOL 15)
+
+    /// Every method but POST answers 405; the head checks answer at once; otherwise the body is read by
+    /// Content-Length (at most 16384 bytes, already capped by `factsHead`) without blocking the queue.
+    private func handleFacts(_ request: HTTPRequest, server: WebServer) {
+        guard request.method == "POST" else {
+            respond(HTTPResponse.text(405, "Method not allowed"))
+            return
+        }
+        switch ApiRoutes.factsHead(request) {
+        case let .reject(status, text):
+            // A declared body within the limit is read and dropped first, so the client sees the answer and not a reset.
+            let declared = Int(request.headers["content-length"]?.trimmingCharacters(in: .whitespaces) ?? "") ?? 0
+            let drain = (0...ApiRoutes.factsMaxBody).contains(declared) ? declared : 0
+            readBody(drain, server: server) { [weak self] _ in self?.respond(HTTPResponse.text(status, text)) }
+        case let .read(length):
+            readBody(length, server: server) { [weak self] body in
+                guard let self = self, let server = self.server else { return }
+                self.respond(server.facts(request, body: body, remoteAddress: self.remoteAddress))
+            }
+        }
+    }
+
+    /// `length` body bytes, then `deliver` on the server queue; the connection closes when they do not arrive within
+    /// `WebServer.factsBodyTimeout`.
+    private func readBody(_ length: Int, server: WebServer, then deliver: @escaping ([UInt8]) -> Void) {
+        let deadline = DispatchWorkItem { [weak self] in self?.finish() }
+        bodyDeadline = deadline
+        server.queue.asyncAfter(deadline: .now() + WebServer.factsBodyTimeout, execute: deadline)
+        receiveBody(length) { [weak self] body in
+            self?.bodyDeadline?.cancel()
+            self?.bodyDeadline = nil
+            deliver(body)
+        }
+    }
+
+    private func receiveBody(_ length: Int, then deliver: @escaping ([UInt8]) -> Void) {
+        if buffer.count >= length {
+            let body = Array(buffer.prefix(length))
+            buffer.removeAll()
+            deliver(body)
+            return
+        }
+        connection.receive(minimumIncompleteLength: 1, maximumLength: WebServer.receiveChunk) { [weak self] data, _, isComplete, error in
+            guard let self = self, !self.closed else { return }
+            if let data = data { self.buffer.append(contentsOf: data) }
+            if self.buffer.count >= length {
+                self.receiveBody(length, then: deliver)
+                return
+            }
+            if error != nil || isComplete {
+                self.bodyDeadline?.cancel()
+                self.finish()
+                return
+            }
+            self.receiveBody(length, then: deliver)
+        }
     }
 
     private func respond(_ response: HTTPResponse) {
@@ -521,6 +601,7 @@ private final class HTTPConnection: InkTransport {
         closed = true
         handshakeDeadline?.cancel()
         idleDeadline?.cancel()
+        bodyDeadline?.cancel()
         connection.cancel()
         if let ink = ink {
             ink.markClosed()

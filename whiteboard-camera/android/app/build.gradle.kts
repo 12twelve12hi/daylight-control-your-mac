@@ -11,8 +11,9 @@ android {
         applicationId = "com.twelve.daylight.ink"
         minSdk = 30
         targetSdk = 33
-        versionCode = 1
-        versionName = "0.1.0"
+        // CI passes -PdaylightVersionCode=$GITHUB_RUN_NUMBER so every build upgrades the previous sideload (handoff request).
+        versionCode = (project.findProperty("daylightVersionCode") as String?)?.toIntOrNull()?.coerceAtLeast(1) ?: 1
+        versionName = (project.findProperty("daylightVersionName") as String?) ?: "0.1.0"
     }
 
     // The committed debug keystore keeps every CI build signed with the same key, so `adb install -r`
@@ -63,6 +64,9 @@ kotlin {
 }
 
 dependencies {
+    // research-android-ink section 8: no AppCompat, Material, Compose or lifecycle. Views only.
+    implementation("androidx.graphics:graphics-core:1.0.4")      // CanvasFrontBufferedRenderer (wet ink)
+    implementation("com.squareup.okhttp3:okhttp:5.5.0")          // WebSocket client (binary frames, pingInterval)
     testImplementation("junit:junit:4.13.2")
     // org.json on the unit-test classpath: the android.jar stub throws for every method.
     testImplementation("org.json:json:20250517")

@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- Only the manifest reads resources; every other owner-facing sentence lives in ui/Texts.kt so the JVM tests see it. -->
     <string name="app_name">Daylight Ink</string>
-    <string name="not_connected">Not connected</string>
+    <string name="onboarding_title">Welcome to Daylight Ink</string>
+    <string name="settings_title">Daylight Ink settings</string>
 </resources>

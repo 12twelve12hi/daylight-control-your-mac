@@ -278,7 +278,17 @@ enum SelfTest {
         inkQueue.sync {}
         let afterUndo = CanvasSurfaces.pixel(pipeline.surfaces.ink, x: 650, y: 900)
         report.check("ink: alpha back to zero after undo", afterUndo.a == 0, "a=\(afterUndo.a)")
-        report.check("sink: frames pushed while engaged", device == nil || sink.pushCount > 0, "pushes=\(sink.pushCount)")
+        // The first composed frame reaches the sink when its command buffer completes (about 70 ms cold on the
+        // runner's paravirtual GPU), so this waits instead of sampling the counter at once.
+        var pushed = sink.pushCount
+        if device != nil {
+            let deadline = Date().addingTimeInterval(2)
+            while pushed == 0 && Date() < deadline {
+                Thread.sleep(forTimeInterval: 0.02)
+                pushed = sink.pushCount
+            }
+        }
+        report.check("sink: frames pushed while engaged", device == nil || pushed > 0, "pushes=\(pushed)")
         report.note("pipeline: passthroughZeroCopy=\(pipeline.stats.passthroughZeroCopy) mode=\(pipeline.stats.mode)")
 
         // Ink-source switch (SPEC 8): the web client sees ink_source 1 with bit3 clear and its ink is dropped silently.

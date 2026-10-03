@@ -10,7 +10,7 @@ Last CI run on the final integration commit: see the "CI" section at the end (ru
 
 ## 1. Where the product stands in one paragraph
 
-Everything in IMPLEMENTATION-PLAN sections 4 to 9 is written, compiled by GitHub Actions and covered by tests that run without a device: 170 DaylightKit tests on Linux and macOS, 118 hosted `DaylightTests` on macos-15, 46 Playwright tests plus 17 Node tests for the web page, 70 JVM tests for the APK, the golden drift check, and `Daylight --self-test` as a CI step. The Mac app is wired end to end (sink, installer, pipeline, server, router, saver, hotkeys, menu, onboarding, Allow panel, Settings, Diagnostics, mirror facade). What nobody has seen yet is the product on real hardware: the camera extension loads only on a Developer ID signed and notarized build (LOOSE_ENDS A1), and every tablet-side fact of LOOSE_ENDS section D needs the DC-1 in the owner's hands. `VERSION` stays `0.1.0`; the `v0.1.0` tag (first notarization) waits for the owner's secrets.
+Everything in IMPLEMENTATION-PLAN sections 4 to 9 is written, compiled by GitHub Actions and covered by tests that run without a device: 233 DaylightKit tests on Linux and macOS, 161 hosted `DaylightTests` on macos-15, 46 Playwright tests plus 17 Node tests for the web page, 70 JVM tests for the APK, the golden drift check, and `Daylight --self-test` as a CI step. The Mac app is wired end to end (sink, installer, pipeline, server, router, saver, hotkeys, menu, onboarding, Allow panel, Settings, Diagnostics, mirror facade). What nobody has seen yet is the product on real hardware: the camera extension loads only on a Developer ID signed and notarized build (LOOSE_ENDS A1), and every tablet-side fact of LOOSE_ENDS section D needs the DC-1 in the owner's hands. `VERSION` stays `0.1.0`; the `v0.1.0` tag (first notarization) waits for the owner's secrets.
 
 ---
 
@@ -163,4 +163,12 @@ Concurrency is per job: the Linux jobs cancel their older runs, the mac job alwa
 
 ## 6. CI
 
-Filled in by the integrator with the run that proves this document: see LOOSE_ENDS B24 and the git log of `docs/STATUS.md`.
+Runs of the integration pass (workflow `whiteboard-camera`, branch `claude/daylight-whiteboard-camera-tzxfjb`):
+
+| Run | Commit | Result |
+|---|---|---|
+| 37120036901 | f395315 (Integrator-sync-4) | golden, web, android, kit-linux green; mac red: the hosted test process aborted in `OutputPoolTests` (a `DispatchSemaphore` deallocated below its initial value, LOOSE_ENDS B24) and the relaunched `PipelineSmokeTests` counted one cold-GPU drop |
+| 37120607515 | ca94b55 (Integrator-sync-4b) | golden, web, android, kit-linux (233 tests) green; `make mac-debug` and `make mac-test` green for the first time with every component in the tree (161 hosted tests, 0 failures); `make mac-smoke` red on one probe: "sink: frames pushed while engaged" sampled the sink counter before the first composed frame's command buffer completed (about 70 ms cold); every other probe passed, including the layouts, the ink-source switch, REDO and the composed mirror frame |
+| the run of the commit that last changed this file | see `git log -1 -- docs/STATUS.md` | the probe now waits up to 2 s for the first push; expected green on every job, the final state the orchestrator's report names |
+
+Facts the self-test logged on the runner: Metal device "Apple Paravirtual device"; first command buffer 71 ms, then 13.5 ms and 1.2 ms; `Vendor/adb` 19,993,936 bytes `x86_64 arm64`; `scrcpy-server-v4.1` 733,706 bytes with the pinned sha256; the embedded `DaylightInk.apk` 7,841,168 bytes; the unsigned extension's `CMIOExtensionMachServiceName` reads `com.twelve.daylight` (`$(TeamIdentifierPrefix)` expands to an empty string without a team), with the three UUIDs identical in both Info.plists.

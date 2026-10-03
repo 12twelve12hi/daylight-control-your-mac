@@ -104,6 +104,10 @@ class SettingsActivity : Activity() {
             textSize = 13f; setTextColor(Tokens.TEXT_MUTED); typeface = android.graphics.Typeface.MONOSPACE
             setTextIsSelectable(true)
         })
+        // PROTOCOL 15: the same facts to the Mac's diagnostics export; the result line sits under the button.
+        val factsResult = TextView(this).apply { textSize = 15f; setTextColor(Tokens.TEXT_MUTED) }
+        col.addView(button(SettingsFacts.BUTTON) { SettingsFacts.send(this, conn) { factsResult.text = it } })
+        col.addView(factsResult)
         setContentView(ScrollView(this).apply { addView(col) })
     }
 

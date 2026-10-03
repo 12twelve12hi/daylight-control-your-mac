@@ -511,3 +511,55 @@ The mirror family lives in its own manifest array `mirror_cases` (same case shap
 | mirror_control_key_frame | 0x0071 | s2c | REQUEST_KEY_FRAME, zeros |
 
 The hex strings are in `protocol/golden/solstream-v1.json` under `mirror_cases` (generated; never typed by hand).
+
+---
+
+## 15. Appendix: tablet facts over HTTP (`POST /api/facts`, no SolStream change)
+
+The web page's "?" card and Daylight Ink's Settings > "This tablet" each have a "Send facts to Mac" button. It sends one JSON object over plain HTTP to the same origin the page or the app already uses for `/ink` (`http://<mac>:<port>/api/facts`; over USB `http://localhost:<port>/api/facts`). The Mac keeps the latest object per sender in memory (never on disk) and writes every stored object into the diagnostics export (`tablet-facts.json`, docs/FEEDBACK.md). Nothing here touches the WebSocket or the golden vectors.
+
+### 15.1 Request
+
+`POST /api/facts HTTP/1.1` with `Content-Type: application/json` (a `; charset=utf-8` suffix is allowed) and a `Content-Length` of at most 16384 bytes. No chunked encoding. The body is UTF-8 JSON:
+
+```json
+{
+  "schema": "daylight-tablet-facts/1",
+  "source": "web",
+  "clientId": "3f0c...",
+  "sentAt": "2026-10-03T14:05:09Z",
+  "facts": { "chromeVersion": "141.0.7390.54", "devicePixelRatio": 2, "viewport": "800x1280" }
+}
+```
+
+| Field | Type | Rule |
+|---|---|---|
+| `schema` | string | exactly `daylight-tablet-facts/1` |
+| `source` | string | `web` (the page) or `ink` (Daylight Ink) |
+| `clientId` | string, optional | the sender's SolStream client id (hex, as in HANDSHAKE); at most 64 characters |
+| `sentAt` | string | ISO 8601 UTC time of the tap |
+| `facts` | object | flat: every value is a string (at most 1024 characters), a number, a boolean or null; at most 64 keys |
+
+Web `facts` keys (all present; `null` when not known yet): `chromeVersion` (from the user agent), `userAgent`, `devicePixelRatio`, `viewport` (`"<w>x<h>"` CSS pixels at send time), `displayMode` (`fullscreen`, `standalone`, `minimal-ui`, `browser`), `secureContext`, `wakeLockSupported`, `wakeLockState` (`held`, `refused`, `released`, `not requested`), `fullscreenState` (`on`, `refused`, `not requested`), `coalescedEvents`, `rawUpdate`, `predictedEvents`, `firstPenPointerdown` (the `daylight-web first pen pointerdown ...` console line, or null), `pressureMin`, `pressureMax`, `pressureSamples` (pen `pointermove`/`pointerdown` events with pressure above 0 seen since load), `rttMs`, `macBuild`.
+
+Daylight Ink `facts` keys: `model`, `manufacturer`, `device`, `release`, `sdk`, `tiramisuExt`, `display` (`"<w>x<h>"` pixels), `density`, `densityDpi`, `canDrawOverlays`, `pressureRange`, `sideButton`, `frontBuffer`, `mirrorEncoders`, `mirrorEncoder`, `mirrorStream`, `mirrorThermalMax`, `versionName`, `versionCode` (the same values `Facts.lines` shows; "not seen yet" style placeholders are sent as null).
+
+### 15.2 Response
+
+| Status | Body | When |
+|---|---|---|
+| 200 | `{"ok":true,"key":"<source>:<clientId or address>","stored":<n>}` | stored; `stored` is the number of senders now held |
+| 400 | text `Bad facts: <reason>` | not JSON, wrong `schema` or `source`, a nested value, too many keys, a value too long |
+| 403 | text `Origin not allowed` | an `Origin` header is present and does not name this server (`WebServer.originMatchesHost`); a page on another site cannot post |
+| 411 | text `Length required` | no `Content-Length` |
+| 413 | text `Facts too large` | `Content-Length` above 16384 |
+| 415 | text `Content-Type must be application/json` | any other type (a cross-site form post cannot be plain JSON without a preflight, which this server never answers) |
+
+`OPTIONS` and every other method on `/api/facts` answer 405 like the rest of the listener. The connection closes after the response (PROTOCOL 1).
+
+### 15.3 Storage rules on the Mac
+
+- Key: `<source>:<clientId>` when `clientId` is present, else `<source>:<remote address>`. A new POST for the same key replaces the old one.
+- At most 16 keys; the oldest by receive time is evicted.
+- Each stored entry adds `receivedAt` (ISO 8601), `remoteAddress` (redacted to the last octet in the export, `x.x.x.40`) and `allowed` (true when `clientId` is an allowed tablet in `clients.json`).
+- Diagnostics prints one line per key: `tablet facts: <key> received <receivedAt> (<n> facts)`.

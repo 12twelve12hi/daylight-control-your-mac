@@ -181,6 +181,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         saveMirrorSessionIfNeeded()
         saver?.waitUntilIdle(timeout: AppDelegate.quitSaveTimeout)
         hotkeys?.unregisterAll()
+        mirrorController?.releaseWifiStream()
         server?.stop()
         pipeline?.shutdown()
         // After the pipeline (no more pushes): stop the sink stream so the extension shows its card (SPEC 4).
@@ -260,7 +261,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let vendor = Bundle.main.resourceURL?.appendingPathComponent("Vendor")
             ?? Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/Vendor")
         let controlQueue = DispatchQueue(label: "com.twelve.daylight.mirror.control", qos: .userInitiated)
-        let mirror = MirrorController(settings: settingsStore.settings, vendorDirectory: vendor, pipeline: pipeline, queue: controlQueue)
+        let mirror = MirrorController(settings: settingsStore.settings, vendorDirectory: vendor, pipeline: pipeline, queue: controlQueue, wifiQueue: inkQueue)
         mirror.onLog = { [weak self] line in self?.telemetry.note("mirror", line) }
         mirror.onFailure = { [weak self] failure, args in
             DispatchQueue.main.async { self?.model.noteFailure(failure, args) }
@@ -274,7 +275,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         mirror.source.onGovernorEvent = { [weak pipeline] event in pipeline?.post(event) }
-        pipeline.setMirrorSource(mirror.source)
+        pipeline.setMirrorSource(mirror.activeSource)
         mirrorController = mirror
         self.mirror = mirror
         model.mirror = mirror
@@ -480,8 +481,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         server.onInkClientOpened = { [weak self] c in self?.inkQueue.async { self?.router?.clientOpened(c) } }
-        server.onInkClientClosed = { [weak self] c in self?.inkQueue.async { self?.router?.clientClosed(c) } }
-        server.onInkMessage = { [weak self] c, bytes, ns in self?.inkQueue.async { self?.router?.handle(bytes, from: c, hostTimeNs: ns) } }
+        // The Wi-Fi mirror family (PROTOCOL 14) is peeled off on ink.queue before the router sees a frame.
+        server.onInkClientClosed = { [weak self] c in
+            self?.inkQueue.async {
+                self?.mirrorController?.wifiSource.forget(c)
+                self?.router?.clientClosed(c)
+            }
+        }
+        server.onInkMessage = { [weak self] c, bytes, ns in
+            self?.inkQueue.async {
+                if self?.mirrorController?.wifiSource.ingest(bytes, from: c, hostTimeNs: ns) == true { return }
+                self?.router?.handle(bytes, from: c, hostTimeNs: ns)
+            }
+        }
         server.start()
     }
 
@@ -520,6 +532,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         lastApplied = settings
         pipeline?.updateSettings(settings)
         mirrorController?.updateSettings(settings)
+        if settings.mirrorTransport != previous.mirrorTransport, let mirror = mirrorController {
+            pipeline?.setMirrorSource(mirror.activeSource)
+        }
         inkQueue.async { [weak self] in self?.router?.updateSettings(settings) }
         telemetry.perfLog = settings.perfLog || arguments.perfLog
         preview.floats = settings.previewFloats

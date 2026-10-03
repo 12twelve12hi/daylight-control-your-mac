@@ -210,8 +210,25 @@ enum SelfTest {
         let server = WebServer(config: WebServer.Config(preferredPort: 0, bonjourName: nil, loopbackOnly: true, scanPorts: false), info: { ["version": "self-test"] }, queue: netQueue)
         server.onLog = { report.note("server: \($0)") }
         server.onInkClientOpened = { c in inkQueue.async { router.clientOpened(c) } }
-        server.onInkClientClosed = { c in inkQueue.async { router.clientClosed(c) } }
-        server.onInkMessage = { c, bytes, ns in inkQueue.async { router.handle(bytes, from: c, hostTimeNs: ns) } }
+        // The same routing as AppDelegate.wireServer: the Wi-Fi mirror family goes to the ingest, the rest to the router.
+        var wifiSettings = Settings.defaults
+        wifiSettings.mirrorTransport = .wifiStream
+        let wifi = WifiMirrorSource(settings: wifiSettings, inkQueue: inkQueue)
+        wifi.onLog = { print("self-test: wifi mirror log: \($0)") }
+        wifi.onGovernorEvent = { [weak pipeline] event in pipeline?.post(event) }
+        wifi.setActive(true)
+        server.onInkClientClosed = { c in
+            inkQueue.async {
+                wifi.forget(c)
+                router.clientClosed(c)
+            }
+        }
+        server.onInkMessage = { c, bytes, ns in
+            inkQueue.async {
+                if wifi.ingest(bytes, from: c, hostTimeNs: ns) { return }
+                router.handle(bytes, from: c, hostTimeNs: ns)
+            }
+        }
         let ready = DispatchSemaphore(value: 0)
         var boundPort: UInt16 = 0
         server.onReady = { port in
@@ -345,9 +362,12 @@ enum SelfTest {
             report.check("mirror: composed frame shows the tablet picture at (640, 540)", hit, seen)
             report.note("pipeline: mode=\(pipeline.stats.mode) pushed=\(pipeline.stats.pushed) dropped=\(pipeline.stats.dropped)")
             switchSource(.web, pipeline: pipeline, router: router, inkQueue: inkQueue)
+            wifiMirrorProbe(port: boundPort, wifi: wifi, pipeline: pipeline, router: router, inkQueue: inkQueue, lastFrame: lastFrame, report: report)
         } else {
             report.note("WARNING no Metal device; the mirror compose probe is skipped")
+            report.note("SKIP wifi mirror: composed frame (no Metal device)")
         }
+        wifi.setActive(false)
         client.close()
         server.stop()
         netQueue.sync {}

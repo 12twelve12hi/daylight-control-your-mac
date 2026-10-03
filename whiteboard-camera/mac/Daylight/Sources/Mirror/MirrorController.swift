@@ -49,6 +49,10 @@ final class MirrorController: MirrorControl {
     private static let queueKey = DispatchSpecificKey<Bool>()
     private var engageProbeStart: Double?
     private var loggedFirstFrame = false
+    /// The Wi-Fi transport (PROTOCOL 14): its own decoder and frame slot, fed by the ink connections.
+    let wifiSource: WifiMirrorSource
+    /// True while the USB getevent watcher has a pen node (the preferred engage signal over frame difference).
+    private let penWatching = Locked(false)
 
     /// Mutated on the control queue; readable from any thread (B's 2 Hz mirror reads them from main).
     private var currentStatus: MirrorStatus {
@@ -84,16 +88,25 @@ final class MirrorController: MirrorControl {
     var onStatusChange: ((MirrorStatus) -> Void)?
     var onDevicesChange: (([AdbDevice]) -> Void)?
 
-    var status: MirrorStatus { return currentStatus }
+    /// The USB status, or the Wi-Fi stream's status while the transport is Wi-Fi.
+    var status: MirrorStatus { return usesWifi ? wifiSource.status : currentStatus }
+
+    /// Settings > Mirror > Transport is "Wi-Fi (Daylight Ink screen stream)".
+    var usesWifi: Bool { return settings.mirrorTransport == .wifiStream }
+
+    /// The frame source the pipeline samples for the current transport.
+    var activeSource: MirrorFrameSource { return usesWifi ? wifiSource : mirrorSource }
 
     var devices: [AdbDevice] { return currentDevices }
 
-    init(settings: Settings, vendorDirectory: URL, pipeline: PipelineControl, queue: DispatchQueue, adb: AdbRunning? = nil) {
+    /// `wifiQueue` is the queue the ink connections are handled on (the app passes ink.queue).
+    init(settings: Settings, vendorDirectory: URL, pipeline: PipelineControl, queue: DispatchQueue, adb: AdbRunning? = nil, wifiQueue: DispatchQueue? = nil) {
         self.queue = queue
         self.vendorDirectory = vendorDirectory
         self.pipeline = pipeline
         settingsBox = Locked(settings.validated())
         mirrorSource = MirrorSource(settings: settings)
+        wifiSource = WifiMirrorSource(settings: settings, inkQueue: wifiQueue ?? DispatchQueue(label: "com.twelve.daylight.mirror.wifi.ink", qos: .userInitiated))
         injectedAdb = adb
         serverPort = settings.port
         let apk = vendorDirectory.deletingLastPathComponent().appendingPathComponent("DaylightInk.apk")
@@ -101,6 +114,19 @@ final class MirrorController: MirrorControl {
         if queue.getSpecific(key: MirrorController.queueKey) == nil { queue.setSpecific(key: MirrorController.queueKey, value: true) }
         mirrorSource.onStart = { [weak self] in self?.start() }
         mirrorSource.onStop = { [weak self] in self?.stop() }
+        wifiSource.onStart = { [weak self] in self?.start() }
+        wifiSource.onStop = { [weak self] in self?.stop() }
+        wifiSource.onGovernorEvent = { [weak self] event in self?.emit(event) }
+        let penWatching = self.penWatching
+        wifiSource.penWatcherPresent = { penWatching.withLock { $0 } }
+        wifiSource.onLog = { [weak self] line in self?.onLog?(line) }
+        wifiSource.onFailure = { [weak self] failure, args in self?.queue.async { self?.onFailure?(failure, args) } }
+        wifiSource.onStatusChange = { [weak self] status in
+            self?.queue.async {
+                guard let self = self, self.usesWifi else { return }
+                self.onStatusChange?(status)
+            }
+        }
     }
 
     /// Runs `body` on the control queue, directly when already there (B may pass the main queue and call from main).
@@ -115,11 +141,17 @@ final class MirrorController: MirrorControl {
     /// encoder options on the next session.
     func updateSettings(_ newSettings: Settings) {
         let validated = newSettings.validated()
-        settingsBox.withLock { $0 = validated }
+        let previous = settingsBox.withLock { s -> Settings in
+            let old = s
+            s = validated
+            return old
+        }
         mirrorSource.updateSettings(validated)
+        wifiSource.updateSettings(validated)
         queue.async { [weak self] in
             self?.stylus?.updateGestures(validated.sideButtonGestures)
             self?.serverPort = validated.port
+            if previous.mirrorTransport != validated.mirrorTransport { self?.transportChanged() }
         }
     }
 
@@ -127,7 +159,9 @@ final class MirrorController: MirrorControl {
         queue.async { [weak self] in
             guard let self = self, !self.started else { return }
             self.started = true
-            self.log("mirror start: vendor \(self.vendorDirectory.path)")
+            self.log("mirror start: vendor \(self.vendorDirectory.path) transport \(self.settings.mirrorTransport.rawValue)")
+            self.wifiSource.setActive(self.usesWifi)
+            if self.usesWifi { self.onStatusChange?(self.status) }
             self.ensureAdb { adb in
                 guard let adb = adb, self.started else { return }
                 self.setStatus(.noDevice)
@@ -144,6 +178,7 @@ final class MirrorController: MirrorControl {
         queue.async { [weak self] in
             guard let self = self, self.started else { return }
             self.started = false
+            self.wifiSource.setActive(false)
             self.tracker?.stop()
             self.tracker = nil
             self.endSession(reason: "stopped")
@@ -215,7 +250,31 @@ final class MirrorController: MirrorControl {
     }
 
     func latestFrameForSave() -> (buffer: CVPixelBuffer, uv: UVRect)? {
-        return mirrorSource.latestForSave()
+        return usesWifi ? wifiSource.latestForSave() : mirrorSource.latestForSave()
+    }
+
+    /// Quit: RELEASE to the tablet streaming over Wi-Fi so it gives the screen capture back.
+    func releaseWifiStream() {
+        wifiSource.release()
+    }
+
+    /// Transport switch while running (control queue): the USB session ends; Wi-Fi mode keeps device tracking for the
+    /// pen watcher only; the Wi-Fi stream starts or stops; the status shown follows the transport.
+    private func transportChanged() {
+        log("mirror transport: \(settings.mirrorTransport.rawValue)")
+        guard started else {
+            onStatusChange?(status)
+            return
+        }
+        endSession(reason: "transport changed")
+        wifiSource.setActive(usesWifi)
+        if usesWifi {
+            onStatusChange?(wifiSource.status)
+        } else {
+            setStatus(.noDevice)
+            onStatusChange?(currentStatus)
+        }
+        devicesChanged(currentDevices)
     }
 
     func tryWiFiMirror(completion: @escaping (Bool) -> Void) {
@@ -245,7 +304,10 @@ final class MirrorController: MirrorControl {
     var diagnostics: [String: String] {
         return onControlQueue { () -> [String: String] in
             var d = extraDiagnostics
-            d["status"] = MirrorController.describe(currentStatus)
+            d["status"] = MirrorController.describe(status)
+            d["transport"] = settings.mirrorTransport.rawValue
+            if usesWifi { d["usb.status"] = MirrorController.describe(currentStatus) }
+            d.merge(wifiSource.diagnostics) { _, new in new }
             d["adb.mode"] = policyDecision?.diagnosticsText ?? "not started"
             d["adb.executable"] = (adb as? AdbClient)?.executable.path ?? (adb == nil ? "none" : "injected")
             d["devices"] = currentDevices.isEmpty ? "none" : currentDevices.map { "\($0.serial) \($0.state)\($0.model.map { " model:\($0)" } ?? "")" }.joined(separator: "; ")
@@ -291,7 +353,7 @@ final class MirrorController: MirrorControl {
         guard new != currentStatus else { return }
         currentStatus = new
         log("status: \(MirrorController.describe(new))")
-        onStatusChange?(new)
+        if !usesWifi { onStatusChange?(new) }
     }
 
     /// Locates the bundled adb and decides the server policy once; completion on the control queue.
@@ -381,7 +443,9 @@ final class MirrorController: MirrorControl {
         }
         switch device.state {
         case AdbDevicesParser.stateDevice:
-            if currentSerial == nil { startSession(for: device) }
+            if currentSerial == nil {
+                if usesWifi { startPenOnly(for: device) } else { startSession(for: device) }
+            }
         case AdbDevicesParser.stateUnauthorized:
             setStatus(.error(.adbUnauthorized, device.serial))
             log(FailureText.logLine(.adbUnauthorized, [device.serial]))
@@ -395,7 +459,7 @@ final class MirrorController: MirrorControl {
     }
 
     private func maybeTryWiFi(settings: Settings) {
-        guard settings.mirrorOverWiFi, adb != nil else { return }
+        guard settings.mirrorOverWiFi, settings.mirrorTransport == .usb, adb != nil else { return }
         let now = CACurrentMediaTime()
         guard now - lastWifiAttempt >= MirrorController.wifiRetryInterval else { return }
         lastWifiAttempt = now
@@ -403,6 +467,15 @@ final class MirrorController: MirrorControl {
     }
 
     // MARK: Session
+
+    /// Wi-Fi transport with a DC-1 on USB: no scrcpy, only the getevent pen watcher (the preferred engage signal).
+    private func startPenOnly(for device: AdbDevice) {
+        guard let adb = adb, device.isUSB else { return }
+        currentSerial = device.serial
+        sessionGeneration += 1
+        log("Wi-Fi transport: pen watcher only on \(device.serial) (no scrcpy)")
+        startStylus(adb: adb, serial: device.serial, settings: settings)
+    }
 
     private func startSession(for device: AdbDevice) {
         guard let adb = adb else { return }
@@ -548,7 +621,7 @@ final class MirrorController: MirrorControl {
         sessionRetryDelay = min(MirrorController.sessionRetryMax, sessionRetryDelay * 2)
         log("retrying the mirror session in \(Int(delay)) s")
         queue.asyncAfter(deadline: .now() + delay) { [weak self] in
-            guard let self = self, self.started, self.currentSerial == nil else { return }
+            guard let self = self, self.started, self.currentSerial == nil, !self.usesWifi else { return }
             if let device = self.currentDevices.first(where: { $0.serial == retrySerial && $0.isReady }) {
                 self.startSession(for: device)
             }
@@ -568,6 +641,7 @@ final class MirrorController: MirrorControl {
         session = nil
         stylus?.stop(silently: true)
         stylus = nil
+        penWatching.withLock { $0 = false }
         let oldDecoder = decoder
         decoder = nil
         mirrorQueue.async { oldDecoder?.invalidate() }
@@ -587,10 +661,12 @@ final class MirrorController: MirrorControl {
                 guard let self = self else { return }
                 switch status {
                 case let .noPenDevice(names):
+                    self.penWatching.withLock { $0 = false }
                     self.onFailure?(.noPenDevice, ["\(names)"])
                 case .sideButtonSilent:
                     if self.settings.mirrorPinClearMode.includesPenButton { self.onFailure?(.noSideButtonEvents, []) }
                 case let .watching(path, name, pressureMax):
+                    self.penWatching.withLock { $0 = true }
                     self.extraDiagnostics["pen.node"] = "\(path) \"\(name)\" pressureMax=\(pressureMax)"
                 default:
                     break

@@ -134,6 +134,17 @@ struct SettingsView: View {
 
     private var mirrorTab: some View {
         Form {
+            Picker("Transport", selection: $store.settings.mirrorTransport) {
+                Text("USB (adb)").tag(MirrorTransport.usb)
+                Text("Wi-Fi (Daylight Ink screen stream)").tag(MirrorTransport.wifiStream)
+            }
+            if store.settings.mirrorTransport == .wifiStream {
+                Stepper("Stream size \(store.settings.mirrorStreamMaxSize) px", value: $store.settings.mirrorStreamMaxSize, in: Settings.mirrorStreamMaxSizeRange, step: 160)
+                Stepper(String(format: "Bit rate %.1f Mbit/s", Double(store.settings.mirrorStreamBitRate) / 1_000_000), value: $store.settings.mirrorStreamBitRate, in: Settings.mirrorStreamBitRateRange, step: 500_000)
+                Stepper("Frame rate \(store.settings.mirrorStreamMaxFps) fps", value: $store.settings.mirrorStreamMaxFps, in: Settings.mirrorStreamMaxFpsRange)
+                Stepper("Key frame every \(store.settings.mirrorStreamKeyIntervalMs) ms", value: $store.settings.mirrorStreamKeyIntervalMs, in: Settings.mirrorStreamKeyIntervalRange, step: 500)
+                Stepper(String(format: "Change threshold %.2f %% of the screen", store.settings.mirrorDiffThreshold * 100), value: $store.settings.mirrorDiffThreshold, in: Settings.mirrorDiffThresholdRange, step: 0.0005)
+            }
             Picker("Pin and Clear in mirror mode", selection: $store.settings.mirrorPinClearMode) {
                 Text("Floating pills").tag(MirrorPinClearMode.pills)
                 Text("Pen side button").tag(MirrorPinClearMode.penButton)
@@ -170,7 +181,11 @@ struct SettingsView: View {
                     Stepper("Bottom \(store.settings.mirrorCropInsetsPortrait.bottom)", value: $store.settings.mirrorCropInsetsPortrait.bottom, in: 0...800)
                 }
                 if !context.mirrorAvailable {
-                    Text("Mirror mode becomes active when a Daylight with USB debugging is plugged in.").font(.footnote).foregroundColor(.secondary)
+                    if store.settings.mirrorTransport == .wifiStream {
+                        Text(FailureText.sentence(.wifiStreamNoTablet)).font(.footnote).foregroundColor(.secondary)
+                    } else {
+                        Text("Mirror mode becomes active when a Daylight with USB debugging is plugged in.").font(.footnote).foregroundColor(.secondary)
+                    }
                 }
             }
         }

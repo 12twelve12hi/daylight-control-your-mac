@@ -97,7 +97,7 @@ public enum FailureText {
         case .unsignedBuild: template = "This is an unsigned test build. The virtual camera cannot be installed on this Mac. Use Daylight > Preview window to see the output."
         case .cameraAccessDenied: template = "Camera access is off for Daylight."
         case .noWebcam: template = "No camera found"
-        case .webcamFormatComposed: template = "Camera delivers 1280x720 NV12; composing every frame"
+        case .webcamFormatComposed: template = "Camera delivers <w>x<h> <fourcc>; composing every frame"   // SPEC 13.3 row 5 quotes an example
         case .extensionMissingEntitlement: template = "The camera extension is missing an entitlement (build signing problem)."
         case .extensionUnsupportedLocation: template = "Move Daylight to your Applications folder, then open it from there."
         case .extensionDamaged: template = "The camera extension inside this build is damaged. Download the build again."

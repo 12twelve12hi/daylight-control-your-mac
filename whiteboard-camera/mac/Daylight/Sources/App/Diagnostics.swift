@@ -24,6 +24,8 @@ enum DiagnosticsReport {
         /// LOOSE_ENDS H1: `adb.source`, `adb.path`, `adb.version` of the last resolution, printed as `mirror.adb.*` next to
         /// `mirror.adb.mode`; a key the mirror controller already reports wins.
         var adbSource: [String: String] = AdbSourceStatus.diagnostics()
+        /// PROTOCOL 15.3: `tablet facts: <key> received <receivedAt> (<n> facts)`, one line per sender.
+        var tabletFacts: [String] = TabletFactsStore.shared.diagnosticsLines()
         var failures: [String] = []
         var logLines: [String] = []
     }
@@ -53,6 +55,7 @@ enum DiagnosticsReport {
         lines.append("addresses: " + (f.addresses.isEmpty ? "none" : f.addresses.map { "\($0.ip) (\($0.interface), \($0.kind == .tailscale ? "Tailscale" : "LAN"))" }.joined(separator: ", ")))
         lines.append("clients: " + (f.clients.isEmpty ? "none" : f.clients.joined(separator: "; ")))
         lines.append("allowed tablets: " + (f.allowedClients.isEmpty ? "none" : f.allowedClients.map { "\($0.label) [\($0.id.prefix(8))] usb=\($0.seenOverUSB)" }.joined(separator: "; ")))
+        lines.append(contentsOf: f.tabletFacts.isEmpty ? ["tablet facts: none"] : f.tabletFacts)
         let mirror = f.mirror.merging(f.adbSource) { reported, _ in reported }
         for key in mirror.keys.sorted() { lines.append("mirror.\(key): \(mirror[key] ?? "")") }
         if !f.failures.isEmpty {

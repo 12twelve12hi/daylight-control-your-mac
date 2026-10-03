@@ -243,6 +243,15 @@ class MirrorSession(
         return out
     }
 
+    /**
+     * Whether a consent grant may be turned into a projection. While one is held ([projectionObtained]: the glue
+     * already has its MediaProjection) a second grant, from a double tap that opened two dialogs, is ignored:
+     * `getMediaProjection` for it makes the system stop the held projection, and that projection's late onStop would
+     * end the share. Asking again stays possible whenever no projection is held ([shareRequested] while
+     * CONSENT_NEEDED opens a new dialog, in case the first one was lost).
+     */
+    fun grantUsable(projectionObtained: Boolean): Boolean = !projectionHeld && !projectionObtained
+
     fun consentDenied(): List<MirrorEffect> {
         val out = ArrayList<MirrorEffect>()
         startPending = false

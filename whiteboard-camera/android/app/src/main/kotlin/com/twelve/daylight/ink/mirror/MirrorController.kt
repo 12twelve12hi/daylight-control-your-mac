@@ -140,6 +140,11 @@ class MirrorController(context: Context, private val uplink: MirrorUplink) {
     /** [ConsentActivity] result. Granted: the foreground service starts and calls [projectionGranted]. */
     fun consentResult(activity: Context, resultCode: Int, data: Intent?) {
         if (resultCode == android.app.Activity.RESULT_OK && data != null) {
+            if (!session.grantUsable(projection != null)) {
+                // A second dialog's grant (double tap): one projection at a time, the held one stays.
+                Log.i(TAG, "consent granted again while a projection is held; ignored")
+                return
+            }
             pendingResultCode = resultCode
             pendingResultData = data
             // From the visible consent activity: a foreground service start is allowed here (and on Android 14 the
@@ -163,6 +168,11 @@ class MirrorController(context: Context, private val uplink: MirrorUplink) {
     fun projectionGranted(): Boolean {
         val data = pendingResultData ?: return projection != null
         pendingResultData = null
+        if (!session.grantUsable(projection != null)) {
+            // A new projection would make the system stop the held one (AOSP startProjectionLocked): keep the held one.
+            Log.i(TAG, "a projection is held already; the newer consent is not used")
+            return projection != null
+        }
         serviceRunning = true
         uplink.acquireForMirror(HOLDER)
         val mpm = app.getSystemService(MediaProjectionManager::class.java)

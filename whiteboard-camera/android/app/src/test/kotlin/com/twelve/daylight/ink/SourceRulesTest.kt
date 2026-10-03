@@ -97,6 +97,16 @@ class SourceRulesTest {
     }
 
     @Test
+    fun aSecondConsentGrantNeverReplacesTheHeldProjection() {
+        // AOSP startProjectionLocked stops the held projection when another one is created: gate both entry points.
+        val m = read("mirror/MirrorController.kt")
+        val result = m.substringAfter("fun consentResult(").substringBefore("fun projectionGranted()")
+        assertInOrder(result, "if (!session.grantUsable(projection != null)) {", "return", "pendingResultData = data", "activity.startForegroundService(")
+        val granted = m.substringAfter("fun projectionGranted()").substringBefore("fun serviceGone()")
+        assertInOrder(granted, "pendingResultData = null", "if (!session.grantUsable(projection != null)) {", "return projection != null", "mpm.getMediaProjection(")
+    }
+
+    @Test
     fun encoderFormatIsTheProtocolOne() {
         val e = read("mirror/ScreenEncoder.kt")
         for (needle in listOf(

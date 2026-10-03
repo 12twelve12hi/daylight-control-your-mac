@@ -189,6 +189,23 @@ class MirrorSessionTest {
     }
 
     @Test
+    fun aSecondGrantWhileAProjectionIsHeldIsNotUsedButAskingAgainStaysPossible() {
+        val s = session()
+        s.setUiVisible(true)
+        s.connectionAllowed()
+        assertTrue(s.grantUsable(projectionObtained = false))
+        assertFalse(s.grantUsable(projectionObtained = true))
+        assertEquals(listOf(RequestConsent, SendStatus), s.shareRequested())
+        assertEquals(listOf(RequestConsent), s.shareRequested())        // a lost dialog can be asked for again
+        assertTrue(s.grantUsable(projectionObtained = false))           // the first grant is used
+        s.consentGranted()
+        assertFalse(s.grantUsable(projectionObtained = false))          // the second dialog's grant is not
+        assertEquals(MirrorState.PAUSED, s.state)
+        s.userStopped()
+        assertTrue(s.grantUsable(projectionObtained = false))           // after the share ended, a new one is
+    }
+
+    @Test
     fun stopKeepsTheProjectionAndPauses() {
         val s = streaming()
         assertEquals(listOf(StopEncoder, SendStatus), s.control(stop))

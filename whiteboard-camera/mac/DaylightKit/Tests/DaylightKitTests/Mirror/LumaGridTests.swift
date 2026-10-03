@@ -105,10 +105,9 @@ final class LumaGridTests: XCTestCase {
 
     func testRowPaddingIsSkipped() {
         let image = grayImage(width: 4, height: 4, bytesPerRow: 24, value: LumaGridTests.ramp)
-        XCTAssertEqual(sample(image, bytesPerRow: 24, width: 4, height: 4, gridWidth: 2, gridHeight: 2, stride: 1), [
-            UInt8((0 + 10 + 50 + 60 + 2) / 4), UInt8((20 + 30 + 70 + 80 + 2) / 4),
-            UInt8((100 + 110 + 150 + 160 + 2) / 4), UInt8((120 + 130 + 170 + 180 + 2) / 4),
-        ])
+        // Rounded means of each 2x2 block: (0+10+50+60+2)/4, (20+30+70+80+2)/4, (100+110+150+160+2)/4, (120+130+170+180+2)/4.
+        let expected: [UInt8] = [30, 50, 130, 150]
+        XCTAssertEqual(sample(image, bytesPerRow: 24, width: 4, height: 4, gridWidth: 2, gridHeight: 2, stride: 1), expected)
         XCTAssertEqual(sample(image, bytesPerRow: 24, width: 4, height: 4, gridWidth: 1, gridHeight: 1, stride: 1), [90], "the 0xFF padding never enters a mean")
     }
 

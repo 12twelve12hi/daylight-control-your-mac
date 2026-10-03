@@ -97,7 +97,7 @@ final class OverlaySettingsTests: XCTestCase {
     }
 
     func testMissingKeysKeepDefaults() throws {
-        let old = try JSONDecoder().decode(Settings.self, from: Data(#"{"port":7790,"preferredLayout":1}"#.utf8))
+        let old = try JSONDecoder().decode(Settings.self, from: Data(#"{"port":7790,"preferredLayout":1,"hotkeys":{"clear":{"keyCode":8,"modifiers":6400}}}"#.utf8))
         XCTAssertEqual(old.port, 7790)
         XCTAssertEqual(old.preferredLayout, .whiteboardOnly)
         XCTAssertFalse(old.overlayEnabled)

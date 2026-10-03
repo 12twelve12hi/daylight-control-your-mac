@@ -5,6 +5,16 @@ import XCTest
 
 /// Device tracking through the `devices -l` fallback with a fake adb, and the DC-1 choice rule.
 final class DeviceTrackerTests: XCTestCase {
+    /// Polls `condition` until it holds or `timeout` passes (a condition wait, not a fixed window).
+    private func waitUntil(_ timeout: Double, _ condition: () -> Bool) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() { return true }
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+        return condition()
+    }
+
     func testPollingPublishesChangesOnly() {
         let adb = FakeAdb()
         let listing = Locked("List of devices attached\nJP0001   device usb:1-1 product:daylight model:Daylight_DC_1 device:dc1 transport_id:1\n")
@@ -29,12 +39,11 @@ final class DeviceTrackerTests: XCTestCase {
         listing.withLock { $0 = "JP0001   unauthorized usb:1-1 transport_id:1\n" }
         wait(for: [second], timeout: 5)
         XCTAssertEqual(tracker.devices.first?.state, "unauthorized")
-        // Unchanged lists are not republished: after a few more polls the count stays at 2.
-        let settle = expectation(description: "settle")
-        DispatchQueue.global().asyncAfter(deadline: .now() + 0.3) { settle.fulfill() }
-        wait(for: [settle], timeout: 5)
+        // Unchanged lists are not republished: after three more polls the count stays at 2. A poll is scheduled only
+        // after the previous result was published, so once the third later call is recorded the earlier ones are in.
+        let pollsAtSecond = adb.calls(containing: "devices").count
+        XCTAssertTrue(waitUntil(10) { adb.calls(containing: "devices").count >= pollsAtSecond + 3 }, "it keeps polling")
         XCTAssertEqual(seen.withLock { $0.count }, 2)
-        XCTAssertGreaterThan(adb.calls(containing: "devices").count, 3, "it keeps polling")
         tracker.stop()
         XCTAssertFalse(tracker.isRunning)
     }
@@ -45,15 +54,21 @@ final class DeviceTrackerTests: XCTestCase {
         let tracker = DeviceTracker(adb: adb, queue: DispatchQueue(label: "tracker"), pollInterval: 0.05, useTrackSocket: false)
         tracker.start()
         tracker.start()
-        let settle = expectation(description: "settle")
-        DispatchQueue.global().asyncAfter(deadline: .now() + 0.2) { settle.fulfill() }
-        wait(for: [settle], timeout: 5)
+        XCTAssertTrue(waitUntil(10) { adb.calls.count >= 3 }, "polling runs")
+        XCTAssertTrue(tracker.isRunning)
         tracker.stop()
         let before = adb.calls.count
-        let later = expectation(description: "later")
-        DispatchQueue.global().asyncAfter(deadline: .now() + 0.2) { later.fulfill() }
+        // "Nothing happens" needs a window; it is made robust instead of removed: the tracker and fake adb queues
+        // are drained first (an in-flight poll finishes and sees the stop), then six poll intervals pass. A tracker
+        // still polling would add about six calls; a slow runner can only make that number smaller, never larger.
+        tracker.queue.sync {}
+        adb.queue.sync {}
+        tracker.queue.sync {}
+        let later = expectation(description: "six poll intervals")
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.3) { later.fulfill() }
         wait(for: [later], timeout: 5)
         XCTAssertLessThanOrEqual(adb.calls.count, before + 1, "at most one in-flight poll after stop")
+        XCTAssertFalse(tracker.isRunning)
     }
 
     func testChooseDaylight() {

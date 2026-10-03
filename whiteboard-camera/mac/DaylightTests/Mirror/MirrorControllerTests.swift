@@ -30,6 +30,16 @@ final class MirrorControllerTests: XCTestCase {
         return controller
     }
 
+    /// Polls `condition` until it holds or `timeout` passes (a condition wait, not a fixed window).
+    private func waitUntil(_ timeout: Double, _ condition: () -> Bool) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() { return true }
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+        return condition()
+    }
+
     private func waitForStatus(_ controller: MirrorController, timeout: Double = 8, where predicate: @escaping (MirrorStatus) -> Bool) {
         let done = expectation(description: "status")
         done.assertForOverFulfill = false
@@ -208,11 +218,9 @@ final class MirrorControllerTests: XCTestCase {
         pipeline.onPost = nil
         controller.stop()
         waitForStatus(controller) { $0 == .idle }
-        let settle = expectation(description: "settle")
-        DispatchQueue.global().asyncAfter(deadline: .now() + 0.3) { settle.fulfill() }
-        wait(for: [settle], timeout: 5)
+        // The session and the pen watcher stop on their own queues after .idle: wait for the children, not 0.3 s.
+        XCTAssertTrue(waitUntil(10) { adb.spawned.allSatisfy { !$0.isRunning } }, "every child is terminated when the session ends")
         XCTAssertEqual(pipeline.posted.last, .penContact(down: false), "the session end lifts the pen for the governor")
-        XCTAssertTrue(adb.spawned.allSatisfy { !$0.isRunning }, "every child is terminated when the session ends")
     }
 
     func testSessionWithoutADummyByteIsRow25() {
@@ -222,12 +230,25 @@ final class MirrorControllerTests: XCTestCase {
         let pipeline = FakePipelineControl()
         let controller = makeController(adb: adb, pipeline: pipeline)
         let failures = Locked<[FailureText.Case]>([])
-        controller.onFailure = { failure, _ in failures.withLock { $0.append(failure) } }
+        let row28 = DispatchSemaphore(value: 0)
+        controller.onFailure = { failure, _ in
+            failures.withLock { $0.append(failure) }
+            if failure == .noPenDevice { row28.signal() }
+        }
+        // The pen probe and the dummy-byte timeout race; a session that ended first drops the probe's row 28 (by
+        // design). When the scrcpy server child is spawned, the mirror queue (where the dummy-byte attempts and their
+        // socket callbacks run; row 28 never passes through it) is held until row 28 arrived, so the order the test
+        // asserts is certain. Bounded: at most 10 s.
+        let mirrorQueue = controller.mirrorQueue
+        adb.onSpawn = { args, _ in
+            if args.contains("app_process") { mirrorQueue.async { _ = row28.wait(timeout: .now() + 10) } }
+        }
         controller.start()
-        waitForStatus(controller, timeout: 15) { if case .error(.scrcpyServerFailed, _) = $0 { return true } else { return false } }
-        let settle = expectation(description: "settle")
-        DispatchQueue.global().asyncAfter(deadline: .now() + 0.3) { settle.fulfill() }
-        wait(for: [settle], timeout: 5)
+        waitForStatus(controller, timeout: 25) { if case .error(.scrcpyServerFailed, _) = $0 { return true } else { return false } }
+        // Row 25 is raised and the pen lifted right after the status change, the children end on their own queues.
+        XCTAssertTrue(waitUntil(10) {
+            failures.withLock { $0 }.contains(.scrcpyServerFailed) && !pipeline.posted.isEmpty && adb.spawned.allSatisfy { !$0.isRunning }
+        }, "row 25, the pen lift and the terminated children")
         XCTAssertTrue(failures.withLock { $0 }.contains(.scrcpyServerFailed), "row 25 reaches the menu")
         XCTAssertTrue(failures.withLock { $0 }.contains(.noPenDevice), "row 28 for a tablet without a pen node")
         XCTAssertTrue(adb.spawned.allSatisfy { !$0.isRunning }, "the server child is terminated")

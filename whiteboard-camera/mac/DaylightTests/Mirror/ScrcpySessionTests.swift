@@ -59,6 +59,16 @@ final class ScrcpySessionTests: XCTestCase {
         return s
     }
 
+    /// Polls `condition` until it holds or `timeout` passes (a condition wait, not a fixed window).
+    private func waitUntil(_ timeout: Double, _ condition: () -> Bool) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() { return true }
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+        return condition()
+    }
+
     func testCommandOrderDummyByteAndPackets() throws {
         let server = try FakeScrcpyServer(payload: ScrcpySessionTests.stream())
         guard let port = server.start() else { return XCTFail("no server port") }
@@ -103,10 +113,7 @@ final class ScrcpySessionTests: XCTestCase {
         XCTAssertEqual(adb.spawned.count, 1)
         XCTAssertTrue(adb.spawned[0].isRunning)
         session.stop()
-        let stopped = expectation(description: "stopped")
-        DispatchQueue.global().asyncAfter(deadline: .now() + 0.3) { stopped.fulfill() }
-        wait(for: [stopped], timeout: 5)
-        XCTAssertTrue(adb.spawned[0].wasTerminated, "stop terminates the adb shell child")
+        XCTAssertTrue(waitUntil(10) { adb.spawned[0].wasTerminated && !session.isRunning }, "stop terminates the adb shell child")
         XCTAssertFalse(session.isRunning)
     }
 
@@ -120,19 +127,17 @@ final class ScrcpySessionTests: XCTestCase {
         session.onConnected = { connected.fulfill() }
         session.onExit = { error in XCTFail("unexpected exit \(String(describing: error))") }
         session.start()
-        // The server comes up late, on the port the session is already retrying.
-        let late = expectation(description: "late start")
-        DispatchQueue.global().asyncAfter(deadline: .now() + 0.4) {
-            let listener = try? NWListener(using: .tcp, on: NWEndpoint.Port(rawValue: port)!)
-            listener?.newConnectionHandler = { connection in
-                connection.start(queue: server.queue)
-                connection.send(content: server.payload, completion: .contentProcessed { _ in })
-            }
-            listener?.start(queue: server.queue)
-            ScrcpySessionTests.lateListeners.append(listener)
-            late.fulfill()
+        // The server comes up late, on the port the session is already retrying: once the first attempt failed and
+        // the second began (a condition, not a 0.4 s guess that a slow runner could overtake).
+        XCTAssertTrue(waitUntil(10) { session.dummyByteAttemptsUsed >= 2 }, "the session retries while nothing listens")
+        let listener = try? NWListener(using: .tcp, on: NWEndpoint.Port(rawValue: port)!)
+        listener?.newConnectionHandler = { connection in
+            connection.start(queue: server.queue)
+            connection.send(content: server.payload, completion: .contentProcessed { _ in })
         }
-        wait(for: [late, connected], timeout: 15)
+        listener?.start(queue: server.queue)
+        ScrcpySessionTests.lateListeners.append(listener)
+        wait(for: [connected], timeout: 15)
         XCTAssertGreaterThan(session.dummyByteAttemptsUsed, 1, "at least one retry happened before the server listened")
         XCTAssertEqual(session.boundPort, port)
         session.stop()

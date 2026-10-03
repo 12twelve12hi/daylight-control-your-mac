@@ -23,6 +23,17 @@ final class ApiRoutesTests: XCTestCase {
         XCTAssertTrue(text.contains("\"app\":\"daylight\""), "the web probe greps this exact fragment")
     }
 
+    func testOriginFollowsTheHostHeader() {
+        XCTAssertEqual(WebServer.originFromHost("192.168.1.23:7788"), "http://192.168.1.23:7788", "the Wi-Fi tablet is told the address it reached, not the Tailscale one")
+        XCTAssertEqual(WebServer.originFromHost(" mikes-mac.local:7789 "), "http://mikes-mac.local:7789")
+        XCTAssertEqual(WebServer.originFromHost("[fe80::1]:7788"), "http://[fe80::1]:7788")
+        XCTAssertNil(WebServer.originFromHost(""))
+        XCTAssertNil(WebServer.originFromHost("evil host"))
+        XCTAssertNil(WebServer.originFromHost("a.b/c"))
+        XCTAssertNil(WebServer.originFromHost("x\r\nSet-Cookie: y"))
+        XCTAssertNil(WebServer.originFromHost(String(repeating: "a", count: 300)))
+    }
+
     func testApkRoute() throws {
         XCTAssertEqual(ApiRoutes.apk(url: nil).status, 404)
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("fake-\(UUID().uuidString).apk")

@@ -194,6 +194,7 @@ final class WebServerLoopbackTests: XCTestCase {
         XCTAssertEqual(info?.headers["content-type"], "application/json")
         let json = try JSONSerialization.jsonObject(with: info!.body) as? [String: Any]
         XCTAssertEqual(json?["app"] as? String, "daylight")
+        XCTAssertEqual(json?["origin"] as? String, "http://127.0.0.1:\(port)", "the origin is the Host the client used")
         let index = get("/")
         XCTAssertEqual(index?.status, 200)
         XCTAssertTrue(index?.headers["content-type"]?.hasPrefix("text/html") ?? false)

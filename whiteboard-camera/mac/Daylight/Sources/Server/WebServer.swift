@@ -193,7 +193,9 @@ final class WebServer {
         case "/healthz":
             return ApiRoutes.healthz()
         case "/api/info":
-            return ApiRoutes.info(info())
+            var dictionary = info()
+            if let host = request.headers["host"], let origin = WebServer.originFromHost(host) { dictionary["origin"] = origin }
+            return ApiRoutes.info(dictionary)
         case ApiRoutes.apkPath:
             return ApiRoutes.apk(url: config.apkURL)
         default:
@@ -201,9 +203,20 @@ final class WebServer {
         }
     }
 
-    /// The `/api/info` origin for this listener: the first LAN address, or loopback.
+    /// The `/api/info` origin for this listener when the request carries no usable Host: the first address, or loopback.
     static func origin(port: UInt16) -> String {
         return LocalAddresses.primaryURL(port: port) ?? "http://127.0.0.1:\(port)"
+    }
+
+    /// The origin the tablet actually reached us at, from its Host header: SPEC 9.2 step 4 promises the exact string
+    /// the page runs on, and a Wi-Fi tablet must not be told the Tailscale address. Only `host[:port]` characters pass
+    /// (an IPv6 literal in brackets included); anything else falls back to `origin(port:)`.
+    static func originFromHost(_ host: String) -> String? {
+        let trimmed = host.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty, trimmed.count <= 255 else { return nil }
+        let allowed = Set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-:[]_")
+        guard trimmed.allSatisfy({ allowed.contains($0) }) else { return nil }
+        return "http://" + trimmed
     }
 }
 

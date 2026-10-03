@@ -121,4 +121,4 @@ The commits of this round end with the session attribution the harness supplies 
 
 ## 7. CI
 
-Run https://github.com/12twelve12hi/daylight-control-your-mac/actions/runs/37158885096 on 7bb9dc6 (J2, J3, J5, I8, I9, ADB-2): every job green including mac and mac-26. The final runs are listed in STATUS "Review round 3".
+Run https://github.com/12twelve12hi/daylight-control-your-mac/actions/runs/37158885096 on 7bb9dc6 (J2, J3, J5, I8, I9, ADB-2): every job green including mac and mac-26. Run https://github.com/12twelve12hi/daylight-control-your-mac/actions/runs/37160970105 on c32357b (every fix of the round): all six jobs green; 364 of 364 Kit tests; every new hosted test of this round passed by name; `self-test: PASS`. Reds on the way: `LumaGridTests` type-check time on kit-linux (run 37160015702, ours, fixed in 28b61d1); `OverlaySettingsTests` (run 37159402591) and `App/Export/ZipArchive.swift:44` (runs 37159468412, 37160202127), other VPs' files, fixed by their owners. The final docs commit's runs are in STATUS "Review round 3".

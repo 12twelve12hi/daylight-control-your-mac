@@ -38,7 +38,7 @@ Done looks like: `gh auth status` prints your GitHub login and `gh run list --li
 
 If it fails: `gh` says "not logged in" (run `gh auth login` again); `gh run list` says the workflow does not exist (you are in the wrong folder; the workflow file is `.github/workflows/whiteboard-camera.yml` at the monorepo root).
 
-Optional, for later: the `adb` you need for the tablet is bundled inside the app at `Daylight.app/Contents/Resources/Vendor/adb`; you do not need Android Studio or Homebrew's platform-tools, and a second adb on the Mac is one of the failure rows (24). Settings > Mirror > "adb source" can instead use "Download on first use" (Google's platform-tools 37.0.0 after you accept the Android SDK License once) or "Use installed adb" (the one from Homebrew or Android Studio, platform-tools 35 or newer); the default "Bundled (default)" needs nothing. A new choice applies the next time Daylight starts; `docs/SETUP.md` section 2.3 "adb source" has the details.
+Optional, for later: the `adb` you need for the tablet is bundled inside the app at `Daylight.app/Contents/Resources/Vendor/adb`; you do not need Android Studio or Homebrew's platform-tools, and a second adb on the Mac is one of the failure rows (24). Settings > Mirror > "adb source" can instead use "Download on first use" (Google's platform-tools 37.0.0 after you accept the Android SDK License once) or "Use installed adb" (the one from Homebrew or Android Studio, platform-tools 35 or newer); the default "Bundled (default)" needs nothing. A new choice applies at once (a running mirror restarts with it); `docs/SETUP.md` section 2.3 "adb source" has the details.
 
 ---
 
@@ -122,7 +122,7 @@ Done looks like: menu bar > "Diagnostics..." shows `mirror.wifi.tabletState: str
 4. Write in the SolOS note app. The Daylight Ink state line reads "Sharing with your Mac" and the board slides in when the ink appears. Pin and Clear are the floating pills.
 5. When the call ends, tap "Stop" in the notification.
 
-If it fails: "Daylight Ink was not allowed to share the tablet screen. Tap the Daylight Ink notification on the tablet and choose Start now." (row 34: you tapped Cancel); "Your Daylight could not start its screen encoder. Restart Daylight Ink, or use Mirror over USB." (row 35); "The tablet's screen stream paused. Reconnecting..." (row 36: Wi-Fi congestion or a still screen the encoder stopped repeating, D21); "Open Daylight Ink on your Daylight to mirror over Wi-Fi." (row 38: no Daylight Ink connection announced the capability; open the app). Scrolling or animations that start the board by mistake: raise Settings > Mirror > "Change threshold". The full owner run is `docs/TESTING-CHECKLIST.md` Session 4b.
+If it fails: "Daylight Ink was not allowed to share the tablet screen. On the tablet open Daylight Ink > Settings > Share screen with your Mac and choose Start now." (row 34: you tapped Cancel; sharing again from there streams at once); "Your Daylight could not start its screen encoder. Restart Daylight Ink, or use Mirror over USB." (row 35); "The tablet's screen stream paused. Reconnecting..." (row 36: Wi-Fi congestion or a still screen the encoder stopped repeating, D21); "Open Daylight Ink on your Daylight to mirror over Wi-Fi." (row 38: no Daylight Ink connection announced the capability; open the app). Scrolling or animations that start the board by mistake: raise Settings > Mirror > "Change threshold". The full owner run is `docs/TESTING-CHECKLIST.md` Session 4b.
 
 ---
 

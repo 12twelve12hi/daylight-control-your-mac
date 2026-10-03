@@ -16,23 +16,35 @@ final class UsbOnboardingTests: XCTestCase {
     func testInstallInkCommands() {
         let commands = UsbOnboarding.installInkCommands(serial: "JP0001", apkPath: "/App/Contents/Resources/DaylightInk.apk", port: 7788, host: "100.64.0.7", pills: true, pillsPosition: .top)
         XCTAssertEqual(commands, [
-            ["-s", "JP0001", "install", "-r", "/App/Contents/Resources/DaylightInk.apk"],
+            ["-s", "JP0001", "install", "-r", "-d", "/App/Contents/Resources/DaylightInk.apk"],
             ["-s", "JP0001", "shell", "appops", "set", "com.twelve.daylight.ink", "SYSTEM_ALERT_WINDOW", "allow"],
             ["-s", "JP0001", "shell", "pm", "grant", "com.twelve.daylight.ink", "android.permission.POST_NOTIFICATIONS"],
             ["-s", "JP0001", "reverse", "tcp:7788", "tcp:7788"],
-            ["-s", "JP0001", "shell", "am", "start", "-n", "com.twelve.daylight.ink/.ui.MainActivity", "--es", "host", "100.64.0.7"],
-            ["-s", "JP0001", "shell", "am", "start-foreground-service", "-n", "com.twelve.daylight.ink/.overlay.OverlayService", "--es", "pills", "top", "--es", "host", "100.64.0.7"],
+            ["-s", "JP0001", "shell", "am", "start", "-n", "com.twelve.daylight.ink/.ui.MainActivity", "--es", "host", "100.64.0.7:7788"],
+            ["-s", "JP0001", "shell", "am", "start-foreground-service", "-n", "com.twelve.daylight.ink/.overlay.OverlayService", "--es", "pills", "top", "--es", "host", "100.64.0.7:7788"],
         ])
         let noHost = UsbOnboarding.installInkCommands(serial: "S", apkPath: "/a.apk", port: 7788, host: nil, pills: false, pillsPosition: .bottom)
         XCTAssertEqual(noHost.count, 5)
         XCTAssertEqual(noHost[4], ["-s", "S", "shell", "am", "start", "-n", "com.twelve.daylight.ink/.ui.MainActivity"])
-        XCTAssertEqual(UsbOnboarding.startPillsCommand(serial: "S", position: .bottom, host: nil), ["-s", "S", "shell", "am", "start-foreground-service", "-n", "com.twelve.daylight.ink/.overlay.OverlayService", "--es", "pills", "bottom"])
+        XCTAssertEqual(UsbOnboarding.startPillsCommand(serial: "S", position: .bottom, host: nil, port: 7788), ["-s", "S", "shell", "am", "start-foreground-service", "-n", "com.twelve.daylight.ink/.overlay.OverlayService", "--es", "pills", "bottom"])
+    }
+
+    func testBoundPortReachesTheTabletThroughTheReverseAndTheHostArgument() {
+        // Failure row 16: the Mac listener fell back to 7789. The APK still dials 127.0.0.1:7788 over the reverse, and the
+        // remembered wireless host carries the real port so a later Wi-Fi dial lands on the right listener.
+        let commands = UsbOnboarding.installInkCommands(serial: "S", apkPath: "/a.apk", port: 7789, host: "100.64.0.7", pills: true, pillsPosition: .top)
+        XCTAssertEqual(commands[3], ["-s", "S", "reverse", "tcp:7788", "tcp:7789"])
+        XCTAssertEqual(commands[4], ["-s", "S", "shell", "am", "start", "-n", "com.twelve.daylight.ink/.ui.MainActivity", "--es", "host", "100.64.0.7:7789"])
+        XCTAssertEqual(commands[5].suffix(2), ["host", "100.64.0.7:7789"])
+        XCTAssertEqual(UsbOnboarding.mirrorPillsCommands(serial: "S", apkPath: "/a.apk", port: 7789, pillsPosition: .top)[3], ["-s", "S", "reverse", "tcp:7788", "tcp:7789"])
+        XCTAssertEqual(UsbOnboarding.hostArgument("fd7a:115c::7", port: 7788), "[fd7a:115c::7]:7788", "an IPv6 host takes the bracket form the APK parses")
+        XCTAssertEqual(UsbOnboarding.hostArgument("192.168.1.40", port: 7799), "192.168.1.40:7799")
     }
 
     func testMirrorPillsCommands() {
         let commands = UsbOnboarding.mirrorPillsCommands(serial: "S", apkPath: "/a.apk", port: 7788, pillsPosition: .top)
         XCTAssertEqual(commands.count, 5)
-        XCTAssertEqual(commands[0], ["-s", "S", "install", "-r", "/a.apk"])
+        XCTAssertEqual(commands[0], ["-s", "S", "install", "-r", "-d", "/a.apk"])
         XCTAssertEqual(commands[3], ["-s", "S", "reverse", "tcp:7788", "tcp:7788"])
         XCTAssertEqual(commands[4], ["-s", "S", "shell", "am", "start-foreground-service", "-n", "com.twelve.daylight.ink/.overlay.OverlayService", "--es", "pills", "top"])
         XCTAssertFalse(commands.contains { $0.contains("-a") && $0.contains("MainActivity") }, "mirror mode never opens the note app's rival")

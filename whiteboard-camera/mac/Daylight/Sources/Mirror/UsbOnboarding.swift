@@ -17,26 +17,42 @@ enum UsbOnboarding {
         ]
     }
 
+    /// `adb install` flags: `-r` replaces the installed app, `-d` allows a version downgrade (every CI APK is the debug
+    /// variant, where Android permits it), so a tablet carrying a newer sideload still takes the build inside this Mac app.
+    static let installFlags = ["-r", "-d"]
+
+    /// The tablet always dials `127.0.0.1:7788` (the APK's fixed loopback candidate), so the reverse maps the tablet's
+    /// 7788 onto whatever port the Mac listener bound (7788 to 7799, SPEC 11 and failure row 16).
+    static func reverseCommand(serial: String, port: UInt16) -> [String] {
+        return ["-s", serial, "reverse", "tcp:\(SolStream.defaultPort)", "tcp:\(port)"]
+    }
+
+    /// The `--es host` value: `host:port`, or `[v6]:port`, so the remembered wireless candidate carries the bound port
+    /// (the APK's `Candidates.url` parses both forms).
+    static func hostArgument(_ host: String, port: UInt16) -> String {
+        return host.contains(":") ? "[\(host)]:\(port)" : "\(host):\(port)"
+    }
+
     /// Install, grant the overlay and notification permissions, reverse the port, start the activity (with `--es host`
     /// when known), and with `pills` start the overlay service.
     static func installInkCommands(serial: String, apkPath: String, port: UInt16, host: String?, pills: Bool, pillsPosition: PillsPosition) -> [[String]] {
         var commands: [[String]] = [
-            ["-s", serial, "install", "-r", apkPath],
+            ["-s", serial, "install"] + installFlags + [apkPath],
             ["-s", serial, "shell", "appops", "set", inkPackage, "SYSTEM_ALERT_WINDOW", "allow"],
             ["-s", serial, "shell", "pm", "grant", inkPackage, "android.permission.POST_NOTIFICATIONS"],
-            ["-s", serial, "reverse", "tcp:\(port)", "tcp:\(port)"],
+            reverseCommand(serial: serial, port: port),
         ]
         var start = ["-s", serial, "shell", "am", "start", "-n", mainActivity]
-        if let host = host, !host.isEmpty { start += ["--es", "host", host] }
+        if let host = host, !host.isEmpty { start += ["--es", "host", hostArgument(host, port: port)] }
         commands.append(start)
-        if pills { commands.append(startPillsCommand(serial: serial, position: pillsPosition, host: host)) }
+        if pills { commands.append(startPillsCommand(serial: serial, position: pillsPosition, host: host, port: port)) }
         return commands
     }
 
-    /// `am start-foreground-service -n com.twelve.daylight.ink/.overlay.OverlayService --es pills top|bottom [--es host H]`.
-    static func startPillsCommand(serial: String, position: PillsPosition, host: String?) -> [String] {
+    /// `am start-foreground-service -n com.twelve.daylight.ink/.overlay.OverlayService --es pills top|bottom [--es host H:P]`.
+    static func startPillsCommand(serial: String, position: PillsPosition, host: String?, port: UInt16) -> [String] {
         var command = ["-s", serial, "shell", "am", "start-foreground-service", "-n", overlayService, "--es", "pills", position.rawValue]
-        if let host = host, !host.isEmpty { command += ["--es", "host", host] }
+        if let host = host, !host.isEmpty { command += ["--es", "host", hostArgument(host, port: port)] }
         return command
     }
 
@@ -44,11 +60,11 @@ enum UsbOnboarding {
     /// overlay service (the note app stays in front).
     static func mirrorPillsCommands(serial: String, apkPath: String, port: UInt16, pillsPosition: PillsPosition) -> [[String]] {
         return [
-            ["-s", serial, "install", "-r", apkPath],
+            ["-s", serial, "install"] + installFlags + [apkPath],
             ["-s", serial, "shell", "appops", "set", inkPackage, "SYSTEM_ALERT_WINDOW", "allow"],
             ["-s", serial, "shell", "pm", "grant", inkPackage, "android.permission.POST_NOTIFICATIONS"],
-            ["-s", serial, "reverse", "tcp:\(port)", "tcp:\(port)"],
-            startPillsCommand(serial: serial, position: pillsPosition, host: nil),
+            reverseCommand(serial: serial, port: port),
+            startPillsCommand(serial: serial, position: pillsPosition, host: nil, port: port),
         ]
     }
 

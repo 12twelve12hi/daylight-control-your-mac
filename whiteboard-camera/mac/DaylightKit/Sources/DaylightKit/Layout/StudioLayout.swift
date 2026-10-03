@@ -25,8 +25,10 @@ public enum StudioLayout {
         public var divider: PixelRect?
         public var dividerColor: RGBA
         public var dividerAlpha: Double
+        /// The presenter person cutout (Overlay only, SPEC 6.7); nil in every other layout.
+        public var overlay: OverlayLayout.Cutout?
 
-        public init(presenter: QuadSpec?, canvas: QuadSpec?, canvasClip: PixelRect?, borders: [PixelRect], divider: PixelRect?, dividerColor: RGBA, dividerAlpha: Double) {
+        public init(presenter: QuadSpec?, canvas: QuadSpec?, canvasClip: PixelRect?, borders: [PixelRect], divider: PixelRect?, dividerColor: RGBA, dividerAlpha: Double, overlay: OverlayLayout.Cutout? = nil) {
             self.presenter = presenter
             self.canvas = canvas
             self.canvasClip = canvasClip
@@ -34,6 +36,7 @@ public enum StudioLayout {
             self.divider = divider
             self.dividerColor = dividerColor
             self.dividerAlpha = dividerAlpha
+            self.overlay = overlay
         }
     }
 
@@ -116,6 +119,9 @@ public enum StudioLayout {
                 divider: nil,
                 dividerColor: dividerColor,
                 dividerAlpha: 0)
+        case .overlay:
+            // SPEC 6.7 with the default cutout; the pipeline calls OverlayLayout.frame with the Settings config.
+            return OverlayLayout.frame(progress: progress, orientation: orientation, canvasAspect: canvasAspect, breath: breath, config: .default)
         }
     }
 

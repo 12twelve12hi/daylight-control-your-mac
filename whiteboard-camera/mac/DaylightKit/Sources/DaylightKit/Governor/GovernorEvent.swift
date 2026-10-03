@@ -24,9 +24,12 @@ public enum HoldMode: UInt8, Codable {
     }
 }
 
+/// Not on the wire (the STATE `mode` byte is HoldMode), so a new layout needs no protocol change.
 public enum LayoutStyle: UInt8, Codable {
     case studioSplit = 0
     case whiteboardOnly = 1
+    /// Presenter Overlay (SPEC 6.7, v2, off by default): offered only while `Settings.overlayEnabled`.
+    case overlay = 2
 }
 
 /// Raw values equal the STATE `ink_source` byte.
@@ -86,7 +89,8 @@ public struct GovernorConfig: Equatable {
     public init() {}
 
     /// The governor settings of SPEC section 11 (`idleTimeoutSeconds`, `preWarningSeconds`, `springK`,
-    /// `engageOnEraser`, `autoEngage`, `preferredLayout`), after `validated()`.
+    /// `engageOnEraser`, `autoEngage`, `preferredLayout`), after `validated()`. A stored `preferredLayout` of `.overlay`
+    /// with `overlayEnabled` false engages in Studio Split (the stored value stays, so re-enabling restores it).
     public init(settings: Settings) {
         let s = settings.validated()
         idleTimeout = Double(s.idleTimeoutSeconds)
@@ -94,6 +98,6 @@ public struct GovernorConfig: Equatable {
         springK = s.springK
         engageOnEraser = s.engageOnEraser
         autoEngage = s.autoEngage
-        preferredLayout = s.preferredLayout
+        preferredLayout = (s.preferredLayout == .overlay && !s.overlayEnabled) ? .studioSplit : s.preferredLayout
     }
 }

@@ -1,11 +1,11 @@
 import XCTest
 import DaylightKit
 
-/// SPEC 13.3 and plan 3.4: 49 cases in row order, exact owner-facing sentences, log lines, placeholder substitution.
+/// SPEC 13.3 and plan 3.4: 51 cases in row order, exact owner-facing sentences, log lines, placeholder substitution.
 final class FailureTextTests: XCTestCase {
-    func testFortyNineCasesInRowOrder() {
+    func testFiftyOneCasesInRowOrder() {
         let names = FailureText.Case.allCases.map { $0.rawValue }
-        XCTAssertEqual(names.count, 49)
+        XCTAssertEqual(names.count, 51)
         XCTAssertEqual(names, [
             "notInApplications", "unsignedBuild", "cameraAccessDenied", "noWebcam", "webcamFormatComposed",
             "extensionMissingEntitlement", "extensionUnsupportedLocation", "extensionDamaged", "extensionSignatureInvalid",
@@ -18,12 +18,14 @@ final class FailureTextTests: XCTestCase {
             "wifiStreamNoTablet",
             "adbTermsDeclined", "adbDownloadFailed", "adbChecksumMismatch", "adbInstalledMissing", "adbInstalledTooOld",
             "diagnosticsExportRunning", "diagnosticsExportSaved", "diagnosticsExportPartial", "diagnosticsExportFailed",
+            "overlayFallback", "overlayLowCoverage",
         ])
         XCTAssertEqual(FailureText.Case.allCases.map { $0.row }, [
             "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "12b", "13", "14", "15", "16", "17", "18", "19", "20",
             "21", "22", "23", "24", "25", "26", "27", "28", "28b", "29", "30", "31", "32", "33",
             "34", "35", "36", "37", "38", "39", "40", "41", "42", "43",
             "44", "45", "46", "47",
+            "48", "49",
         ])
     }
 
@@ -46,6 +48,17 @@ final class FailureTextTests: XCTestCase {
         XCTAssertEqual(FailureText.sentence(.diagnosticsExportFailed, ["the disk is full"]), "Could not save the diagnostics file: the disk is full. Use Diagnostics > Copy diagnostics instead.")
         XCTAssertEqual(FailureText.logLine(.diagnosticsExportSaved, ["diagnostics-2026-10-03-14-05.zip", "1024", "12"]), "failure.diagnosticsExportSaved (row 45): diagnostics export: wrote diagnostics-2026-10-03-14-05.zip (1024 bytes, 12 files)")
         XCTAssertEqual(FailureText.logLine(.diagnosticsExportFailed, ["ENOSPC"]), "failure.diagnosticsExportFailed (row 47): diagnostics export failed: ENOSPC")
+    }
+
+    /// Presenter Overlay rows, every sentence and log line exact (SPEC 13.3 rows 48 and 49).
+    func testOverlayRowsExact() {
+        XCTAssertEqual(FailureText.Case.overlayFallback.row, "48")
+        XCTAssertEqual(FailureText.Case.overlayLowCoverage.row, "49")
+        XCTAssertEqual(FailureText.sentence(.overlayFallback), "Overlay mode could not find you in the camera picture, so Daylight is showing Studio Split. Turn Overlay off and on in Settings > Overlay to try again.")
+        XCTAssertEqual(FailureText.sentence(.overlayFallback, ["request failed"]), FailureText.sentence(.overlayFallback), "the sentence takes no argument")
+        XCTAssertEqual(FailureText.sentence(.overlayLowCoverage), "Overlay is showing your whole camera picture because it cannot separate you from the background (too dark, or nobody in view).")
+        XCTAssertEqual(FailureText.logLine(.overlayFallback, ["15", "request failed"]), "failure.overlayFallback (row 48): overlay: segmentation failed 15 frames in a row: request failed")
+        XCTAssertEqual(FailureText.logLine(.overlayLowCoverage, ["0.009"]), "failure.overlayLowCoverage (row 49): overlay: mask coverage 0.009 below 0.01; showing the camera rectangle")
     }
 
     func testEveryCaseHasASentenceAndALogLine() {

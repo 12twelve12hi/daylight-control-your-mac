@@ -55,6 +55,8 @@ public enum FailureText {
         case diagnosticsExportSaved         // 45
         case diagnosticsExportPartial       // 46
         case diagnosticsExportFailed        // 47
+        case overlayFallback                // 48
+        case overlayLowCoverage             // 49
 
         /// The SPEC 13.3 row label.
         public var row: String {
@@ -108,6 +110,8 @@ public enum FailureText {
             case .diagnosticsExportSaved: return "45"
             case .diagnosticsExportPartial: return "46"
             case .diagnosticsExportFailed: return "47"
+            case .overlayFallback: return "48"
+            case .overlayLowCoverage: return "49"
             }
         }
     }
@@ -173,6 +177,8 @@ public enum FailureText {
         case .diagnosticsExportSaved: template = "Diagnostics saved as <file> in Documents > Daylight Camera. Send this file back after the test."
         case .diagnosticsExportPartial: template = "The diagnostics file was saved without <part>: <reason>."
         case .diagnosticsExportFailed: template = "Could not save the diagnostics file: <reason>. Use Diagnostics > Copy diagnostics instead."
+        case .overlayFallback: template = "Overlay mode could not find you in the camera picture, so Daylight is showing Studio Split. Turn Overlay off and on in Settings > Overlay to try again."
+        case .overlayLowCoverage: template = "Overlay is showing your whole camera picture because it cannot separate you from the background (too dark, or nobody in view)."
         }
         var filled = args
         if c == .extensionNeedsApproval && filled.isEmpty { filled = [approvalPathModern] }
@@ -249,6 +255,8 @@ public enum FailureText {
         case .diagnosticsExportSaved: template = "diagnostics export: wrote <name> (<bytes> bytes, <n> files)"
         case .diagnosticsExportPartial: template = "diagnostics export: <part> unavailable: <error>"
         case .diagnosticsExportFailed: template = "diagnostics export failed: <error>"
+        case .overlayFallback: template = "overlay: segmentation failed <n> frames in a row: <error>"
+        case .overlayLowCoverage: template = "overlay: mask coverage <fraction> below 0.01; showing the camera rectangle"
         }
         return "failure.\(c.rawValue) (row \(c.row)): " + substitute(template, args)
     }

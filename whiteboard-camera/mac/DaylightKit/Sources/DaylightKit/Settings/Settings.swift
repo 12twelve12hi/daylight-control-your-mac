@@ -1,12 +1,15 @@
 import Foundation
 
 /// Hotkey actions (SPEC section 14). Raw values are the JSON keys of `Settings.hotkeys`.
+/// The Carbon hotkey id is the index in `allCases` plus 1, so new actions are appended last.
 public enum HotkeyAction: String, Codable, CaseIterable, CodingKeyRepresentable {
     case whiteboardOnly
     case studioSplit
     case keep
     case clear
     case camera
+    /// Overlay layout (SPEC 6.7); registered only while `Settings.overlayEnabled`.
+    case overlay
 }
 
 /// A Carbon hotkey: virtual key code plus modifier mask (cmdKey 1<<8, optionKey 1<<11, controlKey 1<<12).
@@ -30,6 +33,8 @@ public struct HotkeyBinding: Codable, Equatable {
     public static let keyK: UInt32 = 0x28
     public static let keyC: UInt32 = 0x08
     public static let keyEscape: UInt32 = 0x35
+    /// kVK_ANSI_O, the Overlay hotkey.
+    public static let keyO: UInt32 = 0x1F
 }
 
 public enum MirrorPinClearMode: String, Codable {
@@ -152,6 +157,21 @@ public struct Settings: Codable, Equatable {
     public var mirrorStreamKeyIntervalMs: Int = 2000
     /// `FrameDiffEngage.Config.changedFraction`.
     public var mirrorDiffThreshold: Double = 0.002
+    // Presenter Overlay (SPEC 6.7, v2, off by default).
+    public var overlayEnabled: Bool = false
+    /// An unknown stored value decodes as `.fast`.
+    public var overlayQuality: OverlayQuality = .fast
+    /// Temporal mask smoothing, `OverlayLayout.smoothed` (0 none, 0.9 heavy).
+    public var overlaySmoothing: Double = 0.6
+    /// Edge softness in mask texels (feather blur radius).
+    public var overlayFeather: Int = 2
+    /// Amber outline around the person.
+    public var overlayHalo: Bool = false
+    /// Cutout side as a fraction of the output height.
+    public var overlayScale: Double = OverlayLayout.defaultHeightFraction
+    /// An unknown stored value decodes as `.bottomRight`.
+    public var overlayPosition: OverlayPosition = .bottomRight
+    public var overlayOpacity: Double = 1.0
 
     public init() {}
 
@@ -163,6 +183,7 @@ public struct Settings: Codable, Equatable {
         .keep: HotkeyBinding(keyCode: HotkeyBinding.keyK, modifiers: HotkeyBinding.defaultModifiers),
         .clear: HotkeyBinding(keyCode: HotkeyBinding.keyC, modifiers: HotkeyBinding.defaultModifiers),
         .camera: HotkeyBinding(keyCode: HotkeyBinding.keyEscape, modifiers: HotkeyBinding.defaultModifiers),
+        .overlay: HotkeyBinding(keyCode: HotkeyBinding.keyO, modifiers: HotkeyBinding.defaultModifiers),
     ]
 
     /// The "Low bandwidth" mirror preset (SPEC section 11): 1200 / 4000000 / 24.
@@ -181,6 +202,10 @@ public struct Settings: Codable, Equatable {
     public static let mirrorStreamMaxFpsRange = 1...30
     public static let mirrorStreamKeyIntervalRange = 500...10000
     public static let mirrorDiffThresholdRange: ClosedRange<Double> = 0.0005...0.05
+    public static let overlaySmoothingRange: ClosedRange<Double> = 0...0.9
+    public static let overlayFeatherRange = 0...8
+    public static let overlayScaleRange: ClosedRange<Double> = 0.15...0.5
+    public static let overlayOpacityRange: ClosedRange<Double> = 0.3...1.0
 
     /// Clamps every range of SPEC section 11; `preWarningSeconds <= idleTimeoutSeconds - 1`; a port below 1024 becomes 7788.
     public func validated() -> Settings {
@@ -207,6 +232,10 @@ public struct Settings: Codable, Equatable {
         s.mirrorStreamKeyIntervalMs = Settings.clamp(s.mirrorStreamKeyIntervalMs, Settings.mirrorStreamKeyIntervalRange)
         if s.mirrorDiffThreshold.isNaN { s.mirrorDiffThreshold = Settings.defaults.mirrorDiffThreshold }
         s.mirrorDiffThreshold = min(max(s.mirrorDiffThreshold, Settings.mirrorDiffThresholdRange.lowerBound), Settings.mirrorDiffThresholdRange.upperBound)
+        s.overlaySmoothing = Settings.clamp(s.overlaySmoothing, Settings.overlaySmoothingRange, nanDefault: Settings.defaults.overlaySmoothing)
+        s.overlayFeather = Settings.clamp(s.overlayFeather, Settings.overlayFeatherRange)
+        s.overlayScale = Settings.clamp(s.overlayScale, Settings.overlayScaleRange, nanDefault: Settings.defaults.overlayScale)
+        s.overlayOpacity = Settings.clamp(s.overlayOpacity, Settings.overlayOpacityRange, nanDefault: Settings.defaults.overlayOpacity)
         for action in HotkeyAction.allCases where s.hotkeys[action] == nil {
             s.hotkeys[action] = Settings.defaultHotkeys[action]
         }
@@ -214,6 +243,12 @@ public struct Settings: Codable, Equatable {
     }
 
     static func clamp(_ v: Int, _ r: ClosedRange<Int>) -> Int {
+        return min(max(v, r.lowerBound), r.upperBound)
+    }
+
+    /// NaN becomes `nanDefault`; everything else is clamped into `r`.
+    static func clamp(_ v: Double, _ r: ClosedRange<Double>, nanDefault: Double) -> Double {
+        if v.isNaN { return nanDefault }
         return min(max(v, r.lowerBound), r.upperBound)
     }
 
@@ -229,6 +264,7 @@ public struct Settings: Codable, Equatable {
         case viewerIdleStopSeconds, saveDirectory, saveStrokesJSON, autosaveSeconds, previewOnLaunch, previewFloats
         case frameReuse, deadlineIdle, perfLog
         case mirrorTransport, mirrorStreamMaxSize, mirrorStreamBitRate, mirrorStreamMaxFps, mirrorStreamKeyIntervalMs, mirrorDiffThreshold
+        case overlayEnabled, overlayQuality, overlaySmoothing, overlayFeather, overlayHalo, overlayScale, overlayPosition, overlayOpacity
     }
 
     /// LOOSE_ENDS J5: every enum key decodes its raw value leniently, so a value from a newer build (a case this build
@@ -311,6 +347,14 @@ public struct Settings: Codable, Equatable {
         mirrorStreamMaxFps = try c.decodeIfPresent(Int.self, forKey: .mirrorStreamMaxFps) ?? d.mirrorStreamMaxFps
         mirrorStreamKeyIntervalMs = try c.decodeIfPresent(Int.self, forKey: .mirrorStreamKeyIntervalMs) ?? d.mirrorStreamKeyIntervalMs
         mirrorDiffThreshold = try c.decodeIfPresent(Double.self, forKey: .mirrorDiffThreshold) ?? d.mirrorDiffThreshold
+        overlayEnabled = try c.decodeIfPresent(Bool.self, forKey: .overlayEnabled) ?? d.overlayEnabled
+        overlayQuality = (try? c.decodeIfPresent(String.self, forKey: .overlayQuality)).flatMap { $0 }.flatMap(OverlayQuality.init(rawValue:)) ?? d.overlayQuality
+        overlaySmoothing = try c.decodeIfPresent(Double.self, forKey: .overlaySmoothing) ?? d.overlaySmoothing
+        overlayFeather = try c.decodeIfPresent(Int.self, forKey: .overlayFeather) ?? d.overlayFeather
+        overlayHalo = try c.decodeIfPresent(Bool.self, forKey: .overlayHalo) ?? d.overlayHalo
+        overlayScale = try c.decodeIfPresent(Double.self, forKey: .overlayScale) ?? d.overlayScale
+        overlayPosition = (try? c.decodeIfPresent(String.self, forKey: .overlayPosition)).flatMap { $0 }.flatMap(OverlayPosition.init(rawValue:)) ?? d.overlayPosition
+        overlayOpacity = try c.decodeIfPresent(Double.self, forKey: .overlayOpacity) ?? d.overlayOpacity
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -361,5 +405,13 @@ public struct Settings: Codable, Equatable {
         try c.encode(mirrorStreamMaxFps, forKey: .mirrorStreamMaxFps)
         try c.encode(mirrorStreamKeyIntervalMs, forKey: .mirrorStreamKeyIntervalMs)
         try c.encode(mirrorDiffThreshold, forKey: .mirrorDiffThreshold)
+        try c.encode(overlayEnabled, forKey: .overlayEnabled)
+        try c.encode(overlayQuality, forKey: .overlayQuality)
+        try c.encode(overlaySmoothing, forKey: .overlaySmoothing)
+        try c.encode(overlayFeather, forKey: .overlayFeather)
+        try c.encode(overlayHalo, forKey: .overlayHalo)
+        try c.encode(overlayScale, forKey: .overlayScale)
+        try c.encode(overlayPosition, forKey: .overlayPosition)
+        try c.encode(overlayOpacity, forKey: .overlayOpacity)
     }
 }

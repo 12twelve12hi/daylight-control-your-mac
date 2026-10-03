@@ -60,8 +60,10 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(h[.keep], HotkeyBinding(keyCode: 0x28, modifiers: mods))
         XCTAssertEqual(h[.clear], HotkeyBinding(keyCode: 0x08, modifiers: mods))
         XCTAssertEqual(h[.camera], HotkeyBinding(keyCode: 0x35, modifiers: mods))
+        XCTAssertEqual(h[.overlay], HotkeyBinding(keyCode: 0x1F, modifiers: mods), "Ctrl+Opt+Cmd+O (SPEC 14)")
+        XCTAssertEqual(HotkeyBinding.keyO, 0x1F)
         XCTAssertEqual(h.count, HotkeyAction.allCases.count)
-        XCTAssertEqual(HotkeyAction.allCases.map { $0.rawValue }, ["whiteboardOnly", "studioSplit", "keep", "clear", "camera"])
+        XCTAssertEqual(HotkeyAction.allCases.map { $0.rawValue }, ["whiteboardOnly", "studioSplit", "keep", "clear", "camera", "overlay"], "new actions are appended so hotkey ids 1 to 5 stay")
     }
 
     func testValidatedClampsEveryRange() {
@@ -232,7 +234,7 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(s.preWarningSeconds, 5, "absent keys keep their defaults")
         XCTAssertEqual(s.port, 7788)
         XCTAssertEqual(s.hotkeys.count, 1)
-        XCTAssertEqual(s.validated().hotkeys.count, 5)
+        XCTAssertEqual(s.validated().hotkeys.count, 6)
         let empty = try JSONDecoder().decode(Settings.self, from: Data("{}".utf8))
         XCTAssertEqual(empty, Settings.defaults)
     }

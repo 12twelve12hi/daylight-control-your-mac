@@ -81,6 +81,36 @@ final class PipelineSmokeTests: XCTestCase {
         pipeline.shutdown()
     }
 
+    func testGovernorConfigChangeWaitsWhileTheBoardIsUp() throws {
+        let sink = FakeSink()
+        let capture = FakeCapture()
+        let pipeline = try makePipeline(sink: sink, capture: capture)
+        pipeline.start()
+        XCTAssertTrue(waitUntil(2) { sink.pushCount > 3 })
+        var inPassthrough = Settings.defaults
+        inPassthrough.idleTimeoutSeconds = 60
+        pipeline.updateSettings(inPassthrough)
+        XCTAssertEqual(pipeline.governorConfig.idleTimeout, 60, "in PASSTHROUGH the new config applies at once")
+        XCTAssertEqual(pipeline.governorSnapshot.state, .passthrough)
+        pipeline.post(.engage)
+        XCTAssertTrue(waitUntil(1.0) { pipeline.governorSnapshot.state == .live })
+        var midCall = inPassthrough
+        midCall.idleTimeoutSeconds = 30
+        pipeline.updateSettings(midCall)
+        Thread.sleep(forTimeInterval: 0.3)
+        XCTAssertEqual(pipeline.governorSnapshot.state, .live, "Settings > General mid-call never drops the board")
+        XCTAssertEqual(pipeline.governorConfig.idleTimeout, 60, "the running config stays until the return")
+        XCTAssertTrue(pipeline.clock.isRunning)
+        if pipeline.compositor != nil {
+            sink.resetRecording()
+            XCTAssertTrue(waitUntil(1.0) { sink.pushCount >= 3 }, "composed frames keep flowing")
+        }
+        pipeline.post(.returnNow)
+        XCTAssertTrue(waitUntil(1.0) { pipeline.governorSnapshot.state == .passthrough })
+        XCTAssertTrue(waitUntil(1.0) { pipeline.governorConfig.idleTimeout == 30 }, "the pending config applies on the return to PASSTHROUGH")
+        pipeline.shutdown()
+    }
+
     func testCaptureWaitsForCameraAuthorization() throws {
         let sink = FakeSink()
         let capture = FakeCapture()

@@ -47,6 +47,8 @@ final class FramePipeline: PipelineControl {
         var captureAuthorized = true
     }
     private let flags: Locked<Flags>
+    /// A governor config changed while the board was up; applied on the next return to PASSTHROUGH.
+    private let pendingConfig = Locked<GovernorConfig?>(nil)
     private var settings: Settings
     private(set) var capture: CaptureSource?
     private var captureObserver: NSObjectProtocol?
@@ -135,6 +137,11 @@ final class FramePipeline: PipelineControl {
         return governor.withLock { $0.snapshot }
     }
 
+    /// The config the governor runs with (Diagnostics and tests; a pending change is not yet visible here).
+    var governorConfig: GovernorConfig {
+        return governor.withLock { $0.config }
+    }
+
     func setViewerCount(_ n: Int) {
         flags.withLock { $0.viewers = max(0, n) }
         renderQueue.async { [weak self] in
@@ -216,20 +223,48 @@ final class FramePipeline: PipelineControl {
         renderQueue.async { [weak self] in self?.publishFlagsChange() }
     }
 
-    /// Applies changed governor settings (idle timeout, pre-warning, spring, eraser rule). A changed config restarts
-    /// the governor in PASSTHROUGH (settings change in the Settings window, never mid-call by design).
+    /// Applies changed governor settings (idle timeout, pre-warning, spring, eraser rule). A changed config rebuilds
+    /// the governor only while it is in PASSTHROUGH; while the board is up (the owner tuning "Return to camera after"
+    /// during a call) the change waits and is applied on the next return, so the picture never snaps away.
     func updateSettings(_ newSettings: Settings) {
         let validated = newSettings.validated()
         settings = validated
         let config = GovernorConfig(settings: validated)
         let now = CACurrentMediaTime()
-        governor.withLock { g in
-            if g.config != config {
-                g = EngageGovernor(config: config, now: now)
+        pendingConfig.withLock { pending in
+            governor.withLock { g in
+                if g.config == config {
+                    pending = nil
+                } else if g.state == .passthrough {
+                    FramePipeline.rebuild(&g, config: config, now: now)
+                    pending = nil
+                } else {
+                    pending = config
+                }
             }
         }
         flags.withLock { $0.inkSource = validated.inkSource }
         renderQueue.async { [weak self] in self?.publishFlagsChange() }
+    }
+
+    /// A fresh governor in PASSTHROUGH with the new config; `hold(camera)` is the only hold state PASSTHROUGH can
+    /// carry, so it is the only thing restored.
+    private static func rebuild(_ g: inout EngageGovernor, config: GovernorConfig, now: Double) {
+        let hold = g.holdState
+        g = EngageGovernor(config: config, now: now)
+        if hold == .camera { _ = g.handle(.hold(.camera), now: now) }
+    }
+
+    /// Render queue: a config that waited for the board to come down is applied once the governor is in PASSTHROUGH.
+    private func applyPendingConfigIfPassthrough(now: Double) {
+        pendingConfig.withLock { pending in
+            guard let config = pending else { return }
+            governor.withLock { g in
+                guard g.state == .passthrough else { return }
+                FramePipeline.rebuild(&g, config: config, now: now)
+                pending = nil
+            }
+        }
     }
 
     /// The latency probe (ARCHITECTURE 3.5): the ink router stamps the arrival of an engaging STROKE_START.
@@ -328,6 +363,7 @@ final class FramePipeline: PipelineControl {
                 break
             }
         }
+        if out.state == .passthrough { applyPendingConfigIfPassthrough(now: now) }
         let needsTicks = governor.withLock { $0.needsTicks }
         if needsTicks && !clock.isRunning { clock.start() }
         if !needsTicks && clock.isRunning { clock.stop() }

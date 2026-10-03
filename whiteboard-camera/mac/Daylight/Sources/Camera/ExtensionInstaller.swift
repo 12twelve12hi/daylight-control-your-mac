@@ -27,10 +27,17 @@ final class ExtensionInstaller: NSObject, OSSystemExtensionRequestDelegate {
         case unsignedBuild
     }
 
+    /// Which request is in flight, so a finished deactivation does not read as "installed" (camera review finding 05).
+    enum RequestKind: Equatable {
+        case activation
+        case deactivation
+    }
+
     let extensionBundleIdentifier: String
     /// `DaylightBuildSigned` from Info.plist unless a test injects it.
     let signed: Bool
     let bundlePath: String
+    private(set) var pendingRequest: RequestKind?
     private(set) var status: Status = .unknown {
         didSet {
             if status != oldValue {
@@ -63,6 +70,7 @@ final class ExtensionInstaller: NSObject, OSSystemExtensionRequestDelegate {
         let request = OSSystemExtensionRequest.activationRequest(forExtensionWithIdentifier: extensionBundleIdentifier, queue: .main)
         request.delegate = self
         self.request = request
+        pendingRequest = .activation
         status = .activating
         submittedRequests += 1
         OSSystemExtensionManager.shared.submitRequest(request)
@@ -74,6 +82,7 @@ final class ExtensionInstaller: NSObject, OSSystemExtensionRequestDelegate {
         let request = OSSystemExtensionRequest.deactivationRequest(forExtensionWithIdentifier: extensionBundleIdentifier, queue: .main)
         request.delegate = self
         self.request = request
+        pendingRequest = .deactivation
         submittedRequests += 1
         OSSystemExtensionManager.shared.submitRequest(request)
     }
@@ -158,6 +167,19 @@ final class ExtensionInstaller: NSObject, OSSystemExtensionRequestDelegate {
         }
     }
 
+    /// The status a finished request produces (pure). An activation that completed is `.installed`, one that waits for
+    /// a reboot is `.needsReboot` (row 12b). A deactivation that completed is `.notInstalled`; one that completes after
+    /// a reboot is reported as `.notInstalled` too (the extension keeps running until then, and row 12b's "finish
+    /// installing" wording would be wrong for a removal). With no request kind recorded the activation mapping applies.
+    static func status(forResult result: OSSystemExtensionRequest.Result, pending: RequestKind?) -> Status {
+        let removing = pending == .deactivation
+        switch result {
+        case .completed: return removing ? .notInstalled : .installed
+        case .willCompleteAfterReboot: return removing ? .notInstalled : .needsReboot
+        @unknown default: return removing ? .notInstalled : .installed
+        }
+    }
+
     // MARK: OSSystemExtensionRequestDelegate (main queue)
 
     func request(_ request: OSSystemExtensionRequest, actionForReplacingExtension existing: OSSystemExtensionProperties, withExtension ext: OSSystemExtensionProperties) -> OSSystemExtensionRequest.ReplacementAction {
@@ -171,17 +193,23 @@ final class ExtensionInstaller: NSObject, OSSystemExtensionRequestDelegate {
     }
 
     func request(_ request: OSSystemExtensionRequest, didFinishWithResult result: OSSystemExtensionRequest.Result) {
+        let removing = pendingRequest == .deactivation
+        let new = ExtensionInstaller.status(forResult: result, pending: pendingRequest)
+        let what = removing ? "deactivation" : "request"
         switch result {
         case .completed:
-            ExtensionInstaller.log.info("extension request completed")
-            status = .installed
+            ExtensionInstaller.log.info("extension \(what, privacy: .public) completed")
         case .willCompleteAfterReboot:
-            ExtensionInstaller.log.notice("\(FailureText.logLine(.extensionNeedsReboot), privacy: .public)")
-            status = .needsReboot
+            if removing {
+                ExtensionInstaller.log.notice("extension deactivation completes after a reboot")
+            } else {
+                ExtensionInstaller.log.notice("\(FailureText.logLine(.extensionNeedsReboot), privacy: .public)")
+            }
         @unknown default:
             ExtensionInstaller.log.notice("extension request finished with result \(result.rawValue)")
-            status = .installed
         }
+        status = new
+        pendingRequest = nil
         self.request = nil
     }
 
@@ -196,6 +224,7 @@ final class ExtensionInstaller: NSObject, OSSystemExtensionRequestDelegate {
             ExtensionInstaller.log.notice("OSSystemExtensionError \(nsError.code) \(message, privacy: .public)")
         }
         status = ExtensionInstaller.status(forErrorCode: code, message: message)
+        pendingRequest = nil
         self.request = nil
     }
 

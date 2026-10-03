@@ -74,6 +74,17 @@ final class ExtensionInstallerTests: XCTestCase {
         XCTAssertEqual(text, "macOS refused the extension's signature. This build is not notarized.")
     }
 
+    /// Finding 05: a finished deactivation is "not installed", never "installed" (which made the sink client publish
+    /// row 13 and tell the owner to open Zoom to find a camera they just removed).
+    func testFinishedRequestMapsByRequestKind() {
+        XCTAssertEqual(ExtensionInstaller.status(forResult: .completed, pending: .activation), .installed)
+        XCTAssertEqual(ExtensionInstaller.status(forResult: .willCompleteAfterReboot, pending: .activation), .needsReboot)
+        XCTAssertEqual(ExtensionInstaller.status(forResult: .completed, pending: .deactivation), .notInstalled)
+        XCTAssertEqual(ExtensionInstaller.status(forResult: .willCompleteAfterReboot, pending: .deactivation), .notInstalled, "the extension runs until the reboot; row 12b's wording is about installing")
+        XCTAssertEqual(ExtensionInstaller.status(forResult: .completed, pending: nil), .installed, "no kind recorded: the activation mapping")
+        XCTAssertEqual(ExtensionInstaller.status(forResult: .willCompleteAfterReboot, pending: nil), .needsReboot)
+    }
+
     func testUnsignedBuildNeverSubmitsARequest() {
         let installer = ExtensionInstaller(signed: false, bundlePath: "/Applications/Daylight.app")
         var changes: [ExtensionInstaller.Status] = []
@@ -86,6 +97,7 @@ final class ExtensionInstallerTests: XCTestCase {
         XCTAssertEqual(changes, [.unsignedBuild], "onChange fires once per distinct status")
         installer.deactivate()
         XCTAssertEqual(installer.submittedRequests, 0)
+        XCTAssertNil(installer.pendingRequest, "nothing was submitted, nothing is pending")
         XCTAssertEqual(installer.extensionBundleIdentifier, "com.twelve.daylight.camera")
     }
 

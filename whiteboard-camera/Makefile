@@ -29,7 +29,7 @@ mac-debug: ## xcodebuild build, CODE_SIGNING_ALLOWED=NO, web dist copied into Re
 mac-test: ## xcodebuild test, scheme DaylightTests (macOS-only XCTest bundle hosted by Daylight.app), CODE_SIGNING_ALLOWED=NO (macOS)
 	scripts/mac-test.sh
 
-mac-smoke: ## run the Release Daylight binary with --self-test --perf-log under a 120 s timeout (macOS, after mac-debug)
+mac-smoke: ## run the Release Daylight binary with --self-test --perf-log under a 120 s timeout (macOS, after mac-debug; SPEC 16 B1)
 	scripts/mac-smoke.sh
 
 mac-release: ## archive + export signed with Developer ID + notarize when the signing env is set; otherwise explains and exits 0 (macOS)
@@ -52,7 +52,7 @@ doctor: ## print which tools exist here and which targets can run
 
 ci-linux: golden-check web web-test kit-test android ## what the Linux jobs run
 
-ci-mac: fetch-tools embed-apk web mac-generate kit-test mac-debug mac-test mac-release ## what the macOS job runs (mac-smoke joins once --self-test exists)
+ci-mac: fetch-tools embed-apk web mac-generate kit-test mac-debug mac-test mac-smoke mac-release ## what the macOS job runs
 
 ci: ci-linux ## alias used by CI on Linux; the mac job calls ci-mac
 

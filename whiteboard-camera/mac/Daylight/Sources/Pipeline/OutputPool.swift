@@ -11,7 +11,9 @@ enum OutputPoolError: Error {
 /// Triple-buffered 1920x1080 BGRA output frames: IOSurface-backed and Metal-compatible so the compositor writes
 /// into them and the extension reads them without a copy (research-mac-pipeline section 2 item 4).
 /// `acquire()` never blocks: a `DispatchSemaphore(value: 3)` with `wait(timeout: .now())` drops the frame when all
-/// three are busy, and the pool's allocation threshold refuses a fourth buffer.
+/// three are busy. The semaphore is the only bound: CoreVideo's allocation threshold would also count buffers a
+/// consumer (the sink's `CMSampleBuffer`, the preview layer) still holds after `release()` and refuse a legitimate
+/// acquire (LOOSE_ENDS B19 c), so the pool itself is left unbounded and `release()` is the contract.
 final class OutputPool {
     static let capacity = 3
 
@@ -21,7 +23,6 @@ final class OutputPool {
     private let pool: CVPixelBufferPool
     private let semaphore = DispatchSemaphore(value: OutputPool.capacity)
     private let inFlightCount = Locked<Int>(0)
-    private let auxAttributes: CFDictionary
 
     init(width: Int = 1920, height: Int = 1080) throws {
         self.width = width
@@ -40,7 +41,6 @@ final class OutputPool {
         let status = CVPixelBufferPoolCreate(kCFAllocatorDefault, poolAttributes as CFDictionary, bufferAttributes as CFDictionary, &created)
         guard status == kCVReturnSuccess, let pool = created else { throw OutputPoolError.poolCreation(status) }
         self.pool = pool
-        auxAttributes = [kCVPixelBufferPoolAllocationThresholdKey: OutputPool.capacity] as CFDictionary
         var probe: CVPixelBuffer?
         let probeStatus = CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &probe)
         guard probeStatus == kCVReturnSuccess, let first = probe else { throw OutputPoolError.poolCreation(probeStatus) }
@@ -54,7 +54,7 @@ final class OutputPool {
     func acquire() -> CVPixelBuffer? {
         guard semaphore.wait(timeout: .now()) == .success else { return nil }
         var buffer: CVPixelBuffer?
-        let status = CVPixelBufferPoolCreatePixelBufferWithAuxAttributes(kCFAllocatorDefault, pool, auxAttributes, &buffer)
+        let status = CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &buffer)
         guard status == kCVReturnSuccess, let pb = buffer else {
             semaphore.signal()
             return nil

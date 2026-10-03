@@ -42,7 +42,7 @@ final class CMIOLocatorTests: XCTestCase {
         let layout = CMIODeviceLocator.layoutDescription(streams: [41, 42], directions: [1, UInt32.max])
         XCTAssertEqual(layout.ids, "[41, 42]")
         XCTAssertEqual(layout.directions, "[1, ?]")
-        XCTAssertEqual(FailureText.logLine(.sinkStreamLayout, [layout.ids, layout.directions]), "streams=[41, 42] directions=[1, ?]")
+        XCTAssertEqual(FailureText.logLine(.sinkStreamLayout, [layout.ids, layout.directions]), "failure.sinkStreamLayout (row 14): streams=[41, 42] directions=[1, ?]")
     }
 
     func testRealWalkOnThisMacFindsNoDaylightCameraWithoutTheExtension() {
@@ -57,7 +57,7 @@ final class CMIOLocatorTests: XCTestCase {
         } else {
             XCTAssertFalse(uids.contains(CMIOLocatorTests.deviceUUID.uuidString), "the fixed UUID is absent from the device list when locate() says nil")
         }
-        XCTAssertEqual(FailureText.logLine(.sinkDeviceNotFound, [CMIOLocatorTests.deviceUUID.uuidString, uids.description]).hasPrefix("sink: no CMIO device with UID AB51C6BA"), true)
+        XCTAssertEqual(FailureText.logLine(.sinkDeviceNotFound, [CMIOLocatorTests.deviceUUID.uuidString, uids.description]).hasPrefix("failure.sinkDeviceNotFound (row 13): sink: no CMIO device with UID AB51C6BA"), true)
     }
 
     func testViewersPropertyParser() {

@@ -76,6 +76,38 @@ enum SelfTest {
                 probe(target, presenter: presenter, progress: s, report: report)
                 pool.release(target)
             }
+            // Whiteboard Only (SPEC 6.3): canvas (555, 0, 810, 1080), cream both sides, no presenter, no divider.
+            if let target = pool.acquire() {
+                let frame = StudioLayout.frame(progress: 1, layout: .whiteboardOnly, orientation: .portrait, canvasAspect: StudioLayout.portraitAspect, breath: 0)
+                _ = compositor.renderSync(Compositor.Inputs(presenter: presenter, canvas: .layers(surfaces), frame: frame), into: target)
+                report.check("render whiteboard-only paper at (960, 540)", matches(pixel(target, 960, 540), Tokens.paperBg), describe(pixel(target, 960, 540)))
+                report.check("render whiteboard-only cream at (100, 540)", matches(pixel(target, 100, 540), Tokens.surfaceCream), describe(pixel(target, 100, 540)))
+                report.check("render whiteboard-only cream at (1800, 540) (no presenter)", matches(pixel(target, 1800, 540), Tokens.surfaceCream), describe(pixel(target, 1800, 540)))
+                report.check("render whiteboard-only border at (555, 540)", matches(pixel(target, 555, 540), Tokens.borderSubtle, tolerance: 60), describe(pixel(target, 555, 540)))
+                pool.release(target)
+            }
+            // Landscape canvas (SPEC 6.4): canvas (0, 0, 1440, 1080), presenter dest (1440, 0, 480, 1080) from source x in [720, 1200).
+            if let target = pool.acquire() {
+                let frame = StudioLayout.frame(progress: 1, layout: .studioSplit, orientation: .landscape, canvasAspect: StudioLayout.landscapeAspect, breath: 0)
+                _ = compositor.renderSync(Compositor.Inputs(presenter: presenter, canvas: .layers(surfaces), frame: frame), into: target)
+                report.check("render landscape paper at (720, 540)", matches(pixel(target, 720, 540), Tokens.paperBg), describe(pixel(target, 720, 540)))
+                report.check("render landscape divider at (1439, 540)", matches(pixel(target, 1439, 540), Tokens.inkBlack), describe(pixel(target, 1439, 540)))
+                report.check("render landscape presenter (1680, 540) = source (960, 540)", close(pixel(target, 1680, 540), pixel(presenter, 960, 540)))
+                pool.release(target)
+            }
+            // Mirror canvas (SPEC 6.5): the 1200x1504 crop fits 810x1015 into the slot with about 32 px cream bars.
+            if let target = pool.acquire(), let tablet = gradientBuffer(width: 1200, height: 1600) {
+                let insets = Settings.defaults.mirrorCropInsetsPortrait
+                let uv = insets.uv(sessionWidth: 1200, sessionHeight: 1600, nativeWidth: 1200, nativeHeight: 1600)
+                let aspect = insets.croppedAspect(nativeWidth: 1200, nativeHeight: 1600)
+                let frame = StudioLayout.frame(progress: 1, layout: .studioSplit, orientation: .portrait, canvasAspect: aspect, breath: 0)
+                _ = compositor.renderSync(Compositor.Inputs(presenter: presenter, canvas: .mirror(tablet, uv: uv), frame: frame), into: target)
+                let centre = pixel(target, 640, 540)
+                report.check("render mirror picture at (640, 540) is neither cream nor paper", !matches(centre, Tokens.surfaceCream) && !matches(centre, Tokens.paperBg), describe(centre))
+                report.check("render mirror cream bar at (640, 8)", matches(pixel(target, 640, 8), Tokens.surfaceCream), describe(pixel(target, 640, 8)))
+                report.check("render mirror cream bar at (640, 1072)", matches(pixel(target, 640, 1072), Tokens.surfaceCream), describe(pixel(target, 640, 1072)))
+                pool.release(target)
+            }
             report.check("render: pool never exceeded 3 in flight", pool.inFlight == 0, "inFlight=\(pool.inFlight)")
         } catch {
             report.check("render: compositor setup", false, "\(error)")
@@ -248,11 +280,100 @@ enum SelfTest {
         report.check("ink: alpha back to zero after undo", afterUndo.a == 0, "a=\(afterUndo.a)")
         report.check("sink: frames pushed while engaged", device == nil || sink.pushCount > 0, "pushes=\(sink.pushCount)")
         report.note("pipeline: passthroughZeroCopy=\(pipeline.stats.passthroughZeroCopy) mode=\(pipeline.stats.mode)")
+
+        // Ink-source switch (SPEC 8): the web client sees ink_source 1 with bit3 clear and its ink is dropped silently.
+        switchSource(.native, pipeline: pipeline, router: router, inkQueue: inkQueue)
+        let nativeState = client.wait(where: { m in
+            if case let .state(s)? = m.message { return s.inkSource == InkSource.native.rawValue && !s.flagSet.contains(.clientIsActiveSource) && s.flagSet.contains(.clientAllowed) }
+            return false
+        }, timeout: 3)
+        report.check("source: STATE ink_source 1 with bit3 clear after switching to Daylight Ink", nativeState != nil)
+        client.send(Golden.strokeStart)
+        client.send(Golden.strokeChunk3)
+        client.send(Golden.strokeCommit)
+        Thread.sleep(forTimeInterval: 0.2)
+        inkQueue.sync { report.check("source: ink from the non-active source is dropped", router.store.committedCount == 0 && router.store.redoDepth == 1, "committed=\(router.store.committedCount) redo=\(router.store.redoDepth)") }
+        switchSource(.web, pipeline: pipeline, router: router, inkQueue: inkQueue)
+        let webState = client.wait(where: { m in
+            if case let .state(s)? = m.message { return s.inkSource == InkSource.web.rawValue && s.flagSet.contains(.clientIsActiveSource) }
+            return false
+        }, timeout: 3)
+        report.check("source: STATE ink_source 0 with bit3 set after switching back to web", webState != nil)
+        let zeroPage = UUID(uuidString: "00000000-0000-0000-0000-000000000000")!
+        client.sendMessage(.redo(pageID: zeroPage, clientTimeUs: InkConnection.nowUs()))
+        let redone = client.wait(where: { m in
+            if case let .state(s)? = m.message { return s.undoDepth == 1 && s.redoDepth == 0 }
+            return false
+        }, timeout: 3)
+        report.check("socket: STATE undo_depth 1 redo_depth 0 after REDO", redone != nil)
+        inkQueue.sync {}
+        let afterRedo = CanvasSurfaces.pixel(pipeline.surfaces.ink, x: 650, y: 900)
+        report.check("ink: alpha back along the stroke after redo", afterRedo.a > 0, "a=\(afterRedo.a)")
+
+        // Mirror mode: the pipeline composes the mirror picture into the slot while the board is up (SPEC 4, 6.5).
+        if device != nil {
+            let tablet = MirrorStandIn()
+            let lastFrame = Locked<CVPixelBuffer?>(nil)
+            pipeline.setMirrorSource(tablet)
+            pipeline.onPreviewFrame = { buffer in lastFrame.withLock { $0 = buffer } }
+            switchSource(.mirror, pipeline: pipeline, router: router, inkQueue: inkQueue)
+            let mirrorState = client.wait(where: { m in
+                if case let .state(s)? = m.message { return s.inkSource == InkSource.mirror.rawValue && !s.flagSet.contains(.clientIsActiveSource) }
+                return false
+            }, timeout: 3)
+            report.check("source: STATE ink_source 2 with bit3 clear after switching to mirror", mirrorState != nil)
+            var hit = false
+            var seen = "no frame"
+            for _ in 0..<60 {
+                if let frame = lastFrame.withLock({ $0 }), CVPixelBufferGetWidth(frame) == 1920 {
+                    let centre = pixel(frame, 640, 540)
+                    seen = describe(centre)
+                    if !matches(centre, Tokens.surfaceCream) && !matches(centre, Tokens.paperBg) { hit = true; break }
+                }
+                Thread.sleep(forTimeInterval: 0.05)
+            }
+            report.check("mirror: composed frame shows the tablet picture at (640, 540)", hit, seen)
+            report.note("pipeline: mode=\(pipeline.stats.mode) pushed=\(pipeline.stats.pushed) dropped=\(pipeline.stats.dropped)")
+            switchSource(.web, pipeline: pipeline, router: router, inkQueue: inkQueue)
+        } else {
+            report.note("WARNING no Metal device; the mirror compose probe is skipped")
+        }
         client.close()
         server.stop()
         netQueue.sync {}
         pipeline.shutdown()
         try? FileManager.default.removeItem(at: registryURL)
+    }
+
+    /// What `AppModel.applyInkSource` does in the app: the pipeline posts `sourceChanged`, the router re-picks the
+    /// active client; both STATE paths carry the new byte.
+    static func switchSource(_ source: InkSource, pipeline: FramePipeline, router: InkRouter, inkQueue: DispatchQueue) {
+        pipeline.setInkSource(source)
+        inkQueue.sync { router.setActiveSource(source) }
+    }
+
+    /// A static tablet picture with the default portrait crop (what `MirrorSource` publishes once a frame decoded).
+    final class MirrorStandIn: MirrorFrameSource {
+        let buffer: CVPixelBuffer?
+        let uv: UVRect
+        let aspect: Double
+        let frameSeed: UInt64 = 1
+        var onGovernorEvent: ((GovernorEvent) -> Void)?
+
+        init() {
+            buffer = SelfTest.gradientBuffer(width: 1200, height: 1600)
+            let insets = Settings.defaults.mirrorCropInsetsPortrait
+            uv = insets.uv(sessionWidth: 1200, sessionHeight: 1600, nativeWidth: 1200, nativeHeight: 1600)
+            aspect = insets.croppedAspect(nativeWidth: 1200, nativeHeight: 1600)
+        }
+
+        func latest() -> (buffer: CVPixelBuffer, uv: UVRect, aspect: Double, orientation: StudioLayout.CanvasOrientation)? {
+            guard let buffer = buffer else { return nil }
+            return (buffer, uv, aspect, .portrait)
+        }
+
+        func start() {}
+        func stop() {}
     }
 
     static func httpGet(_ urlText: String) -> String? {
@@ -303,6 +424,14 @@ enum SelfTest {
         func send(_ hex: String) {
             guard let bytes = Hex.decode(hex) else { return }
             task?.send(.data(Data(bytes))) { [weak self] error in
+                if let error = error { self?.errorText = "\(error)" }
+            }
+        }
+
+        /// An encoded SolStream message (for the messages without a golden vector).
+        func sendMessage(_ message: Message) {
+            let payload = Codec.encode(message, timestampUs: InkConnection.nowUs())
+            task?.send(.data(Data(payload))) { [weak self] error in
                 if let error = error { self?.errorText = "\(error)" }
             }
         }

@@ -108,8 +108,14 @@ final class ClientRegistry {
         mutate(id: id) { record in record = nil }
     }
 
+    /// Whole seconds: `clients.json` is written with ISO 8601 dates (no fractional seconds), so a reloaded record
+    /// compares equal to the one in memory.
+    static func wholeSecondsNow() -> Date {
+        return Date(timeIntervalSince1970: floor(Date().timeIntervalSince1970))
+    }
+
     private static func touch(_ existing: Record?, id: String, label: String, role: String, address: String) -> Record {
-        let now = Date()
+        let now = wholeSecondsNow()
         var record = existing ?? Record(id: id, label: label, roles: [], allowed: false, seenOverUSB: false, firstSeen: now, lastSeen: now, lastAddress: address)
         if !label.isEmpty { record.label = label }
         record.roles.insert(role)

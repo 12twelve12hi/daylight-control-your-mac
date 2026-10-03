@@ -43,9 +43,10 @@ final class ExtensionInstallerTests: XCTestCase {
         XCTAssertEqual(FailureText.sentence(.extensionNeedsApproval), "Approve 'Daylight Camera' in System Settings > General > Login Items & Extensions > Camera Extensions, then click Check again.")
         XCTAssertEqual(FailureText.sentence(.extensionNeedsApproval, [FailureText.approvalPathLegacy]), "Approve 'Daylight Camera' in System Settings > Privacy & Security > Security, then click Check again.")
         XCTAssertEqual(FailureText.sentence(.extensionNeedsReboot), "Restart your Mac once to finish installing Daylight Camera.")
-        XCTAssertEqual(FailureText.logLine(.extensionSignatureInvalid), "OSSystemExtensionError 8 codeSignatureInvalid")
-        XCTAssertEqual(FailureText.logLine(.extensionNeedsApproval), "requestNeedsUserApproval")
-        XCTAssertEqual(FailureText.logLine(.extensionNeedsReboot), "willCompleteAfterReboot")
+        // The Kit prefixes every log line with "failure.<case> (row N): " (FailureText.logLine).
+        XCTAssertEqual(FailureText.logLine(.extensionSignatureInvalid), "failure.extensionSignatureInvalid (row 9): OSSystemExtensionError 8 codeSignatureInvalid")
+        XCTAssertEqual(FailureText.logLine(.extensionNeedsApproval), "failure.extensionNeedsApproval (row 12): requestNeedsUserApproval")
+        XCTAssertEqual(FailureText.logLine(.extensionNeedsReboot), "failure.extensionNeedsReboot (row 12b): willCompleteAfterReboot")
     }
 
     func testStatusForErrorCodes() {

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # make mac-smoke: run the unsigned Release build with --self-test --perf-log (SPEC 16 B1) under a 120 s timeout.
 # timeout(1) is not on macOS by default, so perl's alarm wraps the process (IMPLEMENTATION-PLAN P0.3).
-# Not called by CI until component B makes --self-test exit 0 (IMPLEMENTATION-PLAN section 12 rule 2).
+# A CI step of the mac job since Integrator-sync-4 (IMPLEMENTATION-PLAN section 12 rule 2: added once --self-test existed).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 [[ "${CI:-}" == "true" ]] && set -x

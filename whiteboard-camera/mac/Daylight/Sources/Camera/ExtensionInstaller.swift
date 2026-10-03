@@ -202,7 +202,10 @@ final class ExtensionInstaller: NSObject, OSSystemExtensionRequestDelegate {
     /// `ls -R Contents/Library/SystemExtensions` for the row 8 log line.
     static func extensionListing(bundlePath: String) -> String {
         let root = URL(fileURLWithPath: bundlePath).appendingPathComponent("Contents/Library/SystemExtensions")
-        guard let enumerator = FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil) else { return "(missing)" }
+        // `enumerator(at:)` returns a non-nil enumerator for a directory that does not exist (it just yields nothing).
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: root.path, isDirectory: &isDirectory), isDirectory.boolValue,
+              let enumerator = FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil) else { return "(missing)" }
         var lines: [String] = []
         for case let url as URL in enumerator {
             lines.append(url.path.replacingOccurrences(of: root.path + "/", with: ""))

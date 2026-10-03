@@ -80,7 +80,8 @@ final class CMIOSinkClientTests: XCTestCase {
 
         client.noteExtensionStatus(.needsReboot)
         drain(queue)
-        XCTAssertEqual(client.status, .error(.extensionNeedsReboot, "willCompleteAfterReboot"))
+        XCTAssertEqual(client.status, .error(.extensionNeedsReboot, FailureText.logLine(.extensionNeedsReboot)))
+        XCTAssertEqual(CMIOSinkClient.sentence(for: client.status), "Restart your Mac once to finish installing Daylight Camera.", "the detail never reaches the owner for a row without a placeholder")
 
         client.noteExtensionStatus(.notInApplications)
         drain(queue)
@@ -88,7 +89,7 @@ final class CMIOSinkClientTests: XCTestCase {
 
         client.noteExtensionStatus(.unsignedBuild)
         drain(queue)
-        XCTAssertEqual(client.status, .error(.unsignedBuild, "DaylightBuildSigned=false"))
+        XCTAssertEqual(client.status, .error(.unsignedBuild, FailureText.logLine(.unsignedBuild)))
 
         client.noteExtensionStatus(.failed(.codeSignatureInvalid, "not notarized"))
         drain(queue)

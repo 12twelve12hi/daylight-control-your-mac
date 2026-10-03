@@ -125,6 +125,7 @@ jobs:
       - run: make kit-test
       - run: make mac-debug
       - run: make mac-test
+      - run: make mac-smoke
       - uses: actions/upload-artifact@v7
         with:
           name: Daylight-unsigned

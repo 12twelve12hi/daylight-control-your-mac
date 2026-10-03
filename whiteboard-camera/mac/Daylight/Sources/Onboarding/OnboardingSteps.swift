@@ -141,8 +141,10 @@ struct OnboardingSteps: Equatable {
         }
     }
 
-    /// True when every step that can be done is done (sets `onboardingDone`).
+    /// True when every step that can be done is done (sets `onboardingDone`). A blocked location or camera row stops
+    /// the finish, except the unsigned-build row: an unsigned test build has no camera extension to install and
+    /// finishes onboarding with the preview window (SPEC 13.3 row 2).
     static func canFinish(_ rows: [Row]) -> Bool {
-        return !rows.contains { $0.index <= 1 && $0.status == .blocked }
+        return !rows.contains { $0.index <= 1 && $0.status == .blocked && $0.failure != .unsignedBuild }
     }
 }

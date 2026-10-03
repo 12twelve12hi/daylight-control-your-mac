@@ -110,6 +110,17 @@ final class OnboardingStepsTests: XCTestCase {
     }
 }
 
+/// SPEC 7: the menu's "Whiteboard now" engages without drawing; only the hotkeys toggle.
+final class AppModelMenuTests: XCTestCase {
+    func testWhiteboardNowFromTheMenuNeverReturnsToTheCamera() {
+        XCTAssertEqual(AppModel.whiteboardNowEvent(.studioSplit, snapshot: GovernorOutput(state: .passthrough)), .layoutHotkey(.studioSplit))
+        XCTAssertEqual(AppModel.whiteboardNowEvent(.whiteboardOnly, snapshot: GovernorOutput(state: .live, layout: .studioSplit)), .layoutHotkey(.whiteboardOnly), "another layout switches the board")
+        XCTAssertEqual(AppModel.whiteboardNowEvent(.studioSplit, snapshot: GovernorOutput(state: .live, layout: .studioSplit)), .engage, "the showing layout only resets the idle timer")
+        XCTAssertEqual(AppModel.whiteboardNowEvent(.studioSplit, snapshot: GovernorOutput(state: .engaging, layout: .studioSplit)), .engage)
+        XCTAssertEqual(AppModel.whiteboardNowEvent(.studioSplit, snapshot: GovernorOutput(state: .returning, layout: .studioSplit)), .engage, "engage during RETURNING re-engages (SPEC D38)")
+    }
+}
+
 /// SPEC B6: every failure row has one case; the rows B shows map to their exact sentences.
 final class FailureCoverageTests: XCTestCase {
     func testThirtyFiveCasesAndTheRowsBTriggers() {

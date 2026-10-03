@@ -138,8 +138,8 @@ final class MenuBar: NSObject, NSMenuDelegate {
     @objc private func pin(_ sender: Any?) { model.pin() }
     @objc private func clear(_ sender: Any?) { model.clear() }
     @objc private func camera(_ sender: Any?) { model.returnToCamera() }
-    @objc private func studioSplit(_ sender: Any?) { model.whiteboardNow(.studioSplit) }
-    @objc private func whiteboardOnly(_ sender: Any?) { model.whiteboardNow(.whiteboardOnly) }
+    @objc private func studioSplit(_ sender: Any?) { model.menuWhiteboardNow(.studioSplit) }
+    @objc private func whiteboardOnly(_ sender: Any?) { model.menuWhiteboardNow(.whiteboardOnly) }
     @objc private func openSettings(_ sender: Any?) { model.onOpenSettings?() }
     @objc private func openDiagnostics(_ sender: Any?) { model.onOpenDiagnostics?() }
     @objc private func setupAgain(_ sender: Any?) { model.onSetupAgain?() }

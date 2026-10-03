@@ -161,8 +161,23 @@ final class AppModel: ObservableObject {
     func pin() { pipeline?.post(.pin(-1)) }
     func clear() { router?.queue.async { [weak self] in self?.router?.clearRequested() } }
     func returnToCamera() { pipeline?.post(.returnNow) }
+    /// Hotkeys W and D (SPEC 7, toggle semantics: the active layout's hotkey returns to the camera).
     func whiteboardNow(_ layout: LayoutStyle) { pipeline?.post(.layoutHotkey(layout)) }
     func engage() { pipeline?.post(.engage) }
+
+    /// Menu "Whiteboard now (<layout>)" (SPEC 7: engage without drawing, never a toggle).
+    func menuWhiteboardNow(_ layout: LayoutStyle) {
+        guard let pipeline = pipeline else { return }
+        pipeline.post(AppModel.whiteboardNowEvent(layout, snapshot: pipeline.governorSnapshot))
+    }
+
+    /// From the camera, or with the other layout showing, the layout event brings that layout up; with the chosen
+    /// layout already up (LIVE, ENGAGING or RETURNING) `engage` only resets the idle timer or re-engages (SPEC D38),
+    /// where `layoutHotkey` would start a return.
+    static func whiteboardNowEvent(_ layout: LayoutStyle, snapshot: GovernorOutput) -> GovernorEvent {
+        if snapshot.state == .passthrough || snapshot.layout != layout { return .layoutHotkey(layout) }
+        return .engage
+    }
 
     func hold(_ mode: HoldMode) {
         settingsStore.settings.holdMode = mode

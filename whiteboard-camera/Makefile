@@ -47,7 +47,7 @@ golden: ## regenerate protocol/golden/solstream-v1.json and copy it into the thr
 golden-check: ## regenerate to a temp file and diff all four copies
 	scripts/check-golden.sh
 
-scripts-check: ## bash tests for the script gates (mac-release secrets gate, ci-env DEVELOPER_DIR, license text); runs on Linux
+scripts-check: ## bash tests for the script gates (mac-release secrets gate, ci-env DEVELOPER_DIR, license text, kit-test crash retry); runs on Linux
 	scripts/scripts-check.sh
 
 doctor: ## print which tools exist here and which targets can run

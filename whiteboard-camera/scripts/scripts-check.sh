@@ -6,6 +6,8 @@
 #   ci-env.sh:           DAYLIGHT_XCODE_PATH writes DEVELOPER_DIR to $GITHUB_ENV (an export alone never reaches
 #                        the later steps of a job), and a wrong path leaves it untouched.
 #   fetch-tools.sh:      the committed Apache-2.0 text exists and is the license (shipped as Vendor/LICENSE-Apache-2.0.txt).
+#   kit-test.sh:         a crash of swift-package (exit 139) is retried with the whole suite and a log line; a test
+#                        failure (exit 1) is never retried; a crash on every attempt still fails (a stub swift).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 fails=0; passes=0
@@ -73,6 +75,38 @@ else
   echo "FAIL  $lic missing or not the Apache License 2.0"; fails=$((fails + 1))
 fi
 grep -q 'cp scripts/licenses/Apache-2.0.txt "$out/LICENSE-Apache-2.0.txt"' scripts/fetch-tools.sh && { echo "ok    fetch-tools.sh ships the license text"; passes=$((passes + 1)); } || { echo "FAIL  fetch-tools.sh does not copy the license text"; fails=$((fails + 1)); }
+
+# kit-test.sh against a stub swift in a scratch copy of the tree (the retry wipes mac/DaylightKit/.build). The stub
+# exits with the codes listed in $tmpdir/kit/codes, one per `swift test` call, and logs each call.
+mkdir -p "$tmpdir/kit/tree/scripts" "$tmpdir/kit/tree/mac/DaylightKit/.build" "$tmpdir/kit/bin"
+cp scripts/kit-test.sh "$tmpdir/kit/tree/scripts/kit-test.sh"
+cat > "$tmpdir/kit/bin/swift" <<'STUB'
+#!/usr/bin/env bash
+[[ "$1" == "--version" ]] && { echo "Swift version stub"; exit 0; }
+echo "$*" >> "$KIT_STUB_DIR/calls"
+n=$(( $(wc -l < "$KIT_STUB_DIR/calls") ))
+code=$(sed -n "${n}p" "$KIT_STUB_DIR/codes")
+exit "${code:-0}"
+STUB
+chmod +x "$tmpdir/kit/bin/swift"
+run_kit() { # $@ exit codes of the successive swift test calls
+  printf '%s\n' "$@" > "$tmpdir/kit/codes"; : > "$tmpdir/kit/calls"
+  set +e
+  out="$(env -u CI PATH="$tmpdir/kit/bin:$PATH" KIT_STUB_DIR="$tmpdir/kit" bash "$tmpdir/kit/tree/scripts/kit-test.sh" 2>&1)"
+  rc=$?
+  set -e
+  out="$out
+calls=$(( $(wc -l < "$tmpdir/kit/calls") )) args=$(head -1 "$tmpdir/kit/calls")"
+}
+run_kit 139 0
+expect "kit-test: a swift-package crash (139) is retried and the second run passes" 0 "crashed with exit 139 \\(signal 11\\).*attempt 2 of 3"
+expect "kit-test: the retry runs the whole suite again with --parallel" 0 "calls=2 args=test --package-path mac/DaylightKit --parallel$"
+[[ ! -d "$tmpdir/kit/tree/mac/DaylightKit/.build" ]] && { echo "ok    kit-test: the retry starts from an empty .build"; passes=$((passes + 1)); } || { echo "FAIL  kit-test: .build survived the retry"; fails=$((fails + 1)); }
+run_kit 1
+expect "kit-test: a test failure (exit 1) is not retried" 1 "calls=1 "
+run_kit 139 139 139
+expect "kit-test: a crash on every attempt fails with its exit code" 139 "attempt 3 of 3; giving up"
+expect "kit-test: a crash on every attempt stops after three runs" 139 "calls=3 "
 
 echo "scripts-check: $passes passed, $fails failed"
 (( fails == 0 ))

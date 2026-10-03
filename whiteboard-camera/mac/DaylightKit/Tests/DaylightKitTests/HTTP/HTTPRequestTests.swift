@@ -100,6 +100,8 @@ final class HTTPRequestTests: XCTestCase {
         XCTAssertEqual(HTTPRequest.statusText(413), "Payload Too Large")
         XCTAssertEqual(HTTPRequest.statusText(426), "Upgrade Required")
         XCTAssertEqual(HTTPRequest.statusText(404), "Not Found")
+        XCTAssertEqual(HTTPRequest.statusText(411), "Length Required", "POST /api/facts without a length (PROTOCOL 15.2)")
+        XCTAssertEqual(HTTPRequest.statusText(415), "Unsupported Media Type", "POST /api/facts without application/json (PROTOCOL 15.2)")
         XCTAssertEqual(HTTPRequest.statusText(999), "Unknown")
         let response = HTTPRequest.response(status: 200, headers: [("Content-Type", "text/plain")], body: Array("ok".utf8))
         XCTAssertEqual(String(decoding: response, as: UTF8.self), "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")

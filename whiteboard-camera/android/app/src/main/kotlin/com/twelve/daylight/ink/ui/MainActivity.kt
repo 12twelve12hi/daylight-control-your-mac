@@ -43,6 +43,7 @@ class MainActivity : Activity(), InkConnection.Listener, Toolbar.Actions {
     private var wet: WetInkSurface? = null
     private lateinit var toolbar: Toolbar
     private lateinit var chip: Chip
+    private lateinit var input: PenInput
     private var onboardingShown = false
 
     private val frames = object : FrameScheduler {
@@ -96,7 +97,7 @@ class MainActivity : Activity(), InkConnection.Listener, Toolbar.Actions {
         session = StrokeSession(conn, Encoder { System.currentTimeMillis() * 1000L }, dry, frames)
         session.sendPerEvent = prefs.sendPerEvent
         canvas.onPageSize = { w, h -> session.setViewSize(w, h) }
-        val input = PenInput(session, prefs, wet)
+        input = PenInput(session, prefs, wet)
         input.unbufferedPerStroke = prefs.unbufferedInput
         dry.input = input
         wet?.input = input
@@ -124,7 +125,14 @@ class MainActivity : Activity(), InkConnection.Listener, Toolbar.Actions {
 
     override fun onStart() {
         super.onStart()
+        // Settings is a separate screen: every toggle is read again on the way back. The front-buffer layer exists only
+        // when it was created in onCreate, so flipping that one rebuilds the canvas (handoff E step 14).
         session.sendPerEvent = prefs.sendPerEvent
+        input.unbufferedPerStroke = prefs.unbufferedInput
+        if (prefs.frontBuffer != (wet != null)) {
+            recreate()
+            return
+        }
         conn.acquire(HOLDER, Identity.ROLE_INK)
         conn.addListener(this)
     }

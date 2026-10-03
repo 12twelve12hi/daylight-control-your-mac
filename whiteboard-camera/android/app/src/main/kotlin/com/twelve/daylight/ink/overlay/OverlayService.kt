@@ -116,12 +116,21 @@ class OverlayService : Service(), InkConnection.Listener {
         ).apply {
             gravity = (if (placement.position == PillsLayout.Position.BOTTOM) Gravity.BOTTOM else Gravity.TOP) or Gravity.CENTER_HORIZONTAL
             y = placement.y
+            // The row must sit inside the 96 px strip the Mac crops away: without this the window manager would push a
+            // TOP window below the status bar (API 30 fit-insets default) and the pills would show in the camera picture.
+            if (placement.position == PillsLayout.Position.TOP) setFitInsetsTypes(0)
         }
         try {
             wc.getSystemService(WindowManager::class.java).addView(view, lp)
             pills = view
             view.bind(PillsState.view(conn.phase, conn.lastState))
             Log.i(TAG, "pills window added: ${placement.position} y=${placement.y} row=${placement.rowHeight}px")
+            view.post {
+                // LOOSE_ENDS D5: the screen position the owner compares with the mirror crop.
+                val xy = IntArray(2)
+                view.getLocationOnScreen(xy)
+                Log.i(TAG, "pills frame x=${xy[0]} y=${xy[1]} h=${view.height}")
+            }
         } catch (e: RuntimeException) {
             Log.w(TAG, "addView failed: $e")
             stopSelf()

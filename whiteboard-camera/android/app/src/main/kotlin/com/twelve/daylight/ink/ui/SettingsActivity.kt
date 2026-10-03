@@ -15,18 +15,25 @@ import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import com.twelve.daylight.ink.Facts
+import com.twelve.daylight.ink.net.Identity
 import com.twelve.daylight.ink.net.InkConnection
 import com.twelve.daylight.ink.overlay.OverlayService
 import com.twelve.daylight.ink.prefs.Prefs
 
 /** SPEC 11 tablet-side settings plus the device facts of LOOSE_ENDS section D. */
 class SettingsActivity : Activity() {
+    companion object {
+        const val HOLDER = "settings"
+    }
+
     private lateinit var prefs: Prefs
+    private lateinit var conn: InkConnection
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         EdgeToEdge.apply(this)
         prefs = Prefs(this)
+        conn = InkConnection.get(this)
         val d = resources.displayMetrics.density
         val col = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -82,6 +89,18 @@ class SettingsActivity : Activity() {
             setTextIsSelectable(true)
         })
         setContentView(ScrollView(this).apply { addView(col) })
+    }
+
+    // The canvas releases its hold when Settings covers it; without a holder here the connection would stop, the
+    // discovery would end and every address typed below would dial nothing (OnboardingActivity does the same).
+    override fun onStart() {
+        super.onStart()
+        conn.acquire(HOLDER, Identity.ROLE_INK)
+    }
+
+    override fun onStop() {
+        conn.release(HOLDER)
+        super.onStop()
     }
 
     private fun toggle(text: String, checked: Boolean, onChange: (Boolean) -> Unit): Switch = Switch(this).apply {

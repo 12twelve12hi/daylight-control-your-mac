@@ -1,0 +1,161 @@
+# Testing checklist: the device run
+
+Everything the code could not prove without hardware, as atomic steps grouped into five sessions you can do on different days. Each row says what you do, what you see (or the exact log line), how long it takes, and where the result goes: a `docs/LOOSE_ENDS.md` row id (D1 to D18, E2 and so on, G rows) when a fact is collected, or "note" when a tick is enough. Results that surprise you go into a new row under LOOSE_ENDS section G with the Diagnostics report attached ("Diagnostics..." > "Copy diagnostics").
+
+Prerequisites per session are at the top of each one. Sessions 1 to 4 run on the unsigned build (the preview window stands in for the camera); session 5 needs the signed, notarized build of `docs/SIGNING.md`. Legend: 🟢 setup, ✍️ draw something, 🟡 make it fail on purpose, 🟣 confirm a file or a value, 📋 paste a line into LOOSE_ENDS, ⏱️ a timed wait.
+
+Writing rules: no em-dashes; LivePaper is a transflective LCD; the backlight is DC dimming; VRR is 45 to 90 Hz.
+
+How to read the log while you test: Terminal, `log stream --predicate 'subsystem == "com.twelve.daylight"' --level info`. Or menu bar > "Diagnostics..." (the last 200 lines are at the bottom). The failure rows named below are SPEC 13.3 rows; SPEC lists 1, 12, 13, 19, 21, 22, 28 and 33 as the ones to trigger on purpose on day one.
+
+---
+
+## Session 1: Mac only (⏱️ about 20 minutes, unsigned or signed build, no tablet needed)
+
+Prerequisites: Daylight installed per `docs/SETUP.md`; a webcam; the preview window open.
+
+| # | | Step | You see, or the log line | ⏱️ | Paste into |
+|---|---|---|---|---|---|
+| 1.1 | 🟡 | Open `Daylight.app` from Downloads (a copy) before the one in Applications | "Move Daylight to your Applications folder, then open it from there." with "Reveal in Finder" (row 1) | 30 s | note |
+| 1.2 | 🟢 | Open from Applications: the Welcome window, "Allow camera access", Allow | the preview fills within a second of Allow (G7) | 1 min | note |
+| 1.3 | 🟡 | Deny camera access once (System Settings > Privacy & Security > Camera > Daylight off), reopen Daylight | "Camera access is off for Daylight." with "Open System Settings" (row 3); switch it back on | 1 min | note |
+| 1.4 | 🟢 | Read the menu bar | the version line, "Open http://<ip>:7788 on your Daylight" lines, "Ink source", "Hold", "Keep whiteboard", "Clear", "Camera", "Whiteboard now (Studio Split)", "Whiteboard now (Whiteboard Only)", "Preview window", "Settings...", "Diagnostics...", "Setup again", "Quit Daylight" | 30 s | note |
+| 1.5 | 🟡 | Quit Daylight; Terminal `nc -l 7788`; launch Daylight | menu: "Port 7788 is in use. Daylight is using 7789." (row 16); log `NWListener failed:`; stop `nc` afterwards | 1 min | note (E22) |
+| 1.6 | ⏱️ | Wait 60 s with no tablet connected | menu: "Nobody has connected yet. Same Wi-Fi? Office networks often block this: use USB or Tailscale." (row 18) | 1 min | note |
+| 1.7 | ✍️ | Press Ctrl+Opt+Cmd+D from the camera state | the preview slides to Studio Split without ink; press again: back to the camera | 30 s | note |
+| 1.8 | ✍️ | Press Ctrl+Opt+Cmd+W | Whiteboard Only: paper centred, cream margins, no presenter; again: camera | 30 s | note |
+| 1.9 | ✍️ | Ctrl+Opt+Cmd+K | menu "Keep whiteboard" ticked and the board up; Ctrl+Opt+Cmd+Esc returns | 30 s | note |
+| 1.10 | 🟣 | Settings > Hotkeys: bind Ctrl+Opt+Cmd+C to a second action | the second one reads "Already used by Clear" (G6); "Reset to defaults" | 1 min | G6 |
+| 1.11 | 🟣 | Settings > General: change "Return to camera after" while the board is up (via 1.7) | the board stays up; the new timeout applies after the next return (G13) | 1 min | G13 |
+| 1.12 | 🟡 | Unplug the external webcam (or cover the built-in by choosing a USB camera and unplugging it) | menu icon with a slash, preview "No camera found" (row 4), or the fallback camera within a second with a cream card in between (G5); replug: the picture returns | 1 min | G5 |
+| 1.13 | 🟣 | Diagnostics: the "first frame:" line | names your real webcam, size, fourcc, `iosurface=` and `zeroCopy=true` or the row 5 text "Camera delivers <w>x<h> <fourcc>; composing every frame" | 30 s | E4, E5 |
+| 1.14 | ⏱️ | Signed build with the extension connected: close every viewer and the preview, wait 60 s | webcam LED off; Diagnostics "Webcam capture is paused because no app is viewing Daylight Camera (LED off). It restarts within a second when a call starts." (row 33); log `capture stopped: viewers=0 preview=hidden`; open FaceTime: picture back within a second | 2 min | note (E11) |
+| 1.15 | 🟣 | Terminal: quit Daylight, `/Applications/Daylight.app/Contents/MacOS/Daylight --self-test --perf-log` | one line per probe, `self-test: PASS`; the Metal device name and the first command buffer time | 1 min | PERFORMANCE.md |
+| 1.16 | 📋 | "Diagnostics..." > "Copy diagnostics" | the full report on the clipboard; keep it with your notes | 30 s | your notes |
+
+---
+
+## Session 2: web whiteboard (⏱️ about 25 minutes)
+
+Prerequisites: "Ink source" > "Web whiteboard"; the DC-1 on the same Wi-Fi (USB with debugging on for 2.17).
+
+| # | | Step | You see, or the log line | ⏱️ | Paste into |
+|---|---|---|---|---|---|
+| 2.1 | 🟢 | Type the menu-bar URL into Chrome on the tablet | the cream page with "Tap to start" | 1 min | D8 later |
+| 2.2 | 🟢 | Tap once | Chrome goes full screen; chip "Looking for your Mac" under a second, then "Look at your Mac" | 30 s | note |
+| 2.3 | 🟢 | Mac: "Allow" in the floating panel (Zoom keeps focus); or let it time out after 60 s and use the menu item "Allow Chrome on Daylight" (row 19) | chip "Camera"; log `client <id> pending` before, allowed after | 1 min | E14 (focus) |
+| 2.4 | ✍️ | Write one word | chip "LIVE" with an amber dot within a quarter second; the board slides into the preview with your ink | 1 min | note |
+| 2.5 | 🟡 | Rest your palm, swipe a finger | nothing drawn, no slide (D9) | 1 min | D9 |
+| 2.6 | 🟡 | Hover the pen 5 mm above the glass and move | nothing drawn | 30 s | note |
+| 2.7 | 📋 | Press the pen side button in the air; later tap "?" | nothing drawn; the card shows `first pen pointerdown button=<n> buttons=<n> pressure=<p> tiltX=<n> tiltY=<n>` | 1 min | D3, D4 |
+| 2.8 | ✍️ | "Highlight", draw across the word | an amber band under the black ink on the tablet and in the preview | 30 s | note |
+| 2.9 | ✍️ | "Erase", drag across part of the word | the touched strokes vanish on both sides; the first erase burst is one frame per sample (G14) | 30 s | note |
+| 2.10 | ✍️ | "Undo", then "Redo" | the stroke vanishes on the Mac first, then on the tablet; Redo brings it back; the buttons grey out when empty | 1 min | note |
+| 2.11 | ⏱️ | Stop drawing and wait | at 85 s chip "Returning in 5" with the dot breathing in step with the amber divider; at 90 s "Returning", then "Camera" | 2 min | note |
+| 2.12 | ✍️ | Draw, tap the chip; wait 2 minutes; tap again | "KEEP WHITEBOARD" in black; the board stays; then "LIVE" with a fresh 90 s | 3 min | note |
+| 2.13 | ✍️ | Hold the chip for one second | the picture slides back; chip "Camera" | 30 s | note |
+| 2.14 | 🟣 | Draw, tap "Clear"; then tap "New page" while LIVE | Clear blanks both sides and returns (unless pinned); `page-01.png` and `page-01.json` appear under `~/Documents/Daylight Camera/<date>/<time>/`; New page keeps the board up and saves the previous page as `page-02...` on the next trigger | 1 min | E23 |
+| 2.15 | 🟣 | Draw, Clear, draw, Clear | `page-01.png` and `page-01-2.png` (the second Clear after a cleared page picks `-2`) | 1 min | note |
+| 2.16 | 🟡 | Wi-Fi off on the tablet for 5 s while writing, then on | chip "Looking for your Mac" then "Camera" or "LIVE"; the strokes from the gap arrive on the Mac after the reconnect | 1 min | note |
+| 2.17 | 🟣 | Draw, reload the page, draw again, tap the page's "Undo" twice | the page hides its own stroke first and never loses it (G2) | 1 min | G2 |
+| 2.18 | 🟢 | Chrome menu > Add to Home screen > Add; close Chrome; tap the icon; tap Start | the page opens full screen | 1 min | D8 (`displayMode`) |
+| 2.19 | 📋 | Tap "?", read "This tablet" | copy the `daylight-web caps {...}` facts (Chrome version in `userAgent`, `devicePixelRatio`, `viewport`, `displayMode`, `secureContext`, `wakeLock`, `coalescedEvents`, `rawUpdate`) | 1 min | D8 |
+| 2.20 | 🟣 | USB: cable in, Welcome window > "Set up over USB" with Web whiteboard selected | Chrome opens `http://localhost:7788` (or the bound port) on the tablet with no Allow prompt; "?" shows `secure true`, `wake lock true held`, `coalesced true` | 2 min | D10 (which app opened the URL) |
+| 2.21 | 🟣 | Optional: try the muted `http://<hostname>.local:7788` line in Chrome | does it load? | 1 min | D8 (`.local`) |
+| 2.22 | 🟣 | Optional (LOOSE_ENDS A5): "?" card, copy the `chrome://flags` line and the origin, paste in Chrome, Enabled, Relaunch | "?" shows `secure true` afterwards | 2 min | A5 |
+| 2.23 | ⏱️ | Leave the tablet alone for its screen-timeout period while LIVE | with `wake lock true held` the screen stays on; otherwise note it | 3 min | D8 |
+
+---
+
+## Session 3: Daylight Ink (⏱️ about 25 minutes)
+
+Prerequisites: "Ink source" > "Daylight Ink app"; a USB-C cable with USB debugging on, or Wi-Fi for path B.
+
+| # | | Step | You see, or the log line | ⏱️ | Paste into |
+|---|---|---|---|---|---|
+| 3.1 | 🟢 | Path A: cable in, Welcome window > "Set up over USB" | the app opens on the tablet within a few seconds; chip "Camera" with no Allow prompt | 2 min | D15 (`canDrawOverlays=true`) |
+| 3.2 | 🟢 | Path B (no cable): web page "?" > "Download Daylight Ink", Install, allow the source, open | "Welcome to Daylight Ink"; the first row switches from "Looking for your Mac... Enter its address if this takes long" to connected by itself on the same Wi-Fi; else type the Mac's address | 3 min | E15, D11 |
+| 3.3 | 🟢 | "Open the permission screen" > Daylight Ink > "Allow display over other apps" > Back; "Allow notifications"; "Start writing" | the row reads "Allowed"; the canvas appears | 2 min | note |
+| 3.4 | 🟢 | Wi-Fi path: "Allow" on the Mac | chip "Camera" | 30 s | note |
+| 3.5 | ✍️ | Write one word | ink under the pen immediately (front buffer); chip "LIVE" within a quarter second; the board in the preview | 1 min | note |
+| 3.6 | 🟡 | Palm, finger, hover, side button in the air | nothing drawn | 1 min | note |
+| 3.7 | 📋 | Settings > "This tablet" | `pressureRange=` (`normalised 0..1` or `raw ADC`), `sideButton=BUTTON_STYLUS_PRIMARY` or `SECONDARY` | 1 min | D3, D4 |
+| 3.8 | ✍️ | Flip the pen (eraser end) or tap "Erase", rub across the word | the touched strokes vanish on both sides | 30 s | note |
+| 3.9 | ✍️ | "Highlight", then "Undo", "Redo" | amber under black; undo on the Mac first, then the tablet; Redo back; both grey out when empty | 1 min | note |
+| 3.10 | ⏱️ | Stop drawing and wait | "Returning in 5" at 85 s with the breathing dot; "Returning" then "Camera" at 90 s | 2 min | note |
+| 3.11 | ✍️ | Tap the chip; wait 2 minutes; tap; hold one second | "KEEP WHITEBOARD"; board stays; "LIVE"; back to "Camera" | 3 min | note |
+| 3.12 | 🟣 | "Clear"; then "New page" while LIVE | Clear blanks both sides and returns unless pinned; New page keeps the board up | 1 min | note |
+| 3.13 | 🟣 | Settings > "Front buffer (lowest latency wet ink)" off, back out, draw; back on, draw | the canvas reloads on the way back (android-04, G14); compare the wet-ink lag; "This tablet" shows `frontBuffer=available (...)` or `fallback to the dry view (...)` | 2 min | D14 |
+| 3.14 | 🟣 | Settings > "Send every pen sample at once (A/B against per-frame batching)" on; draw; compare | smoothness on the tablet and the Mac's `perf` line | 2 min | COMPARE.md |
+| 3.15 | 🟡 | Wi-Fi off for 5 s while writing, then on | chip "Looking for your Mac" then "Camera" or "LIVE" within about 10 s (strokes from the gap stay on the tablet only) | 1 min | note |
+| 3.16 | 📋 | Settings > "This tablet" | `model=`, `release=`, `display=WxH density=`, `tiramisuExt=N`, `canDrawOverlays=` | 1 min | D2, D11, D15 |
+| 3.17 | 🟢 | Settings > "Show the pills now" (or "Ink source" > "Mirror the tablet" on the Mac with pills on) | two pills "Pin" and "Clear" top centre of the tablet; log `pills window added: TOP y=24 row=48px` then `pills frame x=<n> y=24 h=<n>`; "Pin" shows "KEEP" when pinned; "Hide the pills" removes them | 3 min | D5 |
+| 3.18 | 🟣 | Over USB from the Mac's adb: `adb shell am start-foreground-service -n com.twelve.daylight.ink/.overlay.OverlayService --es pills top` | the pills appear without opening the app | 1 min | D15 |
+| 3.19 | 🟣 | Settings > "Start the pills at boot" on; reboot the tablet | the pills come back by themselves (A12 opt-in) | 3 min | A12 |
+| 3.20 | 🟢 | Next day: open the app | it reconnects with no prompt (Bonjour, then 127.0.0.1:7788, then the remembered host) | 1 min | note |
+| 3.21 | ⏱️ | Wait 8 days after 3.1 (or check Developer options) | does "Disable adb authorization timeout" exist and did the authorisation survive? | 1 min | D6 |
+
+Logcat, when a row needs it: `/Applications/Daylight.app/Contents/Resources/Vendor/adb logcat -s DaylightInk.facts DaylightInk.ink DaylightInk.net DaylightInk.overlay`.
+
+---
+
+## Session 4: mirror mode (⏱️ about 25 minutes)
+
+Prerequisites: USB debugging on, the cable, "Always allow from this computer" accepted; the SolOS note app on the tablet.
+
+| # | | Step | You see, or the log line | ⏱️ | Paste into |
+|---|---|---|---|---|---|
+| 4.1 | 🟢 | "Ink source" > "Mirror the tablet"; open "Diagnostics..." | within 2 s `mirror.status: mirroring <serial> 1200x1600` and `mirror.session.deviceModel: <Build.MODEL>` | 1 min | D2 |
+| 4.2 | ✍️ | Pen on the note app | the preview slides to Studio Split with the tablet picture in the board slot, top strip cropped; log `engage probe: pen contact at <t> (mirror)` and `first decoded frame at <t>` | 1 min | D12 |
+| 4.3 | ⏱️ | Lift the pen, wait 90 s | the picture slides back; `~/Documents/Daylight Camera/<date>/<time>/mirror-<HH-mm-ss>.png` appears, cropped like the picture | 2 min | note |
+| 4.4 | ✍️ | Double press the pen side button; then hold it for a second | menu "Keep whiteboard" ticked; then Clear and return (unless pinned); Settings > Mirror > "Swap: double press = Clear, long press = Pin" exchanges them | 1 min | D1 (`BTN_STYLUS` seen) |
+| 4.5 | 🟣 | Settings > Mirror > "Pin and Clear in mirror mode" > "Pen side button"; then "Both" | the whole screen mirrored (top inset 0); then the strip cropped again | 1 min | note |
+| 4.6 | 🟣 | Settings > Mirror > "Floating pills" or "Both": look at the preview | the pills are on the tablet and absent from the camera picture; if visible, raise the Top crop | 1 min | D5 |
+| 4.7 | 🟣 | Rotate the tablet | Diagnostics `mirror.session.size: 1600x1200`; the same region stays cropped (landscape top inset 72) | 1 min | note |
+| 4.8 | 📋 | Diagnostics `mirror.pen.node` (`mirror.pen.status` reads "no pen node among [...]" when row 28 fired) and the log line `getevent -pl devices: [...]` and `pen node /dev/input/eventN "<name>" pressureMax=<n> keys=[...] abs=[...]` | copy all three | 1 min | D1 |
+| 4.9 | 📋 | Diagnostics `mirror.decoder.hardware`, `mirror.decoder.outOfOrder`, `mirror.adb.mode`, `mirror.adb.executable` | hardware true/false/unknown (E26); out-of-order stays 0 (D13); the adb mode (shared or private) and which path is in use (E24) | 1 min | D13, E24, E26 |
+| 4.10 | 🟡 | Unplug the cable while mirroring; replug | status `no device` within 2 s, the board lifts the pen and the idle timer runs; replug: mirroring resumes with no tap | 2 min | note |
+| 4.11 | 🟡 | Decline the RSA prompt once (revoke in Developer options > Revoke USB debugging authorizations, replug, tap Deny) | "Tap Allow on your Daylight (tick Always allow)." (row 22); then allow again | 1 min | note |
+| 4.12 | 🟡 | Toggle USB debugging off and on while plugged | "The Daylight is connected but not responding. Unplug and plug again." (row 23) or row 21 "No Daylight found over USB. Is USB debugging on?" | 1 min | note |
+| 4.13 | 🟡 | Settings > Mirror > "Mirror over Wi-Fi after a USB session" on; unplug | the mirror continues over Wi-Fi, or "Plug in once to re-enable Wi-Fi mirroring." (row 32); log `remembered <ip> for Wi-Fi mirroring; adbd now listens on 5555`; reboot the tablet and try again | 3 min | C2 |
+| 4.14 | 🟡 | Start another adb first (Android Studio, or Homebrew's `adb start-server`), then Daylight | menu row 24 "Another adb is running (Android Studio?)..."; `mirror.adb.mode` reads `private tcp:localhost:27180 (...)`; is the tablet still visible? | 2 min | C5 |
+| 4.15 | 🟡 | Pull the cable mid-frame and replug quickly | status "Recovering video..." until the next key frame (row 27), at most 12 s before the server restarts | 1 min | note |
+| 4.16 | 🟣 | Welcome window > "Set up over USB" with Web whiteboard selected, then with Daylight Ink app selected | the tablet opens `http://localhost:7788` (or the bound port); then the APK installs, the app opens with the Mac's address, the pills service starts | 2 min | D10, D15 |
+| 4.17 | 🟣 | After quitting Daylight: `adb shell ps -A \| grep getevent` with the bundled adb | no leftover `getevent` (or note it; harmless) | 1 min | D12 |
+| 4.18 | ⏱️ | Mirror for 30 minutes; Activity Monitor memory for Daylight before and after | the resident set does not grow (app-12, G14); budget under 180 MB | 30 min | G14, PERFORMANCE.md |
+
+---
+
+## Session 5: the signed camera (⏱️ about 15 minutes, signed and notarized build only)
+
+Prerequisites: `Daylight.dmg` from a `v*` tag or a notarize run (`docs/SIGNING.md`); FaceTime and Zoom installed.
+
+| # | | Step | You see, or the log line | ⏱️ | Paste into |
+|---|---|---|---|---|---|
+| 5.1 | 🟡 | Open the app from the mounted DMG or Downloads first | "Move Daylight to your Applications folder, then open it from there." (row 1 or 7) | 30 s | note |
+| 5.2 | 🟢 | Drag to Applications, eject, open from Applications; Welcome row "Install Daylight Camera" > "Install" | "Approve 'Daylight Camera' in System Settings > General > Login Items & Extensions > Camera Extensions, then click Check again." (row 12); log `requestNeedsUserApproval` | 1 min | A2 (which macOS), E13 |
+| 5.3 | 🟢 | "Open System Settings" | lands on Camera Extensions (or where?); switch Daylight Camera on, password | 1 min | E13 |
+| 5.4 | 🟢 | "Check again" | the row turns green within 2 s; log `sink connected: device=<id> sink=<id> capacity=1 directions=[a, b]` | 30 s | E2 (`directions=`) |
+| 5.5 | 🟣 | Terminal `systemextensionsctl list` | `com.twelve.daylight.camera` with `[activated enabled]` | 30 s | note |
+| 5.6 | 🟣 | Log line `CMIOObjectAddPropertyListenerBlock(dlvw) on stream <id> -> <status>` | the status; later, whether `viewers=` changes arrive faster than one second after FaceTime starts | 30 s | E3 |
+| 5.7 | 🟡 | Quit Daylight; FaceTime > Video > Daylight Camera | the cream card "Daylight is not running. Open Daylight from the menu bar." within a second | 30 s | E28 (CoreText sentence drawn) |
+| 5.8 | 🟢 | Open Daylight again while FaceTime shows the card | the webcam replaces the card within 2 s; log `viewers=1` | 30 s | note |
+| 5.9 | ⏱️ | Close FaceTime | `viewers=0` within 1 s; LED off 60 s later; reopen FaceTime: picture back within a second | 2 min | note |
+| 5.10 | 🟢 | Zoom (Settings > Video > Camera > Daylight Camera) and FaceTime together | log `viewers=2`; both show the same picture | 1 min | note |
+| 5.11 | 🟣 | Diagnostics: "sink:" line and the extension state | `sink queue 0 of 1` (or 1 of 1 in flight), the two direction values, the viewer count; "first frame" names the real webcam, never Daylight Camera (app-03, G14) | 30 s | G14 |
+| 5.12 | 🟡 | Row 13 on purpose: `systemextensionsctl uninstall <TEAMID> com.twelve.daylight.camera` (unverified subcommand; else trash and reinstall the app), relaunch Daylight | "Daylight Camera is installed but not found yet. Retrying..." then after 30 s "Open Zoom or FaceTime once, or restart your Mac."; approve again: connected without a relaunch | 2 min | note (`systemextensionsctl uninstall` spelling) |
+| 5.13 | 🟢 | Install the next build (a newer notarized run) over the running one while FaceTime shows the picture | FaceTime keeps showing frames without relaunching Daylight (G1); or the log notice `sink connected but N pushes in a row were dropped with viewers=` means quit and reopen Daylight | 3 min | G1 |
+| 5.14 | 🟡 | Zoom shows black after the update | quit and reopen Zoom (row 15) | 30 s | note |
+| 5.15 | 🟣 | Terminal `spctl -a -vv /Applications/Daylight.app` | `accepted`, `source=Notarized Developer ID` | 30 s | G8 |
+| 5.16 | 📋 | `release-logs` of the run: `profile-check.txt`, `signed-flag.txt`, `notarytool-submit.json`, `codesign-vendor-adb.txt` | anything surprising; `codesign -dvv /Applications/Daylight.app/Contents/Resources/Vendor/adb` shows a Developer ID signature and `Timestamp=` | 2 min | G, B6 |
+| 5.17 | 🟣 | Activity Monitor, the `com.twelve.daylight.camera` process, while a call is on and nothing is drawn | near zero CPU (the 90 Hz consume timer only while the sink is started) | 1 min | E1 |
+
+---
+
+## Where the results go
+
+- Facts with a row id: edit that row's table cell in `docs/LOOSE_ENDS.md` (sections D, E, G, C), replacing the collection method with the observed value and the date.
+- Decisions: `docs/LOOSE_ENDS.md` A2 (macOS version), A3 (package name), A4 (three defaults), A5 (the Chrome flag), A6 (adb redistribution), A14 (license); one line each.
+- Numbers: `docs/PERFORMANCE.md` section "Owner's Mac" and `docs/COMPARE.md` section 2.
+- Anything that surprised you: a new row under LOOSE_ENDS section G with the Diagnostics report ("Copy diagnostics") and the `log stream` excerpt.
+- Checked rows that match the expectation: nothing to write; the tick is the record. Keep this file's boxes ticked in your working copy or a printout.

@@ -76,6 +76,26 @@ Pin and Clear in mirror mode: the two floating pills "Pin" and "Clear" at the to
 
 Cable free (optional): Settings > Mirror > "Mirror over Wi-Fi after a USB session". After one USB session Daylight remembers the tablet's Wi-Fi address and reconnects over Wi-Fi when you unplug ("Try Wi-Fi mirror now" forces it). If the tablet was restarted, plug in once more ("Plug in once to re-enable Wi-Fi mirroring.", row 32). Android 11 wireless debugging pairing (Developer options > Wireless debugging > Pair device with pairing code, then `adb pair` and `adb connect` in Terminal with Daylight's own adb at `Daylight.app/Contents/Resources/Vendor/adb`) also works and is not automated in v1 (LOOSE_ENDS C1).
 
+#### adb source
+
+Mirror mode talks to the tablet through Google's adb. Settings > Mirror > "adb source" decides which copy Daylight runs:
+
+| Choice | What happens | When to pick it |
+|---|---|---|
+| "Bundled (default)" | the adb inside Daylight (`Daylight.app/Contents/Resources/Vendor/adb`, platform-tools 37.0.0). Nothing to do. | always, unless a build ships without it |
+| "Download on first use" | Daylight shows Google's Android SDK License once ("Download adb from Google?", Accept or Cancel). After Accept it downloads platform-tools 37.0.0 (about 15 MB) from dl.google.com, checks its SHA-256 before unpacking and again every time mirror mode starts, and keeps `adb` and `NOTICE.txt` in `~/Library/Application Support/Daylight/platform-tools`. After that it works offline; a new Daylight release with a newer pin downloads once more. | builds made without the bundled adb (`make fetch-tools mac-generate mac-debug DAYLIGHT_BUNDLE_ADB=0`), where it is the default and "Bundled" is hidden |
+| "Use installed adb" | the first `adb` found in your PATH, then Homebrew (`/opt/homebrew/bin/adb`, `/usr/local/bin/adb`), then Android Studio (`$ANDROID_HOME/platform-tools`, `$ANDROID_SDK_ROOT/platform-tools`, `~/Library/Android/sdk/platform-tools`). It must be platform-tools 35 or newer (`adb version` prints "Version 35..." or later). | you already keep adb up to date with Homebrew or Android Studio and want one adb on the Mac |
+
+The row under the picker shows the path and version Daylight found, or what went wrong:
+
+- Cancel on the license: "Downloading adb needs Google's Android SDK License accepted. Choose Download again in Settings > Mirror to review it, or pick another adb source." (row 39)
+- No internet: "Could not download adb: <reason>. Check the internet connection and try again, or choose Use bundled." with Try again and Use bundled (row 40)
+- A damaged download: "The downloaded adb did not match its checksum and was deleted. Try again, or choose Use bundled." (row 41)
+- No installed adb: "No installed adb found. Daylight looked in your PATH, in Homebrew (/opt/homebrew/bin, /usr/local/bin) and in the Android Studio SDK (ANDROID_HOME, ~/Library/Android/sdk)." (row 42); `brew install android-platform-tools` fixes it
+- An old one: "The adb at <path> is version <version>. Daylight needs platform-tools 35 or newer: update it, or choose another adb source." (row 43)
+
+A new adb source applies the next time Daylight starts (quit from the menu bar and open it again). Diagnostics shows the one in use as `mirror.adb.source`, `mirror.adb.path` and `mirror.adb.version`, next to `mirror.adb.mode`. Whatever the source, Daylight never runs `adb kill-server` and shares or avoids another adb server by the same rule (row 24).
+
 If the menu says "Another adb is running (Android Studio?). Daylight is using its own copy; a tablet already claimed by the other adb will not be visible." (row 24), quit the other adb or accept that the tablet is invisible until you do.
 
 ### 2.4 Mirror over Wi-Fi without USB debugging (Daylight Ink screen stream)
@@ -166,6 +186,8 @@ Every key of SPEC section 11, by tab, in plain words. Values outside the range a
 | "Crop (portrait, tablet pixels; the top strip hides the pills)" with the Top and Bottom steppers and the live crop view | `mirrorCropInsetsPortrait`, `mirrorCropInsetsLandscape` | top 96 portrait, top 72 landscape, 0 elsewhere | what part of the tablet screen fills the board slot; the top inset is 0 when the pills are off |
 | (hidden) | `pillStripHeight` | 96 | told to the APK through `/api/info` so the pills sit inside the cropped strip |
 | (hidden) | `mirrorDeviceSerial` | none | which tablet when several are plugged in; the first DC-1-looking one otherwise |
+| "adb source" | `adbSource` | "Bundled (default)" | or "Download on first use" or "Use installed adb" (section 2.3, adb source); applies at the next launch |
+| (hidden) | `adbTermsAcceptedVersion` | none | the platform-tools version whose Android SDK License you accepted for the download |
 | (hidden) | `adbServerMode`, `adbPrivatePort` | auto, 27180 | share the Mac's adb server on 5037 when its version matches, else a private port (row 24) |
 
 ### Saving

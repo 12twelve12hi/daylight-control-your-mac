@@ -272,11 +272,19 @@ enum SelfTest {
         client.send(Golden.strokeStart)
         client.send(Golden.strokeChunk3)
         client.send(Golden.strokeCommit)
-        let engaged = client.wait(where: { m in
-            if case let .state(s)? = m.message { return s.governor == GovernorState.engaging.rawValue || s.governor == GovernorState.live.rawValue }
-            return false
-        }, timeout: 3)
-        report.check("socket: STATE with governor 1 (ENGAGING) after the stroke", engaged != nil)
+        // STROKE_START alone engages the governor, so a governor 1 STATE says nothing about CHUNK and COMMIT. The PONG
+        // barrier does: the store and the ink surface are sampled only after the router handled all three.
+        let engagedRaw = [GovernorState.engaging.rawValue, GovernorState.live.rawValue]
+        var sawEngaged = false
+        let inkHandled = client.barrier(sequence: 1, timeout: 5) { s in if engagedRaw.contains(s.governor) { sawEngaged = true } }
+        report.check("socket: PONG after the stroke (ordering barrier)", inkHandled)
+        if !sawEngaged {
+            sawEngaged = client.wait(where: { m in
+                if case let .state(s)? = m.message { return engagedRaw.contains(s.governor) }
+                return false
+            }, timeout: 3) != nil
+        }
+        report.check("socket: STATE with governor 1 (ENGAGING) after the stroke", sawEngaged)
         inkQueue.sync {}
         // Midpoint of the second segment (100, 200.25) -> (1199.97, 1599): about (650, 900).
         let mid = CanvasSurfaces.pixel(pipeline.surfaces.ink, x: 650, y: 900)
@@ -318,7 +326,7 @@ enum SelfTest {
         client.send(Golden.strokeStart)
         client.send(Golden.strokeChunk3)
         client.send(Golden.strokeCommit)
-        Thread.sleep(forTimeInterval: 0.2)
+        report.check("source: PONG after the dropped ink (ordering barrier)", client.barrier(sequence: 2, timeout: 5))
         inkQueue.sync { report.check("source: ink from the non-active source is dropped", router.store.committedCount == 0 && router.store.redoDepth == 1, "committed=\(router.store.committedCount) redo=\(router.store.redoDepth)") }
         switchSource(.web, pipeline: pipeline, router: router, inkQueue: inkQueue)
         let webState = client.wait(where: { m in
@@ -496,6 +504,18 @@ enum SelfTest {
                     self.arrived.signal()
                 }
             }
+        }
+
+        /// Ordering barrier: sends PING `sequence` and waits for its PONG. The server delivers one socket's messages in
+        /// order onto one serial ink queue and the router answers PING inline, so the PONG proves every message sent
+        /// before it was handled. `seen` gets each STATE that arrived before the PONG (possibly more than once).
+        func barrier(sequence: UInt64, timeout: Double, seen: (StateReport) -> Void = { _ in }) -> Bool {
+            sendMessage(.ping(sequence: sequence, clientTimeUs: InkConnection.nowUs()))
+            return wait(where: { m in
+                if case let .state(s)? = m.message { seen(s) }
+                if case let .pong(got, _)? = m.message { return got == sequence }
+                return false
+            }, timeout: timeout) != nil
         }
 
         /// Waits until a received message satisfies `predicate` (messages are consumed in order).

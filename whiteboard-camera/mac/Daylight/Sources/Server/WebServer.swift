@@ -218,6 +218,45 @@ final class WebServer {
         guard trimmed.allSatisfy({ allowed.contains($0) }) else { return nil }
         return "http://" + trimmed
     }
+
+    /// RFC 6455 section 10.2: a browser always sends Origin, so a page this server did not serve shows up as an Origin
+    /// whose `host[:port]` differs from the Host header it dialled (the tablet's page, the adb reverse page and a
+    /// page on the Mac itself all match). No Origin (OkHttp, URLSessionWebSocketTask) counts as a match. Ports default
+    /// to 80 for http and the Host header, 443 for https; hosts compare case-insensitively.
+    static func originMatchesHost(origin: String?, host: String?) -> Bool {
+        guard let origin = origin?.trimmingCharacters(in: .whitespaces) else { return true }
+        guard let host = host, let separator = origin.range(of: "://") else { return false }
+        let scheme = origin[..<separator.lowerBound].lowercased()
+        var authority = String(origin[separator.upperBound...])
+        if let slash = authority.firstIndex(of: "/") { authority = String(authority[..<slash]) }
+        guard let fromOrigin = parseAuthority(authority, defaultPort: scheme == "https" ? 443 : 80),
+              let fromHost = parseAuthority(host.trimmingCharacters(in: .whitespaces), defaultPort: 80) else { return false }
+        return fromOrigin.host == fromHost.host && fromOrigin.port == fromHost.port
+    }
+
+    /// "Mac.local:7788" -> ("mac.local", 7788); "[::1]" -> ("[::1]", defaultPort); nil when malformed.
+    static func parseAuthority(_ text: String, defaultPort: Int) -> (host: String, port: Int)? {
+        let lower = text.lowercased()
+        var host = lower
+        var portText: Substring?
+        if lower.hasPrefix("[") {
+            guard let close = lower.firstIndex(of: "]") else { return nil }
+            host = String(lower[...close])
+            let rest = lower[lower.index(after: close)...]
+            if !rest.isEmpty {
+                guard rest.first == ":" else { return nil }
+                portText = rest.dropFirst()
+            }
+        } else if let colon = lower.firstIndex(of: ":") {
+            host = String(lower[..<colon])
+            portText = lower[lower.index(after: colon)...]
+            if portText?.contains(":") == true { return nil }
+        }
+        guard !host.isEmpty else { return nil }
+        guard let digits = portText else { return (host, defaultPort) }
+        guard let port = Int(digits), (0...65535).contains(port) else { return nil }
+        return (host, port)
+    }
 }
 
 enum WebServerError: Error {
@@ -239,7 +278,9 @@ private final class HTTPConnection: InkTransport {
     var onClosed: (() -> Void)?
 
     let remoteAddress: String
-    let isLoopback: Bool
+    /// From the TCP peer; cleared on the `/ink` upgrade when the request's Origin is not this server (a browser page
+    /// on the Mac is then a network client and goes through the Allow panel, PROTOCOL 8).
+    private(set) var isLoopback: Bool
 
     init(connection: NWConnection, server: WebServer) {
         self.connection = connection
@@ -314,6 +355,10 @@ private final class HTTPConnection: InkTransport {
             }
             let subprotocol = request.webSocketProtocols.contains(SolStream.subprotocol) ? SolStream.subprotocol : nil
             let response = HTTPRequest.upgradeResponse(accept: HTTPRequest.webSocketAccept(forKey: key), subprotocol: subprotocol)
+            if isLoopback && !WebServer.originMatchesHost(origin: request.headers["origin"], host: request.headers["host"]) {
+                isLoopback = false
+                server.onLog?("client \(remoteAddress): Origin \(request.headers["origin"] ?? "") is not this server; treated as a network client")
+            }
             upgraded = true
             let ink = InkConnection(transport: self)
             self.ink = ink
@@ -480,6 +525,9 @@ private final class HTTPConnection: InkTransport {
         if let ink = ink {
             ink.markClosed()
             server?.onInkClientClosed?(ink)
+            // The InkConnection holds this object as its transport: drop our side so the pair is freed once the
+            // router has run `clientClosed` (late sends from the router find `closed` and do nothing).
+            self.ink = nil
         }
         onClosed?()
     }

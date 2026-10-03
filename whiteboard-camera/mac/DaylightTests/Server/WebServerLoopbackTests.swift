@@ -1,6 +1,7 @@
 import DaylightKit
 import Foundation
 import Metal
+import Network
 import XCTest
 @testable import Daylight
 
@@ -16,8 +17,19 @@ final class WebServerLoopbackTests: XCTestCase {
     private let netQueue = DispatchQueue(label: "test.net")
     private var port: UInt16 = 0
     private var webRoot: URL!
+    /// Every InkConnection the server opened, held weakly (touched on netQueue only).
+    private var openedInk: [WeakInk] = []
+    /// Lag injection: after the first STROKE_START, every later message waits 50 ms on this serial queue before it is
+    /// handed to inkQueue. Per-socket order is kept, so the PONG barrier stays sound while a STATE that STROKE_START
+    /// alone produces runs well ahead of the CHUNK and COMMIT.
+    private let lagQueue = DispatchQueue(label: "test.lag")
 
-    private func startStack(trustLoopback: Bool) throws {
+    final class WeakInk {
+        weak var value: InkConnection?
+        init(_ value: InkConnection) { self.value = value }
+    }
+
+    private func startStack(trustLoopback: Bool, lagAfterStrokeStart: Bool = false) throws {
         let sink = FakeSink()
         pipeline = try FramePipeline(sink: sink, settings: Settings.defaults, telemetry: Telemetry(), device: MTLCreateSystemDefaultDevice(), capture: nil)
         registryURL = FileManager.default.temporaryDirectory.appendingPathComponent("clients-\(UUID().uuidString).json")
@@ -34,9 +46,27 @@ final class WebServerLoopbackTests: XCTestCase {
         try "{}".write(to: webRoot.appendingPathComponent("manifest.webmanifest"), atomically: true, encoding: .utf8)
         let config = WebServer.Config(webRoot: webRoot, apkURL: nil, preferredPort: 0, bonjourName: nil, loopbackOnly: true, scanPorts: false)
         server = WebServer(config: config, info: { ["version": "test", "port": 0] }, queue: netQueue)
-        server.onInkClientOpened = { [inkQueue] c in inkQueue.async { r.clientOpened(c) } }
+        server.onInkClientOpened = { [weak self, inkQueue] c in
+            self?.openedInk.append(WeakInk(c))
+            inkQueue.async { r.clientOpened(c) }
+        }
         server.onInkClientClosed = { [inkQueue] c in inkQueue.async { r.clientClosed(c) } }
-        server.onInkMessage = { [inkQueue] c, bytes, ns in inkQueue.async { r.handle(bytes, from: c, hostTimeNs: ns) } }
+        if lagAfterStrokeStart {
+            var lagging = false
+            server.onInkMessage = { [inkQueue, lagQueue] c, bytes, ns in
+                if lagging {
+                    lagQueue.async {
+                        Thread.sleep(forTimeInterval: 0.05)
+                        inkQueue.async { r.handle(bytes, from: c, hostTimeNs: ns) }
+                    }
+                    return
+                }
+                if InkRouter.headerOpcode(bytes) == SolStream.Opcode.strokeStart.rawValue { lagging = true }
+                inkQueue.async { r.handle(bytes, from: c, hostTimeNs: ns) }
+            }
+        } else {
+            server.onInkMessage = { [inkQueue] c, bytes, ns in inkQueue.async { r.handle(bytes, from: c, hostTimeNs: ns) } }
+        }
         let ready = expectation(description: "listener ready")
         server.onReady = { [weak self] bound in
             self?.port = bound
@@ -54,6 +84,15 @@ final class WebServerLoopbackTests: XCTestCase {
         if let url = registryURL { try? FileManager.default.removeItem(at: url) }
         if let root = webRoot { try? FileManager.default.removeItem(at: root) }
         super.tearDown()
+    }
+
+    private func waitUntil(_ timeout: Double, _ condition: () -> Bool) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() { return true }
+            Thread.sleep(forTimeInterval: 0.02)
+        }
+        return condition()
     }
 
     private func get(_ path: String) -> (status: Int, headers: [String: String], body: Data)? {
@@ -93,19 +132,7 @@ final class WebServerLoopbackTests: XCTestCase {
         client.send(SelfTest.Golden.strokeStart)
         client.send(SelfTest.Golden.strokeChunk3)
         client.send(SelfTest.Golden.strokeCommit)
-        let engaged = client.wait(where: { m in
-            if case let .state(s)? = m.message { return s.governor == 1 || s.governor == 2 }
-            return false
-        }, timeout: 3)
-        XCTAssertNotNil(engaged, "STATE with governor 1 after the stroke")
-        inkQueue.sync {}
-        XCTAssertEqual(router.store.committedCount, 1)
-        XCTAssertGreaterThan(CanvasSurfaces.pixel(pipeline.surfaces.ink, x: 650, y: 900).a, 0, "ink along the stroke")
-        let committed = client.wait(where: { m in
-            if case let .state(s)? = m.message { return s.undoDepth == 1 && s.strokeCount == 1 }
-            return false
-        }, timeout: 3)
-        XCTAssertNotNil(committed, "STATE reports undo_depth 1 after the commit")
+        assertStrokeLanded(client)
         client.send(SelfTest.Golden.undoCurrentPage)
         let undone = client.wait(where: { m in
             if case let .state(s)? = m.message { return s.undoDepth == 0 && s.redoDepth == 1 }
@@ -124,6 +151,128 @@ final class WebServerLoopbackTests: XCTestCase {
             XCTFail("no PONG")
         }
         client.close()
+    }
+
+    /// The checks after the golden stroke. STROKE_START alone engages the governor and produces a STATE, so a STATE is
+    /// no proof that CHUNK and COMMIT were handled: the commit's own STATE (undo_depth 1) and the PONG barrier are.
+    private func assertStrokeLanded(_ client: SelfTest.Client, file: StaticString = #filePath, line: UInt = #line) {
+        var sawEngaged = false
+        var sawCommitted = false
+        let barrier = client.barrier(sequence: 1, timeout: 10) { s in
+            if s.governor == 1 || s.governor == 2 { sawEngaged = true }
+            if s.undoDepth == 1 && s.strokeCount == 1 { sawCommitted = true }
+        }
+        XCTAssertTrue(barrier, "PONG after the stroke", file: file, line: line)
+        XCTAssertTrue(sawCommitted, "STATE reports undo_depth 1 after the commit", file: file, line: line)
+        if !sawEngaged {
+            sawEngaged = client.wait(where: { m in
+                if case let .state(s)? = m.message { return s.governor == 1 || s.governor == 2 }
+                return false
+            }, timeout: 3) != nil
+        }
+        XCTAssertTrue(sawEngaged, "STATE with governor 1 after the stroke", file: file, line: line)
+        inkQueue.sync {}
+        XCTAssertEqual(router.store.committedCount, 1, file: file, line: line)
+        XCTAssertGreaterThan(CanvasSurfaces.pixel(pipeline.surfaces.ink, x: 650, y: 900).a, 0, "ink along the stroke", file: file, line: line)
+    }
+
+    func testStrokeChecksHoldWhenChunkAndCommitLagBehindTheEngagedState() throws {
+        try startStack(trustLoopback: true, lagAfterStrokeStart: true)
+        let client = SelfTest.Client(url: URL(string: "ws://127.0.0.1:\(port)/ink")!)
+        client.connect()
+        client.send(SelfTest.Golden.handshake)
+        XCTAssertNotNil(client.wait(where: { $0.header.knownOpcode == .handshakeAck }, timeout: 5))
+        client.send(SelfTest.Golden.strokeStart)
+        client.send(SelfTest.Golden.strokeChunk3)
+        client.send(SelfTest.Golden.strokeCommit)
+        assertStrokeLanded(client)
+        client.close()
+    }
+
+    func testClosedInkConnectionIsReleased() throws {
+        try startStack(trustLoopback: true)
+        let client = SelfTest.Client(url: URL(string: "ws://127.0.0.1:\(port)/ink")!)
+        client.connect()
+        client.send(SelfTest.Golden.handshake)
+        XCTAssertNotNil(client.wait(where: { $0.header.knownOpcode == .handshakeAck }, timeout: 5))
+        let opened = netQueue.sync { openedInk }
+        XCTAssertEqual(opened.count, 1)
+        XCTAssertNotNil(opened.first?.value)
+        client.close()
+        XCTAssertTrue(waitUntil(10) { inkQueue.sync { router.connections.isEmpty } }, "the router saw the close")
+        netQueue.sync {}
+        inkQueue.sync {}
+        XCTAssertTrue(waitUntil(10) { opened.first?.value == nil }, "the HTTPConnection and InkConnection pair is freed after the close")
+    }
+
+    /// Index just past the first CRLF CRLF, or nil.
+    private static func headEnd(_ bytes: [UInt8]) -> Int? {
+        guard bytes.count >= 4 else { return nil }
+        for i in 0...(bytes.count - 4) where bytes[i] == 13 && bytes[i + 1] == 10 && bytes[i + 2] == 13 && bytes[i + 3] == 10 {
+            return i + 4
+        }
+        return nil
+    }
+
+    /// A raw upgrade with a chosen Origin, then the golden HANDSHAKE as a masked frame; returns the ACK status.
+    private func handshakeStatus(origin: String) -> SolStream.AckStatus? {
+        let connection = NWConnection(host: NWEndpoint.Host("127.0.0.1"), port: NWEndpoint.Port(rawValue: port)!, using: .tcp)
+        let rawQueue = DispatchQueue(label: "test.raw")
+        let lock = NSLock()
+        var received: [UInt8] = []
+        let arrived = DispatchSemaphore(value: 0)
+        func receive() {
+            connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { data, _, isComplete, error in
+                if let data = data {
+                    lock.lock()
+                    received.append(contentsOf: data)
+                    lock.unlock()
+                }
+                arrived.signal()
+                if error == nil && !isComplete { receive() }
+            }
+        }
+        connection.start(queue: rawQueue)
+        receive()
+        defer { connection.cancel() }
+        let head = "GET /ink HTTP/1.1\r\nHost: 127.0.0.1:\(port)\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Protocol: solstream.v1\r\nOrigin: \(origin)\r\n\r\n"
+        connection.send(content: Data(head.utf8), completion: .contentProcessed { _ in })
+        let deadline = Date().addingTimeInterval(10)
+        var sentHandshake = false
+        while Date() < deadline {
+            lock.lock()
+            let bytes = received
+            lock.unlock()
+            if let end = WebServerLoopbackTests.headEnd(bytes) {
+                if !sentHandshake {
+                    XCTAssertTrue(String(decoding: bytes[..<end], as: UTF8.self).hasPrefix("HTTP/1.1 101"))
+                    let frame = WebSocketFrame.encodeMasked(opcode: WebSocketFrame.opcodeBinary, payload: Hex.decode(SelfTest.Golden.handshake)!, key: (1, 2, 3, 4))
+                    connection.send(content: Data(frame), completion: .contentProcessed { _ in })
+                    sentHandshake = true
+                }
+                // Server frames are unmasked and short here: 0x82, a 7-bit length, then the payload.
+                var offset = end
+                while offset + 2 <= bytes.count {
+                    let length = Int(bytes[offset + 1] & 0x7F)
+                    guard length < 126, offset + 2 + length <= bytes.count else { break }
+                    let payload = Array(bytes[(offset + 2)..<(offset + 2 + length)])
+                    if bytes[offset] == 0x82, let decoded = try? Codec.decode(payload), case let .handshakeAck(_, _, _, status) = decoded.1 {
+                        return status
+                    }
+                    offset += 2 + length
+                }
+            }
+            _ = arrived.wait(timeout: .now() + 0.5)
+        }
+        return nil
+    }
+
+    func testForeignOriginOverLoopbackNeedsAllow() throws {
+        try startStack(trustLoopback: true)
+        XCTAssertEqual(handshakeStatus(origin: "https://evil.example"), .pendingApproval, "a page from another origin is a network client: Allow panel")
+        inkQueue.sync {}
+        XCTAssertNil(router.registry.lookup(id: "6f1a2b3c-4d5e-4f60-8a9b-0c1d2e3f4a5b"), "nothing is remembered for it")
+        XCTAssertEqual(handshakeStatus(origin: "http://127.0.0.1:\(port)"), .ok, "the Mac's own page over loopback is still trusted")
     }
 
     func testTwoMiBFrameClosesWith1009() throws {
@@ -163,7 +312,7 @@ final class WebServerLoopbackTests: XCTestCase {
         client.send(SelfTest.Golden.strokeStart)
         client.send(SelfTest.Golden.strokeChunk3)
         client.send(SelfTest.Golden.strokeCommit)
-        Thread.sleep(forTimeInterval: 0.3)
+        XCTAssertTrue(client.barrier(sequence: 3, timeout: 10), "PONG after the dropped ink")
         inkQueue.sync {}
         XCTAssertEqual(router.store.committedCount, 0)
         XCTAssertEqual(pipeline.governorSnapshot.state, .passthrough)

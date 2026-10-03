@@ -34,6 +34,22 @@ final class ApiRoutesTests: XCTestCase {
         XCTAssertNil(WebServer.originFromHost(String(repeating: "a", count: 300)))
     }
 
+    func testOriginMatchesHost() {
+        XCTAssertTrue(WebServer.originMatchesHost(origin: "http://127.0.0.1:7788", host: "127.0.0.1:7788"), "the page under adb reverse")
+        XCTAssertTrue(WebServer.originMatchesHost(origin: "http://192.168.1.23:7790", host: "192.168.1.23:7790"), "the Wi-Fi tablet on a scanned port")
+        XCTAssertTrue(WebServer.originMatchesHost(origin: "http://Mac.local:7788", host: "mac.local:7788"))
+        XCTAssertTrue(WebServer.originMatchesHost(origin: "http://[::1]:7788", host: "[::1]:7788"))
+        XCTAssertTrue(WebServer.originMatchesHost(origin: "http://127.0.0.1", host: "127.0.0.1:80"), "http defaults to port 80")
+        XCTAssertTrue(WebServer.originMatchesHost(origin: nil, host: "127.0.0.1:7788"), "native clients send no Origin")
+        XCTAssertTrue(WebServer.originMatchesHost(origin: nil, host: nil))
+        XCTAssertFalse(WebServer.originMatchesHost(origin: "https://evil.example", host: "127.0.0.1:7788"))
+        XCTAssertFalse(WebServer.originMatchesHost(origin: "http://127.0.0.1:8080", host: "127.0.0.1:7788"), "another local server's page")
+        XCTAssertFalse(WebServer.originMatchesHost(origin: "https://127.0.0.1", host: "127.0.0.1"), "https defaults to 443, the Host header to 80")
+        XCTAssertFalse(WebServer.originMatchesHost(origin: "null", host: "127.0.0.1:7788"), "an opaque origin is foreign")
+        XCTAssertFalse(WebServer.originMatchesHost(origin: "http://127.0.0.1:7788", host: nil), "an Origin without a Host cannot be checked")
+        XCTAssertFalse(WebServer.originMatchesHost(origin: "http://a:b:c", host: "a:1"))
+    }
+
     func testApkRoute() throws {
         XCTAssertEqual(ApiRoutes.apk(url: nil).status, 404)
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("fake-\(UUID().uuidString).apk")

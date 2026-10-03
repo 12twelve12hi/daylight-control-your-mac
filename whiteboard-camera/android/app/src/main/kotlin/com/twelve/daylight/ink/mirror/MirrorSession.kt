@@ -91,6 +91,13 @@ class MirrorSession(
      */
     var macWantsStream = false
         private set
+    /**
+     * Bumped by every StartEncoder, StopEncoder and ReleaseProjection effect. The encoder's results carry the
+     * generation of the start that produced them; [encoderStarted] and [encoderFailed] ignore an older one, and the
+     * glue sends no MIRROR_HELLO for a start whose generation is no longer this one.
+     */
+    var encoderGen = 0
+        private set
     private var lastStatusMs = Long.MIN_VALUE / 2
 
     private val encoderRunning: Boolean get() = state == MirrorState.STARTING || state == MirrorState.STREAMING
@@ -137,7 +144,7 @@ class MirrorSession(
         macWantsStream = false
         val out = ArrayList<MirrorEffect>()
         if (encoderRunning) {
-            out.add(MirrorEffect.StopEncoder)
+            encoderEffect(MirrorEffect.StopEncoder, out)
             setState(if (projectionHeld) MirrorState.PAUSED else MirrorState.IDLE, out)
         }
         return out
@@ -167,7 +174,7 @@ class MirrorSession(
             projectionHeld && state == MirrorState.STARTING && !changed -> {}
             projectionHeld -> {
                 if (!connected) return out
-                out.add(MirrorEffect.StartEncoder(encoderParams()))
+                encoderEffect(MirrorEffect.StartEncoder(encoderParams()), out)
                 setState(MirrorState.STARTING, out)
             }
             else -> {
@@ -185,7 +192,7 @@ class MirrorSession(
         macWantsStream = false
         when {
             encoderRunning -> {
-                out.add(MirrorEffect.StopEncoder)
+                encoderEffect(MirrorEffect.StopEncoder, out)
                 setState(MirrorState.PAUSED, out)
             }
             state == MirrorState.CONSENT_NEEDED -> {
@@ -200,12 +207,12 @@ class MirrorSession(
         val out = ArrayList<MirrorEffect>()
         startPending = false
         macWantsStream = false
-        if (encoderRunning) out.add(MirrorEffect.StopEncoder)
+        if (encoderRunning) encoderEffect(MirrorEffect.StopEncoder, out)
         if (state == MirrorState.CONSENT_NEEDED) out.add(MirrorEffect.CancelConsentNotification)
         val wasHeld = projectionHeld
         if (projectionHeld) {
             projectionHeld = false
-            out.add(MirrorEffect.ReleaseProjection)
+            encoderEffect(MirrorEffect.ReleaseProjection, out)
         }
         width = 0; height = 0
         if (capable) setState(MirrorState.IDLE, out, flagsChanged = wasHeld)
@@ -235,7 +242,7 @@ class MirrorSession(
         projectionHeld = true
         if ((startPending || macWantsStream) && connected && capable) {
             startPending = false
-            out.add(MirrorEffect.StartEncoder(encoderParams()))
+            encoderEffect(MirrorEffect.StartEncoder(encoderParams()), out)
             setState(MirrorState.STARTING, out, flagsChanged = !wasHeld)
         } else {
             setState(MirrorState.PAUSED, out, flagsChanged = !wasHeld)
@@ -269,10 +276,10 @@ class MirrorSession(
     private fun ended(release: Boolean): List<MirrorEffect> {
         val out = ArrayList<MirrorEffect>()
         startPending = false
-        if (encoderRunning) out.add(MirrorEffect.StopEncoder)
+        if (encoderRunning) encoderEffect(MirrorEffect.StopEncoder, out)
         val wasHeld = projectionHeld
         projectionHeld = false
-        if (release && wasHeld) out.add(MirrorEffect.ReleaseProjection)
+        if (release && wasHeld) encoderEffect(MirrorEffect.ReleaseProjection, out)
         width = 0; height = 0
         if (wasHeld || encoderRunning || state == MirrorState.CONSENT_NEEDED) {
             if (state == MirrorState.CONSENT_NEEDED) out.add(MirrorEffect.CancelConsentNotification)
@@ -285,8 +292,9 @@ class MirrorSession(
 
     // ---- the encoder ----
 
-    fun encoderStarted(width: Int, height: Int): List<MirrorEffect> {
-        if (state != MirrorState.STARTING) return emptyList()
+    /** The encoder of start [gen] is configured at this size (its MIRROR_HELLO is out). An older start's is ignored. */
+    fun encoderStarted(gen: Int, width: Int, height: Int): List<MirrorEffect> {
+        if (gen != encoderGen || state != MirrorState.STARTING) return emptyList()
         this.width = width
         this.height = height
         val out = ArrayList<MirrorEffect>()
@@ -294,12 +302,15 @@ class MirrorSession(
         return out
     }
 
-    /** No H.264 encoder, or configure or start failed at every fallback size. The projection stays held. */
-    fun encoderFailed(): List<MirrorEffect> {
-        if (!encoderRunning) return emptyList()
+    /**
+     * No H.264 encoder, or configure or start failed at every fallback size, for start [gen]. The projection stays
+     * held. A failure of an older start (a restart for rotation or the thermal cap is already on its way) is ignored.
+     */
+    fun encoderFailed(gen: Int): List<MirrorEffect> {
+        if (gen != encoderGen || !encoderRunning) return emptyList()
         width = 0; height = 0
         val out = ArrayList<MirrorEffect>()
-        out.add(MirrorEffect.StopEncoder)
+        encoderEffect(MirrorEffect.StopEncoder, out)
         setState(MirrorState.ENCODER_UNAVAILABLE, out)
         return out
     }
@@ -308,7 +319,7 @@ class MirrorSession(
     fun displaySizeChanged(): List<MirrorEffect> {
         if (!encoderRunning || !connected) return emptyList()
         val out = ArrayList<MirrorEffect>()
-        out.add(MirrorEffect.StartEncoder(encoderParams()))
+        encoderEffect(MirrorEffect.StartEncoder(encoderParams()), out)
         setState(MirrorState.STARTING, out)
         return out
     }
@@ -322,7 +333,7 @@ class MirrorSession(
         thermalReduced = reduced
         val out = ArrayList<MirrorEffect>()
         if (encoderRunning && connected) {
-            out.add(MirrorEffect.StartEncoder(encoderParams()))
+            encoderEffect(MirrorEffect.StartEncoder(encoderParams()), out)
             setState(MirrorState.STARTING, out, flagsChanged = true)
         } else if (connected) {
             out.add(statusNow())
@@ -343,6 +354,11 @@ class MirrorSession(
         if (state != MirrorState.STREAMING && state != MirrorState.PAUSED) return emptyList()
         if (nowMs() - lastStatusMs < STATUS_PERIOD_MS) return emptyList()
         return listOf(statusNow())
+    }
+
+    private fun encoderEffect(e: MirrorEffect, out: MutableList<MirrorEffect>) {
+        encoderGen++
+        out.add(e)
     }
 
     private fun statusNow(): MirrorEffect {

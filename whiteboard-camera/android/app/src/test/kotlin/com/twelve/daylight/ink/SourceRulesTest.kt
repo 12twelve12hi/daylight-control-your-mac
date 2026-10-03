@@ -107,6 +107,18 @@ class SourceRulesTest {
     }
 
     @Test
+    fun noMirrorHelloForAStartThatIsNoLongerWanted() {
+        // A STOP or a newer start inside the configure window must not be followed by a MIRROR_HELLO.
+        val m = read("mirror/MirrorController.kt")
+        assertInOrder(m.substringAfter("private fun apply(effects: List<MirrorEffect>) {"), "synchronized(genLock) { wantedGen = session.encoderGen }", "for (e in effects) perform(e)")
+        val started = m.substringAfter("override fun streamStarted(gen: Int,").substringBefore("override fun output(")
+        assertInOrder(started, "synchronized(genLock) {", "if (gen != wantedGen) return false", "framing.hello(", "session.encoderStarted(gen, width, height)")
+        assertTrue(m.contains("session.encoderFailed(gen)"))
+        val e = read("mirror/ScreenEncoder.kt").substringAfter("private fun startNow(start: Start) {").substringBefore("private fun configure(")
+        assertInOrder(e, "if (!sink.streamStarted(start.gen, name, s.width, s.height)) {", "stopCodec()", "return")
+    }
+
+    @Test
     fun aFailedCodecStartReleasesItsInputSurface() {
         // developer.android.com MediaCodec.createInputSurface: "The application is responsible for calling release()
         // on the Surface when done." start() can throw after the Surface exists.

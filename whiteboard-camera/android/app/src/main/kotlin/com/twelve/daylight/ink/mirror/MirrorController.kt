@@ -79,6 +79,13 @@ class MirrorController(context: Context, private val uplink: MirrorUplink) {
     private val listeners = LinkedHashSet<Listener>()
     private var statusCount = 0L
     private var maxThermal = -1
+    /**
+     * [MirrorSession.encoderGen] as of the last [apply], for the drain thread: a start of another generation sends no
+     * MIRROR_HELLO. Under [genLock], so a HELLO either goes out before the main thread moves on (and before the STATUS
+     * that follows) or not at all.
+     */
+    private val genLock = Any()
+    private var wantedGen = 0
 
     val state: MirrorState get() = session.state
 
@@ -214,6 +221,7 @@ class MirrorController(context: Context, private val uplink: MirrorUplink) {
     // ---- effects ----
 
     private fun apply(effects: List<MirrorEffect>) {
+        synchronized(genLock) { wantedGen = session.encoderGen }
         val before = lastNotifiedState
         for (e in effects) perform(e)
         if (session.state != before) {
@@ -245,7 +253,7 @@ class MirrorController(context: Context, private val uplink: MirrorUplink) {
                 }
             }
             MirrorEffect.CancelConsentNotification -> runCatching { notifications().cancel(NOTIFICATION_REQUEST) }
-            is MirrorEffect.StartEncoder -> startEncoder(e.params)
+            is MirrorEffect.StartEncoder -> startEncoder(session.encoderGen, e.params)
             MirrorEffect.StopEncoder -> {
                 encoder?.stop()
                 startedDisplay = null
@@ -256,11 +264,11 @@ class MirrorController(context: Context, private val uplink: MirrorUplink) {
         }
     }
 
-    private fun startEncoder(params: EncoderParams) {
+    private fun startEncoder(gen: Int, params: EncoderParams) {
         val p = projection
         if (p == null) {
             Log.w(TAG, "start without a projection")
-            apply(session.encoderFailed())
+            apply(session.encoderFailed(gen))
             return
         }
         val display = readDisplay()
@@ -268,7 +276,7 @@ class MirrorController(context: Context, private val uplink: MirrorUplink) {
         stats.reset()
         backpressure.reset()
         val enc = encoder ?: ScreenEncoder(sink).also { encoder = it }
-        enc.start(p, params, display)
+        enc.start(gen, p, params, display)
     }
 
     private fun releaseProjection() {
@@ -303,12 +311,16 @@ class MirrorController(context: Context, private val uplink: MirrorUplink) {
     // ---- the drain thread ----
 
     private val sink = object : ScreenEncoder.Sink {
-        override fun streamStarted(encoderName: String, width: Int, height: Int) {
-            for (f in listOf(framing.hello(Build.MODEL ?: "Daylight"), framing.session(width, height))) {
-                if (uplink.sendMirror(f)) stats.record(SystemClock.uptimeMillis(), f.size.toLong(), accessUnit = false)
+        override fun streamStarted(gen: Int, encoderName: String, width: Int, height: Int): Boolean {
+            synchronized(genLock) {
+                if (gen != wantedGen) return false
+                for (f in listOf(framing.hello(Build.MODEL ?: "Daylight"), framing.session(width, height))) {
+                    if (uplink.sendMirror(f)) stats.record(SystemClock.uptimeMillis(), f.size.toLong(), accessUnit = false)
+                }
             }
             prefs.factMirrorEncoder = "$encoderName ${width}x$height"
-            main.post { apply(session.encoderStarted(width, height)) }
+            main.post { apply(session.encoderStarted(gen, width, height)) }
+            return true
         }
 
         override fun output(config: Boolean, keyFrame: Boolean, ptsUs: Long, data: ByteBuffer) {
@@ -326,9 +338,9 @@ class MirrorController(context: Context, private val uplink: MirrorUplink) {
             if (uplink.sendMirror(frame)) stats.record(SystemClock.uptimeMillis(), frame.size.toLong(), accessUnit = !config)
         }
 
-        override fun failed(reason: String) {
-            Log.w(TAG, "encoder failed: $reason")
-            main.post { apply(session.encoderFailed()) }
+        override fun failed(gen: Int, reason: String) {
+            Log.w(TAG, "encoder failed (start $gen): $reason")
+            main.post { apply(session.encoderFailed(gen)) }
         }
     }
 

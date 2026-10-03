@@ -37,17 +37,23 @@ class ScreenEncoder(private val sink: Sink) {
         }.getOrElse { Log.w(TAG, "codec list failed: $it"); emptyList() }
     }
 
-    /** Called on the drain thread. */
+    /** Called on the drain thread. [gen] is the session's encoder generation of the start (MirrorSession.encoderGen). */
     interface Sink {
-        /** The encoder is configured at this size: send MIRROR_HELLO and the session packet now. */
-        fun streamStarted(encoderName: String, width: Int, height: Int)
+        /**
+         * The encoder of start [gen] is configured at this size: send MIRROR_HELLO and the session packet now. False
+         * when that start is no longer wanted (a STOP, a newer start or the projection's end came while it configured):
+         * nothing was sent and the encoder stops.
+         */
+        fun streamStarted(gen: Int, encoderName: String, width: Int, height: Int): Boolean
         /** One output buffer: codec config (SPS and PPS) or one access unit. */
         fun output(config: Boolean, keyFrame: Boolean, ptsUs: Long, data: ByteBuffer)
         /** Configure or start failed at every size, or the codec reported an unrecoverable error. */
-        fun failed(reason: String)
+        fun failed(gen: Int, reason: String)
     }
 
     data class Display(val width: Int, val height: Int, val densityDpi: Int)
+
+    private class Start(val gen: Int, val params: EncoderParams, val display: Display, val projection: MediaProjection)
 
     private val thread = HandlerThread("DaylightInk.mirror.drain").apply { start() }
     val handler = Handler(thread.looper)
@@ -57,17 +63,17 @@ class ScreenEncoder(private val sink: Sink) {
     private var virtualDisplay: VirtualDisplay? = null
     private var projection: MediaProjection? = null
     private var ptsOriginUs = -1L
-    private var lastStart: Triple<EncoderParams, Display, MediaProjection>? = null
+    private var lastStart: Start? = null
     private var recoveries = 0
     /** Size of the running encoder, 0 x 0 when stopped. Read on the drain thread only. */
     var size: EncoderSizing.Size = EncoderSizing.Size(0, 0)
         private set
 
-    /** (Re)start for [projection] at [params] on a display of [display]. */
-    fun start(projection: MediaProjection, params: EncoderParams, display: Display) {
+    /** (Re)start for [projection] at [params] on a display of [display], as the session's encoder generation [gen]. */
+    fun start(gen: Int, projection: MediaProjection, params: EncoderParams, display: Display) {
         handler.post {
             recoveries = 0
-            startNow(projection, params, display)
+            startNow(Start(gen, params, display, projection))
         }
     }
 
@@ -100,29 +106,35 @@ class ScreenEncoder(private val sink: Sink) {
         handler.post { thread.quitSafely() }
     }
 
-    private fun startNow(projection: MediaProjection, params: EncoderParams, display: Display) {
+    private fun startNow(start: Start) {
         stopCodec()
-        lastStart = Triple(params, display, projection)
+        lastStart = start
+        val params = start.params
+        val display = start.display
         val names = avcEncoders()
-        if (names.isEmpty()) { sink.failed("no H.264 encoder"); return }
+        if (names.isEmpty()) { sink.failed(start.gen, "no H.264 encoder"); return }
         val sizes = EncoderSizing.candidates(display.width, display.height, params.maxSize)
         for (name in names) {
             for (s in sizes) {
                 val ok = configure(name, s, params)
                 if (ok) {
-                    if (!attach(projection, s, display.densityDpi)) {
+                    if (!attach(start.projection, s, display.densityDpi)) {
                         stopCodec()
-                        sink.failed("virtual display refused")
+                        sink.failed(start.gen, "virtual display refused")
                         return
                     }
                     size = s
                     Log.i(TAG, "encoder $name ${s.width}x${s.height} ${params.bitrateBps} bps fps<=${params.maxFps} key=${params.keyIntervalSeconds}s")
-                    sink.streamStarted(name, s.width, s.height)
+                    if (!sink.streamStarted(start.gen, name, s.width, s.height)) {
+                        // Superseded while it configured: no MIRROR_HELLO goes out for a stream nobody wants.
+                        Log.i(TAG, "start ${start.gen} is no longer wanted; encoder stopped before MIRROR_HELLO")
+                        stopCodec()
+                    }
                     return
                 }
             }
         }
-        sink.failed("configure failed at every size")
+        sink.failed(start.gen, "configure failed at every size")
     }
 
     private fun configure(name: String, s: EncoderSizing.Size, params: EncoderParams): Boolean {
@@ -226,10 +238,11 @@ class ScreenEncoder(private val sink: Sink) {
             if (again != null && recoveries < 1) {
                 // PROTOCOL 14.1: an encoder error recovery starts a new stream (new HELLO). One try, then report.
                 recoveries++
-                startNow(again.third, again.first, again.second)
+                startNow(again)
             } else {
                 stopCodec()
-                sink.failed("codec error $e")
+                // A codec runs only after startNow stored lastStart; -1 matches no generation and is ignored.
+                sink.failed(again?.gen ?: -1, "codec error $e")
             }
         }
 

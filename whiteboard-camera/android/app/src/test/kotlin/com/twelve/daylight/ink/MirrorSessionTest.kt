@@ -36,7 +36,7 @@ class MirrorSessionTest {
         s.connectionAllowed()
         s.control(start())
         s.consentGranted()
-        s.encoderStarted(1200, 1600)
+        s.encoderStarted(s.encoderGen, 1200, 1600)
         assertEquals(MirrorState.STREAMING, s.state)
         return s
     }
@@ -96,7 +96,7 @@ class MirrorSessionTest {
         assertEquals(MirrorState.STARTING, s.state)
         assertTrue(s.projectionHeld)
         assertFalse(s.startPending)
-        assertEquals(listOf(SendStatus), s.encoderStarted(768, 1024))
+        assertEquals(listOf(SendStatus), s.encoderStarted(s.encoderGen, 768, 1024))
         assertEquals(MirrorState.STREAMING, s.state)
         assertEquals(MirrorStatusFields(3, 1, 300, 768, 1024, 4_000_000, 6_543_210), s.report(300, 6_543_210, false))
     }
@@ -214,7 +214,7 @@ class MirrorSessionTest {
         assertEquals(MirrorStatusFields(4, 1, 0, 0, 0, 7_000_000, 0), s.report(300, 99, false))
         // START resumes with no consent (state 2 then 3).
         assertEquals(listOf(StartEncoder(defaults), SendStatus), s.control(start()))
-        assertEquals(listOf(SendStatus), s.encoderStarted(1200, 1600))
+        assertEquals(listOf(SendStatus), s.encoderStarted(s.encoderGen, 1200, 1600))
         assertEquals(MirrorState.STREAMING, s.state)
     }
 
@@ -308,19 +308,56 @@ class MirrorSessionTest {
         s.connectionAllowed()
         s.control(start())
         s.consentGranted()
-        assertEquals(listOf(StopEncoder, SendStatus), s.encoderFailed())
+        assertEquals(listOf(StopEncoder, SendStatus), s.encoderFailed(s.encoderGen))
         assertEquals(MirrorState.ENCODER_UNAVAILABLE, s.state)
         assertTrue(s.projectionHeld)
         assertEquals(1, s.report(0, 0, false).flags)
-        assertEquals(emptyList<MirrorEffect>(), s.encoderFailed())          // only while an encoder runs
+        assertEquals(emptyList<MirrorEffect>(), s.encoderFailed(s.encoderGen))          // only while an encoder runs
         assertEquals(listOf(StartEncoder(defaults), SendStatus), s.control(start()))   // START tries again
+    }
+
+    @Test
+    fun anOlderStartsEncoderResultsAreIgnored() {
+        val s = streaming()
+        val first = s.encoderGen
+        assertEquals(listOf(StartEncoder(EncoderParams(1600, 7_000_000, 15, 2)), SendStatus), s.thermalStatusChanged(3))
+        val second = s.encoderGen
+        assertTrue(second != first)
+        assertEquals(emptyList<MirrorEffect>(), s.encoderFailed(first))           // the earlier start's failure
+        assertEquals(MirrorState.STARTING, s.state)
+        assertEquals(emptyList<MirrorEffect>(), s.encoderStarted(first, 1200, 1600))
+        assertEquals(MirrorState.STARTING, s.state)
+        assertEquals(listOf(SendStatus), s.encoderStarted(second, 1600, 1200))
+        assertEquals(MirrorState.STREAMING, s.state)
+        assertEquals(1600, s.width)
+        assertEquals(1200, s.height)
+    }
+
+    @Test
+    fun aStopThenANewStartLeavesTheFirstStartsResultsStale() {
+        val s = session()
+        s.connectionAllowed()
+        s.control(start())
+        s.consentGranted()                                                         // StartEncoder
+        val first = s.encoderGen
+        s.control(stop)                                                            // StopEncoder: no HELLO for it
+        assertTrue(s.encoderGen != first)
+        assertEquals(listOf(StartEncoder(defaults), SendStatus), s.control(start()))
+        val second = s.encoderGen
+        assertEquals(emptyList<MirrorEffect>(), s.encoderStarted(first, 1200, 1600))
+        assertEquals(emptyList<MirrorEffect>(), s.encoderFailed(first))
+        assertEquals(MirrorState.STARTING, s.state)
+        assertEquals(listOf(SendStatus), s.encoderStarted(second, 1200, 1600))
+        assertEquals(MirrorState.STREAMING, s.state)
+        s.control(release)                                                         // StopEncoder, ReleaseProjection
+        assertTrue(s.encoderGen != second)
     }
 
     @Test
     fun encoderStartedOutsideStartingIsIgnored() {
         val s = session()
         s.connectionAllowed()
-        assertEquals(emptyList<MirrorEffect>(), s.encoderStarted(1200, 1600))
+        assertEquals(emptyList<MirrorEffect>(), s.encoderStarted(s.encoderGen, 1200, 1600))
         assertEquals(MirrorState.IDLE, s.state)
     }
 
@@ -352,7 +389,7 @@ class MirrorSessionTest {
         val s = streaming()
         assertEquals(listOf(StartEncoder(defaults), SendStatus), s.displaySizeChanged())
         assertEquals(MirrorState.STARTING, s.state)
-        assertEquals(listOf(SendStatus), s.encoderStarted(1600, 1200))
+        assertEquals(listOf(SendStatus), s.encoderStarted(s.encoderGen, 1600, 1200))
         assertEquals(1600, s.width)
         s.control(stop)
         assertEquals(emptyList<MirrorEffect>(), s.displaySizeChanged())
@@ -366,7 +403,7 @@ class MirrorSessionTest {
         assertTrue(s.thermalReduced)
         assertEquals(1 or 2, s.report(0, 0, false).flags)
         assertEquals(emptyList<MirrorEffect>(), s.thermalStatusChanged(4))            // still reduced
-        s.encoderStarted(1200, 1600)
+        s.encoderStarted(s.encoderGen, 1200, 1600)
         assertEquals(listOf(StartEncoder(defaults), SendStatus), s.thermalStatusChanged(1))
         assertEquals(1, s.report(0, 0, false).flags)
     }
@@ -418,7 +455,7 @@ class MirrorSessionTest {
         now += 5000
         assertEquals(emptyList<MirrorEffect>(), s.tick())                             // CONSENT_NEEDED: never repeated
         s.consentGranted()
-        s.encoderStarted(1200, 1600)                                                  // a status at `now`
+        s.encoderStarted(s.encoderGen, 1200, 1600)                                                  // a status at `now`
         now += 999
         assertEquals(emptyList<MirrorEffect>(), s.tick())
         now += 1

@@ -259,4 +259,88 @@ final class FrameDiffEngageHostedTests: XCTestCase {
         XCTAssertTrue(failures.withLock { $0 }.isEmpty, "row 37 is not shown with the pen watcher")
         XCTAssertEqual(source.diagnostics["wifi.engageSource"], "pen (USB getevent)")
     }
+
+    // MARK: Crop change, media time, re-assert (finders DIFF-A2/B3, DIFF-A3/B2, DIFF-B6)
+
+    /// A page of 20 px dark bands every 40 px: any shift of the sampling window moves most cells.
+    static func bandedPage() -> CVPixelBuffer {
+        let page = makeBuffer()
+        for y in stride(from: 0, to: height, by: 40) { fill(page, x: 0, y: y, w: width, h: 20, value: 0) }
+        return page
+    }
+
+    /// DIFF-A2/B3: dragging the crop changes the window on every frame of a still page. Before the fix each grid was
+    /// compared with one taken through the previous window, and two such frames within 0.2 s engaged.
+    func testACropChangeReprimesInsteadOfEngaging() {
+        let (source, events, _) = makeSource()
+        let page = FrameDiffEngageHostedTests.bandedPage()
+        let crop = FrameDiffEngageHostedTests.defaultCrop
+        engage(source, page, crop: crop, at: 0)
+        engage(source, page, crop: crop, at: 0.75)
+        for k in 1...4 {
+            var moved = crop
+            moved.v0 = crop.v0 + 0.01 * Double(k)
+            engage(source, page, crop: moved, at: 1.0 + Double(k) / 30)
+        }
+        XCTAssertTrue(events.withLock { $0 }.isEmpty, "the same page through a moving window is not a change")
+    }
+
+    /// A contact held when the crop changes stays down and still releases 1 s after the last change.
+    func testACropChangeKeepsAHeldContact() {
+        let (source, events, _) = makeSource()
+        let (frame, last) = writeThinStroke(source, events: events)
+        XCTAssertEqual(events.withLock { $0 }, [.penContact(down: true)])
+        var moved = FrameDiffEngageHostedTests.defaultCrop
+        moved.v0 += 0.01
+        engage(source, frame, crop: moved, at: last + 0.1)
+        XCTAssertTrue(source.mirrorQueue.sync { source.frameDiffIsDown })
+        XCTAssertEqual(events.withLock { $0 }, [.penContact(down: true)])
+        engage(source, frame, crop: moved, at: last + 1.05)
+        XCTAssertEqual(events.withLock { $0 }, [.penContact(down: true), .penContact(down: false)])
+    }
+
+    /// DIFF-A3/B2: two changed tablet frames 0.4 s apart in PTS that the network delivered together (decoded 33 ms
+    /// apart on the Mac) are not a run. Before the fix `engage` had no media time and the host clock engaged them.
+    func testTheRunGapUsesTheFramePtsNotTheDecodeTime() {
+        let (source, events, _) = makeSource()
+        let frame = FrameDiffEngageHostedTests.makeBuffer()
+        let crop = FrameDiffEngageHostedTests.defaultCrop
+        source.mirrorQueue.sync { source.engage(buffer: frame, uv: crop, orientation: .portrait, now: 0, mediaTime: 0) }
+        source.mirrorQueue.sync { source.engage(buffer: frame, uv: crop, orientation: .portrait, now: 0.75, mediaTime: 0.75) }
+        let step = 10.0 / 2.0.squareRoot()
+        var x = 300.0, y = 400.0
+        for k in 1...6 {
+            FrameDiffEngageHostedTests.drawSegment(frame, x, y, x + step, y + step, lineWidth: 3)
+            x += step
+            y += step
+            let host = 1.0 + Double(k) / 30
+            let media = 1.0 + Double(k) * 0.4
+            source.mirrorQueue.sync { source.engage(buffer: frame, uv: crop, orientation: .portrait, now: host, mediaTime: media) }
+        }
+        XCTAssertTrue(events.withLock { $0 }.isEmpty, "0.4 s of PTS between changes is no run")
+    }
+
+    /// DIFF-B6: frame difference shares the pen contact slot with other sources, and the engine reports nothing while
+    /// down, so a contact another source cleared was never set again during continuous writing. Before the fix the
+    /// events stayed [down] however long the writing went on.
+    func testContinuedWritingReassertsTheContactTwicePerSecondAtMost() {
+        let (source, events, _) = makeSource()
+        let (frame, last) = writeThinStroke(source, events: events)
+        XCTAssertEqual(events.withLock { $0 }, [.penContact(down: true)])
+        let step = 10.0 / 2.0.squareRoot()
+        var x = 300.0, y = 900.0
+        var t = last
+        for _ in 0..<60 {   // 2 s more of writing at 30 Hz
+            FrameDiffEngageHostedTests.drawSegment(frame, x, y, x + step, y + step, lineWidth: 3)
+            x += step
+            y += step
+            t += 1.0 / 30
+            engage(source, frame, at: t)
+        }
+        let list = events.withLock { $0 }
+        XCTAssertFalse(list.contains(.penContact(down: false)), "still writing")
+        XCTAssertGreaterThanOrEqual(list.count, 4, "re-asserted while the writing goes on")
+        XCTAssertLessThanOrEqual(list.count, 1 + 4, "at most once per 0.5 s")
+        XCTAssertEqual(WifiMirrorSource.reassertInterval, 0.5)
+    }
 }

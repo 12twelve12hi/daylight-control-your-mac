@@ -19,6 +19,8 @@ final class WifiMirrorSource: MirrorFrameSource {
     static let noTabletSeconds: Double = 5
     /// The receiver stall rule and the engage release are checked on this cadence (PROTOCOL 14.5).
     static let tickInterval: Double = 0.5
+    /// While frame difference holds the contact, a changed frame re-asserts it at most this often (finder DIFF-B6).
+    static let reassertInterval: Double = 0.5
     /// Moving-average weight of the decode latency (submit to output callback).
     static let latencyWeight: Double = 0.1
     /// Quit waits at most this long for RELEASE to reach the network stack (LOOSE_ENDS J3).
@@ -173,6 +175,10 @@ final class WifiMirrorSource: MirrorFrameSource {
     private var frameDiff: FrameDiffEngage
     private var diffConfig: FrameDiffEngage.Config
     private var frameDiffNoticeShown = false
+    /// The crop the detector's previous grid was sampled with, that grid, and the last re-assert (mirror.queue).
+    private var engageUV: UVRect?
+    private var engageGrid: [UInt8]?
+    private var lastReassertAt: Double?
     private var decodedTimes: [Double] = []
     private var submitTime: Double = 0
     private var streamLabel = ""
@@ -815,7 +821,7 @@ final class WifiMirrorSource: MirrorFrameSource {
             inkQueue.async { [weak self] in self?.frameArrived(width: size.w, height: size.h, generation: generation) }
         }
         if let geometry = slot.latest() {
-            engage(buffer: buffer, uv: geometry.uv, orientation: geometry.orientation, now: now)
+            engage(buffer: buffer, uv: geometry.uv, orientation: geometry.orientation, now: now, mediaTime: Double(ptsUs) / 1_000_000)
         }
     }
 
@@ -829,7 +835,11 @@ final class WifiMirrorSource: MirrorFrameSource {
 
     /// Frame-difference engage for one decoded frame (mirror.queue). With the USB pen watcher present the pen is the
     /// engage source and the frame difference is ignored (a contact it holds is released first).
-    func engage(buffer: CVPixelBuffer, uv: UVRect, orientation: StudioLayout.CanvasOrientation, now: Double) {
+    ///
+    /// `now` is the host clock (the release); `mediaTime` is the frame's PTS in seconds (the run gap, SPEC F10;
+    /// finder DIFF-A3/B2), the host clock when nil. A crop change re-primes instead of comparing grids taken through
+    /// different windows; a held contact stays (finder DIFF-A2/B3).
+    func engage(buffer: CVPixelBuffer, uv: UVRect, orientation: StudioLayout.CanvasOrientation, now: Double, mediaTime: Double? = nil) {
         if penWatcherPresent() {
             diagBox.withLock { $0.engageSource = .pen }
             endEngage()
@@ -843,13 +853,33 @@ final class WifiMirrorSource: MirrorFrameSource {
         }
         let size = WifiMirrorSource.gridSize(orientation)
         guard let grid = WifiMirrorSource.lumaGrid(buffer, crop: uv, gridWidth: size.width, gridHeight: size.height) else { return }
-        if let edge = frameDiff.feed(grid: grid, width: size.width, height: size.height, now: now) { emitEdge(edge) }
+        if let previousUV = engageUV, previousUV != uv {
+            frameDiff.reprime()
+            engageGrid = nil
+        }
+        engageUV = uv
+        let wasDown = frameDiff.isDown
+        if let edge = frameDiff.feed(grid: grid, width: size.width, height: size.height, now: now, mediaTime: mediaTime ?? now) {
+            emitEdge(edge)
+            if edge == .down { lastReassertAt = now }
+        } else if wasDown, frameDiff.isDown, let previous = engageGrid,
+                  (FrameDiffEngage.changedCells(previous, grid, cellDelta: frameDiff.config.cellDelta) ?? 0) > 0,
+                  lastReassertAt.map({ now - $0 >= WifiMirrorSource.reassertInterval }) ?? true {
+            // The pen contact slot is shared: another source's release or "all clients gone" may have cleared it while
+            // the writing goes on. Re-asserting is idempotent and refreshes the governor's idle clock (finder DIFF-B6).
+            lastReassertAt = now
+            onGovernorEvent?(.penContact(down: true))
+        }
+        engageGrid = grid
     }
 
     /// Forgets the previous grid; a contact the detector held is released with `penContact(down: false)`.
     private func endEngage() {
         let wasDown = frameDiff.isDown
         frameDiff.reset()
+        engageUV = nil
+        engageGrid = nil
+        lastReassertAt = nil
         if wasDown { onGovernorEvent?(.penContact(down: false)) }
     }
 

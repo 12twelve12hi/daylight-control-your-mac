@@ -157,7 +157,7 @@ struct SettingsView: View {
                 Stepper(String(format: "Bit rate %.1f Mbit/s", Double(store.settings.mirrorStreamBitRate) / 1_000_000), value: $store.settings.mirrorStreamBitRate, in: Settings.mirrorStreamBitRateRange, step: 500_000)
                 Stepper("Frame rate \(store.settings.mirrorStreamMaxFps) fps", value: $store.settings.mirrorStreamMaxFps, in: Settings.mirrorStreamMaxFpsRange)
                 Stepper("Key frame every \(store.settings.mirrorStreamKeyIntervalMs) ms", value: $store.settings.mirrorStreamKeyIntervalMs, in: Settings.mirrorStreamKeyIntervalRange, step: 500)
-                Stepper(String(format: "Change threshold %.2f %% of the screen", store.settings.mirrorDiffThreshold * 100), value: $store.settings.mirrorDiffThreshold, in: Settings.mirrorDiffThresholdRange, step: 0.0005)
+                Stepper("Change threshold: \(FrameDiffEngage.Config(changedFraction: store.settings.mirrorDiffThreshold).changedCellThreshold) canvas cells", value: $store.settings.mirrorDiffThreshold, in: Settings.mirrorDiffThresholdRange, step: 0.0005)
             }
             Picker("Pin and Clear in mirror mode", selection: $store.settings.mirrorPinClearMode) {
                 Text("Floating pills").tag(MirrorPinClearMode.pills)

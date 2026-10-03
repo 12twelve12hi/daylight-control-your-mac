@@ -85,6 +85,33 @@ final class ExtensionInstallerTests: XCTestCase {
         XCTAssertEqual(ExtensionInstaller.status(forResult: .willCompleteAfterReboot, pending: nil), .needsReboot)
     }
 
+    /// CAMA-02: a superseded request's callbacks describe that old request. Its error must not wipe the kind of the
+    /// newer request, or a finished deactivation reads as "installed" again (finding 05's symptom).
+    func testSupersededRequestCallbacksDoNotTouchTheCurrentRequest() {
+        let superseded = NSError(domain: "OSSystemExtensionErrorDomain", code: OSSystemExtensionError.Code.requestSuperseded.rawValue)
+        let installer = ExtensionInstaller(signed: true, bundlePath: "/Applications/Daylight.app")
+        let first = installer.beginForTesting(.activation)
+        let second = installer.beginForTesting(.deactivation)
+        installer.request(first, didFailWithError: superseded)
+        XCTAssertEqual(installer.pendingRequest, .deactivation, "the old request's error leaves the newer request's kind alone")
+        installer.request(second, didFinishWithResult: .completed)
+        XCTAssertEqual(installer.status, .notInstalled, "a completed deactivation is not installed")
+        XCTAssertNil(installer.pendingRequest)
+
+        // Activation then "Check again": the old activation's late superseded error keeps the approval instructions.
+        let again = ExtensionInstaller(signed: true, bundlePath: "/Applications/Daylight.app")
+        let old = again.beginForTesting(.activation)
+        let current = again.beginForTesting(.activation)
+        again.requestNeedsUserApproval(current)
+        again.request(old, didFailWithError: superseded)
+        XCTAssertEqual(again.status, .needsApproval)
+        again.requestNeedsUserApproval(old)
+        again.request(old, didFinishWithResult: .completed)
+        XCTAssertEqual(again.status, .needsApproval, "nothing from the replaced request is applied")
+        again.request(current, didFinishWithResult: .completed)
+        XCTAssertEqual(again.status, .installed)
+    }
+
     func testUnsignedBuildNeverSubmitsARequest() {
         let installer = ExtensionInstaller(signed: false, bundlePath: "/Applications/Daylight.app")
         var changes: [ExtensionInstaller.Status] = []

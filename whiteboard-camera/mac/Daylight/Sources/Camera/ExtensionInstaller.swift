@@ -106,6 +106,22 @@ final class ExtensionInstaller: NSObject, OSSystemExtensionRequestDelegate {
         return modern ? [modernApprovalPaneURL, legacyApprovalPaneURL] : [legacyApprovalPaneURL, modernApprovalPaneURL]
     }
 
+    #if DEBUG
+    /// Tests only: records a request as the one in flight without submitting it, so the delegate callbacks can be
+    /// driven for a current and a superseded request.
+    func beginForTesting(_ kind: RequestKind) -> OSSystemExtensionRequest {
+        let request: OSSystemExtensionRequest
+        switch kind {
+        case .activation: request = OSSystemExtensionRequest.activationRequest(forExtensionWithIdentifier: extensionBundleIdentifier, queue: .main)
+        case .deactivation: request = OSSystemExtensionRequest.deactivationRequest(forExtensionWithIdentifier: extensionBundleIdentifier, queue: .main)
+        }
+        request.delegate = self
+        self.request = request
+        pendingRequest = kind
+        return request
+    }
+    #endif
+
     /// macOS 26 and 15 show Camera Extensions under General > Login Items & Extensions; 13 and 14 under Privacy & Security.
     static func isModernApprovalPath(version: OperatingSystemVersion = ProcessInfo.processInfo.operatingSystemVersion) -> Bool {
         return version.majorVersion >= 15
@@ -187,12 +203,22 @@ final class ExtensionInstaller: NSObject, OSSystemExtensionRequestDelegate {
         return .replace
     }
 
+    /// Callbacks for a request that a newer one replaced ("Check again" while an activation waits) describe that old
+    /// request: they must not touch the status or the kind of the request now in flight (camera review CAMA-02).
+    private func isCurrent(_ request: OSSystemExtensionRequest, _ callback: String) -> Bool {
+        if request === self.request { return true }
+        ExtensionInstaller.log.notice("\(callback, privacy: .public) for a superseded request ignored")
+        return false
+    }
+
     func requestNeedsUserApproval(_ request: OSSystemExtensionRequest) {
+        guard isCurrent(request, "requestNeedsUserApproval") else { return }
         ExtensionInstaller.log.notice("\(FailureText.logLine(.extensionNeedsApproval), privacy: .public)")
         status = .needsApproval
     }
 
     func request(_ request: OSSystemExtensionRequest, didFinishWithResult result: OSSystemExtensionRequest.Result) {
+        guard isCurrent(request, "didFinishWithResult \(result.rawValue)") else { return }
         let removing = pendingRequest == .deactivation
         let new = ExtensionInstaller.status(forResult: result, pending: pendingRequest)
         let what = removing ? "deactivation" : "request"
@@ -215,6 +241,7 @@ final class ExtensionInstaller: NSObject, OSSystemExtensionRequestDelegate {
 
     func request(_ request: OSSystemExtensionRequest, didFailWithError error: Error) {
         let nsError = error as NSError
+        guard isCurrent(request, "didFailWithError \(nsError.code)") else { return }
         let code = OSSystemExtensionError.Code(rawValue: nsError.code) ?? .unknown
         let message = nsError.localizedDescription
         if let failure = ExtensionInstaller.failureCase(for: code) {

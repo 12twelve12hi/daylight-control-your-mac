@@ -71,7 +71,7 @@ final class WifiMirrorSource: MirrorFrameSource {
     static func describe(_ state: MirrorStream.State) -> String {
         switch state {
         case .idle: return "idle"
-        case .consentNeeded: return "consent needed"
+        case .consentNeeded: return "waiting for consent on the tablet"
         case .starting: return "starting"
         case .streaming: return "streaming"
         case .paused: return "paused"
@@ -465,7 +465,10 @@ final class WifiMirrorSource: MirrorFrameSource {
             log(FailureText.logLine(.wifiStreamEncoderUnavailable, args))
             setStatus(.error(.wifiStreamEncoderUnavailable, peer.label))
             onFailure?(.wifiStreamEncoderUnavailable, args)
-        case .consentNeeded, .starting, .idle:
+        case .consentNeeded:
+            // The tablet shows its "Share screen" prompt; with notifications denied it can wait here (PROTOCOL 14.3).
+            setStatus(.connecting(serial: "\(peer.label), waiting for consent on the tablet"))
+        case .starting, .idle:
             setStatus(.connecting(serial: peer.label))
         case .streaming:
             if let size = sessionSize, peer.id == streamerID {

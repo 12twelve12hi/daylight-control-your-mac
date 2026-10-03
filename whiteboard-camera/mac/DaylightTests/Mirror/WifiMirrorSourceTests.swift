@@ -355,6 +355,23 @@ final class WifiMirrorSourceTests: XCTestCase {
         XCTAssertEqual(transport.commands, [.start, .requestKeyFrame, .requestKeyFrame])
     }
 
+    func testPausedAnnounceGetsStartAndUnsupportedNeverDoes() {
+        let source = makeSource()
+        source.setActive(true)
+        // A projection that survived a Wi-Fi drop announces PAUSED (4): START streams without new consent.
+        let (paused, pausedTransport) = makeConnection(role: .overlay, label: "paused")
+        feed(source, paused, .status(WifiMirrorSourceTests.status(.paused)))
+        drain(source)
+        XCTAssertEqual(pausedTransport.commands, [.start])
+        // UNSUPPORTED (8): connected but cannot mirror, row 35, never START, even as the newest connection.
+        let (old, oldTransport) = makeConnection(role: .overlay, label: "old build")
+        feed(source, old, .status(WifiMirrorSourceTests.status(.unsupported)))
+        drain(source)
+        XCTAssertTrue(oldTransport.sent.isEmpty)
+        XCTAssertEqual(source.status, .error(.wifiStreamEncoderUnavailable, "old build"))
+        XCTAssertEqual(MirrorStream.State.paused.rawValue, 4)
+    }
+
     func testHelloWhileInactiveGetsStop() {
         let source = makeSource()
         let (c, transport) = makeConnection()
@@ -393,9 +410,10 @@ final class WifiMirrorSourceTests: XCTestCase {
         source.setActive(true)
         let (c, _) = makeConnection()
         feed(source, c, .status(WifiMirrorSourceTests.idle))
-        feed(source, c, .status(WifiMirrorSourceTests.status(.consentNeeded)))
+        feed(source, c, .status(WifiMirrorSourceTests.status(.consentNeeded)))   // state 1
         drain(source)
-        XCTAssertEqual(source.status, .connecting(serial: "DC-1"))
+        XCTAssertEqual(source.status, .connecting(serial: "DC-1, waiting for consent on the tablet"))
+        XCTAssertEqual(source.diagnostics["wifi.tabletState"], "waiting for consent on the tablet (projection held)")
         feed(source, c, .status(WifiMirrorSourceTests.status(.consentDenied)))   // state 5
         drain(source)
         XCTAssertEqual(source.status, .error(.wifiStreamConsentDenied, "DC-1"))

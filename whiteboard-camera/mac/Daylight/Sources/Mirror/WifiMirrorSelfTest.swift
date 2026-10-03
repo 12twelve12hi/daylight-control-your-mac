@@ -13,6 +13,12 @@ enum SolidColourStream {
         var keyFrame: [UInt8]
     }
 
+    /// Why no stream could be made (reported by the self-test as a skip with this reason).
+    struct Failure: Error, CustomStringConvertible {
+        var description: String
+        init(_ description: String) { self.description = description }
+    }
+
     static let startCode: [UInt8] = [0, 0, 0, 1]
 
     /// AVCC (4-byte big-endian lengths) to Annex-B (start codes).
@@ -54,11 +60,11 @@ enum SolidColourStream {
     }
 
     /// Encodes one forced key frame; `.failure` carries the reason (reported as a skip, never a pass).
-    static func make(width: Int, height: Int, r: UInt8, g: UInt8, b: UInt8) -> Result<Encoded, String> {
-        guard let frame = pixelBuffer(width: width, height: height, r: r, g: g, b: b) else { return .failure("CVPixelBufferCreate failed") }
+    static func make(width: Int, height: Int, r: UInt8, g: UInt8, b: UInt8) -> Result<Encoded, Failure> {
+        guard let frame = pixelBuffer(width: width, height: height, r: r, g: g, b: b) else { return .failure(Failure("CVPixelBufferCreate failed")) }
         var created: VTCompressionSession?
         let status = VTCompressionSessionCreate(allocator: kCFAllocatorDefault, width: Int32(width), height: Int32(height), codecType: kCMVideoCodecType_H264, encoderSpecification: nil, imageBufferAttributes: nil, compressedDataAllocator: nil, outputCallback: nil, refcon: nil, compressionSessionOut: &created)
-        guard status == noErr, let session = created else { return .failure("VTCompressionSessionCreate returned \(status)") }
+        guard status == noErr, let session = created else { return .failure(Failure("VTCompressionSessionCreate returned \(status)")) }
         defer { VTCompressionSessionInvalidate(session) }
         _ = VTSessionSetProperty(session, key: kVTCompressionPropertyKey_RealTime, value: kCFBooleanFalse)
         _ = VTSessionSetProperty(session, key: kVTCompressionPropertyKey_AllowFrameReordering, value: kCFBooleanFalse)
@@ -70,11 +76,11 @@ enum SolidColourStream {
         let encodeStatus = VTCompressionSessionEncodeFrame(session, imageBuffer: frame, presentationTimeStamp: CMTime(value: 0, timescale: 1_000_000), duration: .invalid, frameProperties: properties, infoFlagsOut: nil) { status, _, sample in
             output.withLock { $0 = (status, sample) }
         }
-        guard encodeStatus == noErr else { return .failure("VTCompressionSessionEncodeFrame returned \(encodeStatus)") }
+        guard encodeStatus == noErr else { return .failure(Failure("VTCompressionSessionEncodeFrame returned \(encodeStatus)")) }
         _ = VTCompressionSessionCompleteFrames(session, untilPresentationTimeStamp: .invalid)
-        guard let result = output.withLock({ $0 }) else { return .failure("the encoder produced no output") }
-        guard result.0 == noErr, let sample = result.1 else { return .failure("encoder output status \(result.0)") }
-        guard let format = CMSampleBufferGetFormatDescription(sample) else { return .failure("no format description") }
+        guard let result = output.withLock({ $0 }) else { return .failure(Failure("the encoder produced no output")) }
+        guard result.0 == noErr, let sample = result.1 else { return .failure(Failure("encoder output status \(result.0)")) }
+        guard let format = CMSampleBufferGetFormatDescription(sample) else { return .failure(Failure("no format description")) }
         var config: [UInt8] = []
         var count = 0
         var index = 0
@@ -83,18 +89,18 @@ enum SolidColourStream {
             var size = 0
             var nalLength: Int32 = 0
             let s = CMVideoFormatDescriptionGetH264ParameterSetAtIndex(format, parameterSetIndex: index, parameterSetPointerOut: &pointer, parameterSetSizeOut: &size, parameterSetCountOut: &count, nalUnitHeaderLengthOut: &nalLength)
-            guard s == noErr, let p = pointer else { return .failure("parameter set \(index): \(s)") }
+            guard s == noErr, let p = pointer else { return .failure(Failure("parameter set \(index): \(s)")) }
             config += startCode
             config += Array(UnsafeBufferPointer(start: p, count: size))
             index += 1
         } while index < count
-        guard let block = CMSampleBufferGetDataBuffer(sample) else { return .failure("no data buffer") }
+        guard let block = CMSampleBufferGetDataBuffer(sample) else { return .failure(Failure("no data buffer")) }
         let length = CMBlockBufferGetDataLength(block)
         var avcc = [UInt8](repeating: 0, count: length)
         let copy = avcc.withUnsafeMutableBytes { raw in CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: length, destination: raw.baseAddress!) }
-        guard copy == kCMBlockBufferNoErr else { return .failure("CMBlockBufferCopyDataBytes returned \(copy)") }
+        guard copy == kCMBlockBufferNoErr else { return .failure(Failure("CMBlockBufferCopyDataBytes returned \(copy)")) }
         let keyFrame = annexB(fromAVCC: avcc)
-        guard AnnexB.containsIDR(keyFrame) else { return .failure("the encoded frame has no IDR slice") }
+        guard AnnexB.containsIDR(keyFrame) else { return .failure(Failure("the encoded frame has no IDR slice")) }
         return .success(Encoded(config: config, keyFrame: keyFrame))
     }
 }

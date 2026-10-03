@@ -34,7 +34,7 @@ Writing rules: no em-dashes; LivePaper is a transflective LCD; the backlight is 
 
 ### 1.4 The menu bar
 
-Top to bottom: the version line; "Open http://<ip>:7788 on your Daylight" (one line per address, Tailscale first with "(Tailscale)", click to copy) and a muted "http://<hostname>.local:7788 may also work on Wi-Fi"; while a tablet waits, "Allow <tablet>"; "Ink source" > "Web whiteboard" / "Daylight Ink app" / "Mirror the tablet"; "Hold" > "Auto" / "Camera" / "Studio Split" / "Whiteboard Only"; "Keep whiteboard" (ticked while pinned); "Clear"; "Camera"; "Whiteboard now (Studio Split)"; "Whiteboard now (Whiteboard Only)"; "Preview window"; "Settings..."; "Diagnostics..."; "Setup again"; "Quit Daylight". The icon shows a slashed camera when no webcam is found (row 4). A red dot with "Port 7788 is in use. Daylight is using 7789." (row 16) or "Nobody has connected yet. Same Wi-Fi? Office networks often block this: use USB or Tailscale." (row 18, after 60 s without a tablet) or "Set up over USB failed: <reason>" appears when relevant.
+Top to bottom: the version line; "Open http://<ip>:7788 on your Daylight" (one line per address, Tailscale first with "(Tailscale)", click to copy) and a muted "http://<hostname>.local:7788 may also work on Wi-Fi"; while a tablet waits, "Allow <tablet>"; "Ink source" > "Web whiteboard" / "Daylight Ink app" / "Mirror the tablet"; "Hold" > "Auto" / "Camera" / "Studio Split" / "Whiteboard Only"; "Keep whiteboard" (ticked while pinned); "Clear"; "Camera"; "Whiteboard now (Studio Split)"; "Whiteboard now (Whiteboard Only)"; "Whiteboard now (Overlay)" (only while Settings > Overlay > "Enable overlay mode" is on, section 4 "Overlay"); "Preview window"; "Settings..."; "Diagnostics..."; "Export diagnostics..." (one zip to send back after a test, section 7); "Setup again"; "Quit Daylight". The icon shows a slashed camera when no webcam is found (row 4). A red dot with "Port 7788 is in use. Daylight is using 7789." (row 16) or "Nobody has connected yet. Same Wi-Fi? Office networks often block this: use USB or Tailscale." (row 18, after 60 s without a tablet) or "Set up over USB failed: <reason>" appears when relevant.
 
 ### 1.5 Picking the camera in apps
 
@@ -50,7 +50,7 @@ Menu bar > "Ink source" (also Settings > General) picks one; the change applies 
 
 Open Chrome on your Daylight and type the address shown in the Mac's menu bar (it starts with `http://` and ends with `:7788`). Tap "Tap to start" once: the page goes full screen and keeps the screen on when it can. The first time, click "Allow" on the Mac. The chip at the bottom tells you what the camera is doing: "Camera" (the call sees your webcam), "LIVE" (the call sees the board), "Returning in 5" (five seconds of silence left; touch the pen to keep writing), "KEEP WHITEBOARD" (pinned). Tap the chip to pin; hold it for a second to go back to the camera. Only the pen draws; fingers and palms never do.
 
-Toolbar: "Pen", "Highlight" (amber, drawn under the ink), "Erase", the chip, "Undo", "Redo" (enabled from the Mac's state), "New page", "Clear", "?" (the card: "Add to Home screen", "Get the Daylight Ink app" with "Download Daylight Ink", the flag tip, "This tablet" facts and the `rtt` line).
+Toolbar: "Pen", "Highlight" (amber, drawn under the ink), "Erase", the chip, "Undo", "Redo" (enabled from the Mac's state), "New page", "Clear", "?" (the card: "Add to Home screen", "Get the Daylight Ink app" with "Download Daylight Ink", the flag tip, "This tablet" facts with the "Send facts to Mac" button (section 7) and the `rtt` line).
 
 Over Wi-Fi the page runs on a plain `http://` address, which Chrome treats as not secure: the screen may dim on its own and strokes get one sample per frame. Two cures, pick one: plug the tablet in once and click "Set up over USB" on the Mac with the Web whiteboard source selected (the `localhost` address it opens is secure), or open the "?" card on the page and paste its `chrome://flags/#unsafely-treat-insecure-origin-as-secure` line and the origin once into Chrome (LOOSE_ENDS A5). Add the page to the Home screen from the Chrome menu so later days are one tap.
 
@@ -58,7 +58,7 @@ Over Wi-Fi the page runs on a plain `http://` address, which Chrome treats as no
 
 Plug the tablet in once and click "Set up over USB" on the Mac with "Daylight Ink app" selected: it installs Daylight Ink, grants the two permissions, and opens the app connected over the cable with no Allow prompt. Without a cable, open the web whiteboard, tap "Get the Daylight Ink app" in its "?" card, install it, open it: it finds the Mac by itself on the same Wi-Fi and the Mac asks you to Allow it once. The first screen ("Welcome to Daylight Ink") asks for two permissions: "Allow display over other apps" (for the floating Pin and Clear pills in mirror mode; Android 13 shows a list, pick Daylight Ink) and "Allow notifications" (the pills run as a quiet service). Both can be skipped and redone from the app's Settings ("Setup again").
 
-Every later day: open the app. It reconnects on its own (Bonjour first, then the USB cable, then the address it remembered). Only the pen draws; fingers and palms never do. The chip at the bottom tells you what the camera is doing: "Camera", "LIVE", "Returning in 5", "KEEP WHITEBOARD". Tap it to pin, hold it for a second to go back to the camera. On an office network that blocks Bonjour, type the Mac's address (the Tailscale 100.x one if you have it) in the app's Settings under "Mac address (when Bonjour does not find it)" once.
+Every later day: open the app. It reconnects on its own (Bonjour first, then the USB cable, then the address it remembered). Only the pen draws; fingers and palms never do. The chip at the bottom tells you what the camera is doing: "Camera", "LIVE", "Returning in 5", "KEEP WHITEBOARD". Tap it to pin, hold it for a second to go back to the camera. On an office network that blocks Bonjour, type the Mac's address (the Tailscale 100.x one if you have it) in the app's Settings under "Mac address (when Bonjour does not find it)" once. Settings > "This tablet" lists the tablet's facts and has "Send facts to Mac" (section 7).
 
 The app's Settings: "Front buffer (lowest latency wet ink)", "Unbuffered input", "Send every pen sample at once (A/B against per-frame batching)", "Start the pills at boot", "Pills at the bottom instead of the top", the Mac address, "Forget this Mac", "Show the pills now" / "Hide the pills", "Setup again", and "This tablet" (the device facts for `docs/LOOSE_ENDS.md` section D).
 
@@ -142,7 +142,7 @@ Every key of SPEC section 11, by tab, in plain words. Values outside the range a
 |---|---|---|---|
 | "Camera" picker | `cameraUniqueID` | "System default" | which webcam feeds the presenter; "System default" follows the Mac's preferred camera; the choice is re-evaluated whenever cameras come and go, and Daylight never picks its own virtual camera |
 | "Ink source" | `inkSource` | Web whiteboard | web, Daylight Ink app or mirror; same as the menu |
-| "Layout when engaging" | `preferredLayout` | Studio Split | Studio Split (board left two thirds, you right third) or Whiteboard Only (board centred, no presenter) |
+| "Layout when engaging" | `preferredLayout` | Studio Split | Studio Split (board left two thirds, you right third), Whiteboard Only (board centred, no presenter), or Overlay (offered only while "Enable overlay mode" is on, section "Overlay" below) |
 | "Engage on pen contact" | `autoEngage` | on | off means the pen never brings the board up by itself; hotkeys, menu and pin still do |
 | "Return to camera after N s" | `idleTimeoutSeconds` | 90 (15 to 600) | silence before the board slides back; changed while the board is up, the new value applies after the next return |
 | "Amber warning N s before" | `preWarningSeconds` | 5 (0 to 30) | how long the divider breathes amber and the chip counts down before the return |
@@ -155,7 +155,7 @@ Every key of SPEC section 11, by tab, in plain words. Values outside the range a
 
 | Control | Key | Default | Plain words |
 |---|---|---|---|
-| "Whiteboard Only", "Studio Split", "Keep whiteboard (Pin)", "Clear", "Camera" | `hotkeys` | Ctrl+Opt+Cmd + W, D, K, C, Esc | click a field, press the new chord (at least one modifier); "Reset to defaults"; "Pressing the active layout hotkey again returns to the camera (unpinning first)."; a chord in use shows "Already used by another app" or "Already used by <Daylight action>" |
+| "Whiteboard Only", "Studio Split", "Keep whiteboard (Pin)", "Clear", "Camera", and "Overlay" only while Overlay is enabled | `hotkeys` | Ctrl+Opt+Cmd + W, D, K, C, Esc, O | click a field, press the new chord (at least one modifier); "Reset to defaults"; "Pressing the active layout hotkey again returns to the camera (unpinning first)."; a chord in use shows "Already used by another app" or "Already used by <Daylight action>" |
 
 ### Network
 
@@ -190,6 +190,23 @@ Every key of SPEC section 11, by tab, in plain words. Values outside the range a
 | (hidden) | `adbTermsAcceptedVersion` | none | the platform-tools version whose Android SDK License you accepted for the download |
 | (hidden) | `adbServerMode`, `adbPrivatePort` | auto, 27180 | share the Mac's adb server on 5037 when its version matches, else a private port (row 24) |
 
+### Overlay (optional, off by default)
+
+Presenter Overlay (SPEC 6.7): the board full frame with you cut out of your background in a corner square. Nothing of it runs or shows while "Enable overlay mode" is off; the rows below are greyed out until then. Try it with `docs/OWNER-NEXT-STEPS.md` step 8b and `docs/TESTING-CHECKLIST.md` Session 6.
+
+| Control | Key | Default | Plain words |
+|---|---|---|---|
+| "Enable overlay mode" | `overlayEnabled` | off | on adds "Overlay" to "Layout when engaging", the menu item "Whiteboard now (Overlay)" and the hotkey Ctrl+Opt+Cmd+O; off removes all three and a stored Overlay layout engages as Studio Split |
+| "Segmentation quality" | `overlayQuality` | "Fast" | "Fast", "Balanced" or "Accurate": cleaner edges cost more Mac time per frame |
+| "Smoothing N" | `overlaySmoothing` | 0.60 (0 to 0.9) | higher means less edge flicker and a slower follow |
+| "Edge softness N" | `overlayFeather` | 2 (0 to 8) | how soft the cut-out edge is |
+| "Amber outline" | `overlayHalo` | off | a thin amber ring around your outline |
+| "Size N % of picture height" | `overlayScale` | 28 (15 to 50) | the corner square's side |
+| "Position" | `overlayPosition` | "Bottom right" | or "Bottom left", "Top right", "Top left" |
+| "Opacity N %" | `overlayOpacity` | 100 (30 to 100) | how see-through the cut-out is |
+
+If you cannot be found in the picture 15 frames in a row, the board shows Studio Split and the menu says "Overlay mode could not find you in the camera picture, so Daylight is showing Studio Split. Turn Overlay off and on in Settings > Overlay to try again." (row 48); in a dark room the square shows your whole camera picture instead (row 49).
+
 ### Saving
 
 | Control | Key | Default | Plain words |
@@ -209,7 +226,7 @@ Every key of SPEC section 11, by tab, in plain words. Values outside the range a
 | "Stop the webcam N s after the last viewer" | `viewerIdleStopSeconds` | 60 (10 to 600) | the LED goes off this long after the last call ends; capture restarts within a second when a call starts |
 | "Frame reuse (measure first)" | `frameReuse` | off | re-send the same frame when nothing changed in Whiteboard Only; measure before enabling (LOOSE_ENDS E12) |
 | "Deadline idling (measure first)" | `deadlineIdle` | off | sleep the render clock until the next governor deadline; measure first |
-| "Perf log (one line per second in the unified log)" | `perfLog` | off | the `perf` line of `docs/PERFORMANCE.md`, also kept in Diagnostics' last 200 lines |
+| "Perf log (one line per second, kept for Diagnostics and the export)" | `perfLog` | off | the `perf` line of `docs/PERFORMANCE.md`, also kept in Diagnostics' last 200 lines |
 | (menu "Hold", never persisted) | `holdMode` | Auto | "Camera", "Studio Split", "Whiteboard Only" force a layout and stop the idle timer; "Auto" re-arms |
 
 Tablet-side keys. Daylight Ink (SharedPreferences): `clientId` (generated once; this is what the Mac remembers), `deviceName`, `manualHost`, `frontBuffer`, `unbufferedInput`, `sendPerEvent`, `pillsAtBoot`, `pillsPosition`, `flagHintDismissed`, `onboardingDone` and the collected facts `fact.pressureRaw`, `fact.actionButton`, `fact.frontBufferOk`. The web page (`localStorage`): `daylight.clientId`, `daylight.deviceName`, `daylight.flagHintDismissed`.
@@ -227,8 +244,10 @@ Ctrl+Opt+Cmd+W Whiteboard Only, Ctrl+Opt+Cmd+D Studio Split, Ctrl+Opt+Cmd+K Keep
 ## 7. Logs and Diagnostics
 
 - Menu bar > "Diagnostics..." (also Settings > Diagnostics): build signed or not, extension state, sink status with the two direction values, capture state and viewers, first-frame camera facts and the zero-copy flag, pipeline numbers, governor state, ink source, listener and port, addresses, clients, allowed tablets, every `mirror.*` fact, the failures seen, and the last 200 log lines. "Copy diagnostics" puts the whole report on the clipboard; paste it into `docs/TESTING-CHECKLIST.md` results or a GitHub issue.
+- Menu bar > "Export diagnostics..." (tick "Run self-test first" when asked): one zip in `~/Documents/Daylight Camera` holding the Diagnostics report, the newest 2000 lines of the last two hours of the unified log, the extension status, the perf lines, the Settings and the latest "Send facts to Mac" of each tablet, with IP addresses cut to their last number and Wi-Fi network names, tokens and paths outside Daylight's folders removed; Finder reveals it. This is the file to send back after a test (`docs/FEEDBACK.md`).
+- Tablet facts: on the web page "?" > "This tablet" > "Send facts to Mac", in Daylight Ink Settings > "This tablet" > "Send facts to Mac". The tablet answers "Sent to your Mac."; the Mac keeps the latest facts per tablet until it quits and puts them in the export's `tablet-facts.json`.
 - Unified log in Terminal: `log stream --predicate 'subsystem == "com.twelve.daylight"' --level info` while Daylight runs; the categories are `app`, `capture`, `failure`, `governor`, `hotkeys`, `ink`, `latency`, `perf`, `pipeline`, `save`, `server`, `camera`, `cmio`, `installer`, `mirror`, `scrcpy`, `stylus`, `decode` and `adb`.
-- Perf line: Settings > Advanced > "Perf log (one line per second in the unified log)" and read it in Diagnostics, or quit Daylight and run `/Applications/Daylight.app/Contents/MacOS/Daylight --perf-log` from Terminal (one `perf mode=... fps=... dropped=... cpu_ms=... gpu_ms=... inflight=... zerocopy=... capture=... viewers=...` line per second on stdout). `--latency-probe` adds `engage probe: STROKE_START to first moved frame <ms>` once per session. `docs/PERFORMANCE.md` explains the fields.
+- Perf line: Settings > Advanced > "Perf log (one line per second, kept for Diagnostics and the export)" and read it in Diagnostics, or quit Daylight and run `/Applications/Daylight.app/Contents/MacOS/Daylight --perf-log` from Terminal (one `perf mode=... fps=... dropped=... cpu_ms=... gpu_ms=... inflight=... zerocopy=... capture=... viewers=...` line per second on stdout). `--latency-probe` adds `engage probe: STROKE_START to first moved frame <ms>` once per session. `docs/PERFORMANCE.md` explains the fields.
 - Self-test: `/Applications/Daylight.app/Contents/MacOS/Daylight --self-test --perf-log` (quit the menu bar app first so the port is free) prints one line per probe and ends with `self-test: PASS`.
 - Tablet, Daylight Ink: `adb logcat -s DaylightInk.facts DaylightInk.ink DaylightInk.net` with Daylight's adb (`/Applications/Daylight.app/Contents/Resources/Vendor/adb`), or the app's Settings > "This tablet". Web page: the "?" card shows the capability facts (`secure`, `wake lock`, `coalesced`, `rawupdate`, `fullscreen`, `display`, `dpr`, `viewport`, `rtt`, `mac`, the user agent); the Chrome console prints `daylight-web caps {...}` and `daylight-web first pen pointerdown ...` (read it with desktop Chrome's `chrome://inspect#devices` over the cable, or `__daylight.consoleFacts` in that console).
 
@@ -243,7 +262,7 @@ Ctrl+Opt+Cmd+W Whiteboard Only, Ctrl+Opt+Cmd+D Studio Split, Ctrl+Opt+Cmd+K Keep
 
 ## 📋 ADHD-friendly setup checklist
 
-🟢 = setup, ✍️ = draw, 🟡 = fail on purpose, 🟣 = confirm, 📋 = paste into LOOSE_ENDS
+🟢 = setup, ✍️ = draw, 🟡 = fail on purpose, 🟣 = confirm, 📋 = collected by "Export diagnostics..." (nothing to paste)
 
 - [ ] 🟢 Daylight in `/Applications`, opened from there. You see: camera icon in the menu bar, "Welcome to Daylight". ⏱️ 2 minutes
 - [ ] 🟢 "Allow camera access". You see: your face in the preview within a second. ⏱️ 30 seconds
@@ -253,9 +272,10 @@ Ctrl+Opt+Cmd+W Whiteboard Only, Ctrl+Opt+Cmd+D Studio Split, Ctrl+Opt+Cmd+K Keep
 - [ ] 🟢 Mirror: "Ink source" > "Mirror the tablet"; "Diagnostics..." shows `mirror.status: mirroring`. ⏱️ 1 minute
 - [ ] 📶 Mirror without a cable (optional): Settings > Mirror > "Transport" > "Wi-Fi (Daylight Ink screen stream)"; on the tablet Daylight Ink > Settings > "Share screen with your Mac" > "Start now". You see: the notification "Sharing screen with your Mac" and, in Diagnostics, `mirror.wifi.tabletState` reading streaming. ⏱️ 3 minutes
 - [ ] ✍️ In each source, write one word. You see: the slide, the ink, "LIVE". ⏱️ 3 minutes
-- [ ] 🟣 Settings > Hotkeys: the five defaults listed, none marked "Already used". ⏱️ 30 seconds
+- [ ] 🟣 Settings > Hotkeys: the five defaults listed (six with Overlay enabled), none marked "Already used". ⏱️ 30 seconds
+- [ ] 🟢 Optional: Settings > Overlay > "Enable overlay mode", then Ctrl+Opt+Cmd+O. You see: the board slides in and you appear cut out in the bottom-right corner; switch it off again if you prefer Studio Split. ⏱️ 3 minutes
 - [ ] 🟣 Settings > Network > "Allowed tablets" lists your tablet. ⏱️ 30 seconds
 - [ ] 🟣 Settings > Saving: the folder is where you want the pages. ⏱️ 30 seconds
 - [ ] 🟢 Welcome window: "Launch Daylight at login" on, "Done". ⏱️ 30 seconds
 - [ ] 🟡 Unplug the webcam. You see: slashed icon, "No camera found"; plug it back: picture returns. ⏱️ 1 minute
-- [ ] 📋 "Diagnostics..." > "Copy diagnostics", paste into your notes for the testing session. ⏱️ 30 seconds
+- [ ] 📋 On each tablet client "Send facts to Mac"; then menu bar > "Export diagnostics...", Export. You see: "Diagnostics saved as diagnostics-<yyyy-MM-dd-HH-mm>.zip in Documents > Daylight Camera. Send this file back after the test." ⏱️ 2 minutes

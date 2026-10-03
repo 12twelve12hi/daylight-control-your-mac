@@ -80,7 +80,7 @@ The engage detector, the slide, the 90 s return, the 85 s warning and the pin ru
 
 ### 3.1 Layouts: Overlay (v2, off by default) versus Studio Split
 
-Overlay puts the board full width (the Whiteboard Only picture) and cuts you out of your background into a small square in one corner, 28 percent of the picture height by default. It beats Studio Split for a presenter-led talk where your face matters but the board should get every pixel: a lecture, a walkthrough, a pitch. Studio Split stays the better choice when your face must be large (a one-to-one conversation, a small laptop screen at the far end) or when the lighting is poor, because Overlay then shows your whole camera picture as a plain rectangle (row 49) or, after repeated failures, falls back to Studio Split (row 48). The cost is on the Mac: while the board is up in Overlay, macOS's Vision person segmentation runs on every camera frame on its own queue (a frame is dropped rather than queued when it is busy), on top of the same single 30 Hz render pass. Fast quality is the default because it costs least; Balanced and Accurate look cleaner at the edges and cost more. The real numbers are unmeasured until you read the `perf overlay seg_ms=... mask_age_ms=...` lines from `--perf-log` (LOOSE_ENDS E30). Overlay never runs in the camera state (Passthrough stays zero pixel work), and with "Enable overlay mode" off nothing of it runs at all.
+Overlay puts the board full width (the Whiteboard Only picture) and cuts you out of your background into a small square in one corner, 28 percent of the picture height by default. It beats Studio Split for a presenter-led talk where your face matters but the board should get every pixel: a lecture, a walkthrough, a pitch. Studio Split stays the better choice when your face must be large (a one-to-one conversation, a small laptop screen at the far end) or when the lighting is poor, because Overlay then shows your whole camera picture as a plain rectangle (row 49) or, after repeated failures, falls back to Studio Split (row 48). The cost is on the Mac: while the board is up in Overlay, macOS's Vision person segmentation runs on every camera frame on its own queue (a frame is dropped rather than queued when it is busy), on top of the same single 30 Hz render pass. Fast quality is the default because it costs least; Balanced and Accurate look cleaner at the edges and cost more. The real numbers are unmeasured until you read the `perf overlay seg_ms=... mask_age_ms=...` lines from `--perf-log` (LOOSE_ENDS E30); menu bar > "Export diagnostics..." right after the run keeps them in `perf-log.txt`. To try it: Settings > Overlay > "Enable overlay mode", then Ctrl+Opt+Cmd+O or "Whiteboard now (Overlay)" (`docs/TESTING-CHECKLIST.md` Session 6). Overlay never runs in the camera state (Passthrough stays zero pixel work), and with "Enable overlay mode" off nothing of it runs at all.
 
 ## 4. Measurement plan (one evening, about 45 minutes)
 
@@ -116,9 +116,9 @@ Note the tablet's battery percentage, write for 30 minutes in the chosen source 
 
 Write the same sentence in each source. Open the saved `page-01.png` (web, Daylight Ink) and `mirror-<HH-mm-ss>.png` (mirror) at 200 percent and compare the stroke edges and the highlighter. Also compare the live Studio Split picture in a Zoom test meeting at the far end.
 
-### 4.8 Facts to paste into `docs/LOOSE_ENDS.md`
+### 4.8 Facts for `docs/LOOSE_ENDS.md` (nothing to paste)
 
-The web "?" card and the Daylight Ink "This tablet" screen give the pressure range (D3), the side button (D4), the Chrome caps (D8) and the front buffer (D14); Diagnostics in mirror mode gives the Wacom node (D1) and the device model (D2). The D section says which line goes where.
+Tap "Send facts to Mac" on the web "?" card ("This tablet") and in Daylight Ink Settings > "This tablet": that sends the pressure range (D3), the side button (D4), the Chrome caps (D8) and the front buffer (D14) to the Mac. Diagnostics in mirror mode holds the Wacom node (D1) and the device model (D2). Menu bar > "Export diagnostics..." puts all of it in one zip; `docs/FEEDBACK.md` says which file answers which D row.
 
 ## 5. Verdict so far (before measurements)
 
@@ -138,4 +138,4 @@ Daylight Ink is the recommended default: strokes, native input, self-reconnectin
 - [ ] 🟣 Activity Monitor Network, Daylight "Rcvd Bytes" rate, per source. Write three numbers. ⏱️ 5 minutes
 - [ ] 🟣 Open `page-01.png` and `mirror-<HH-mm-ss>.png` at 200 percent. Which is crisper? Write one sentence. ⏱️ 3 minutes
 - [ ] ⏱️ Battery: 30 minutes of writing per source on separate evenings; percentage before and after. ⏱️ 30 minutes each
-- [ ] 📋 Copy the numbers into section 2 above and into `docs/PERFORMANCE.md`; one sentence in section 5 if the verdict changed. ⏱️ 5 minutes
+- [ ] 📋 Tap "Send facts to Mac" on each tablet client, then menu bar > "Export diagnostics..." (the perf and probe lines are in the zip). Write your stopwatch, Activity Monitor and battery numbers into section 2 above or into a note sent with the zip; one sentence in section 5 if the verdict changed. ⏱️ 5 minutes

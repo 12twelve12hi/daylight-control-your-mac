@@ -65,3 +65,13 @@ What is never inside: Wi-Fi network names, tokens or keys, full IP addresses, an
 | D21 | the tablet's H.264 encoder | `tablet-facts.json` source `ink`: `mirrorEncoders`, `mirrorEncoder`, `mirrorStream`; `diagnostics.txt` `mirror.wifi.fps`, `mirror.wifi.bitrate`, `mirror.wifi.decodeLatencyMs` |
 | D22 | START reaching a closed Daylight Ink | `unified-log.txt` (row 38 `mirror stream: no capable Daylight Ink connection` when nothing held the socket) |
 | D23 | battery and heat while streaming | `tablet-facts.json` source `ink`: `mirrorThermalMax`; the battery percentage is a note |
+
+## 5. Overlay mode (optional, TESTING-CHECKLIST Session 6)
+
+Overlay is off by default (Settings > Overlay > "Enable overlay mode"). When you try it, export right after the run, because the perf lines are a ring of the last 200.
+
+| Row | Fact | File and key |
+|---|---|---|
+| E29 | the person mask reaches Metal without a copy | `unified-log.txt` and `diagnostics.txt`: no line `overlay: mask <w>x<h> is not Metal-compatible; copied once per frame` (that line means the copy fallback ran) |
+| E30 | segmentation time per quality | `perf-log.txt`: the `perf overlay seg_ms=... mask_age_ms=... seg_dropped=... state=...` lines (one per second while Overlay is enabled and Daylight runs with the perf log on) |
+| E31 | matte quality in your room | `unified-log.txt` `overlay:` lines (`overlay: mask coverage <fraction> below 0.01; showing the camera rectangle` is row 49, `overlay: segmentation failed <n> frames in a row: <error>` is row 48); how it looked is a sentence in your note |

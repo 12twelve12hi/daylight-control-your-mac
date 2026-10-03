@@ -23,7 +23,7 @@ Order of the day, and why: try the web whiteboard first (nothing to install on t
 | 7 | Install the signed app and approve the camera extension | 10 min | step 6 |
 | 8 | Pick Daylight Camera in Zoom, Meet or FaceTime | 5 min | step 7 |
 | 8b | Try overlay mode (optional) | 10 min | step 1 (the preview window is enough) |
-| 9 | Run the testing checklist and paste the facts | 60 to 90 min | everything above |
+| 9 | Run the testing checklist, tap "Send facts to Mac" where it says so, then "Export diagnostics..." once and send the zip | 60 to 90 min | everything above |
 
 ---
 
@@ -106,7 +106,7 @@ Done looks like: menu bar > "Diagnostics..." shows `mirror.status: mirroring <se
 3. Pin and Clear here are the two floating pills "Pin" and "Clear" at the top of the tablet (Daylight starts them over the cable) and the pen's side button: double press = Pin, hold for 0.7 s = Clear and return. Settings > Mirror > "Pin and Clear in mirror mode" picks "Floating pills", "Pen side button" or "Both".
 4. The top 96 tablet pixels (where the pills live) are cropped out of the camera picture. If the crop is wrong, Settings > Mirror > Crop, drag the edges over the live picture.
 
-If it fails: "The screen mirror could not start: ..." (row 25; copy the sentence into LOOSE_ENDS); "Pen events not found on this Daylight. Mirror works, but auto-engage and the pen button do not. Use the pills or the Whiteboard hotkey." (row 28: the Wacom input node is not where the code expects; paste the Diagnostics `mirror.pen.status` line (it reads "no pen node among [...]") into LOOSE_ENDS D1); "Pen button events not seen; use the pills." (row 28b). "Recovering video..." means the decoder is waiting for a key frame (row 27); after 12 s without one Daylight restarts the mirror by itself; if the text stays, unplug and replug.
+If it fails: "The screen mirror could not start: ..." (row 25; the sentence is in the diagnostics zip of step 9); "Pen events not found on this Daylight. Mirror works, but auto-engage and the pen button do not. Use the pills or the Whiteboard hotkey." (row 28: the Wacom input node is not where the code expects; the Diagnostics `mirror.pen.status` line (it reads "no pen node among [...]") answers LOOSE_ENDS D1 and travels in the diagnostics zip of step 9); "Pen button events not seen; use the pills." (row 28b). "Recovering video..." means the decoder is waiting for a key frame (row 27); after 12 s without one Daylight restarts the mirror by itself; if the text stays, unplug and replug.
 
 ---
 
@@ -192,7 +192,20 @@ Done looks like: drawing (or Ctrl+Opt+Cmd+O) slides the board in from the left w
 4. Look for the two safety nets: dim the room or step out of view and the square shows your whole camera picture as a plain rectangle (row 49); if segmentation fails repeatedly, the board falls back to Studio Split and the menu shows "Overlay mode could not find you in the camera picture, so Daylight is showing Studio Split. Turn Overlay off and on in Settings > Overlay to try again." (row 48).
 5. To turn it off: Settings > Overlay > switch off "Enable overlay mode". The Overlay menu item, the hotkey and the "Overlay" choice disappear, and a stored "Overlay" layout engages as Studio Split until you switch it on again.
 
-If you run with `--perf-log`, Overlay adds `perf overlay seg_ms=... mask_age_ms=...` lines; paste one into `docs/LOOSE_ENDS.md` E30. The full owner run is `docs/TESTING-CHECKLIST.md` session "Overlay mode (optional, v2)".
+If you run with `--perf-log` (or Settings > Advanced > "Perf log"), Overlay adds a `perf overlay seg_ms=... mask_age_ms=...` line every second; menu bar > "Export diagnostics..." right afterwards puts the last 200 perf lines in `perf-log.txt` (LOOSE_ENDS E30), so there is nothing to paste. The full owner run is `docs/TESTING-CHECKLIST.md` Session 6 "Overlay mode (optional, v2)".
+
+---
+
+## Step 9: run the testing checklist and send one file back (60 to 90 min, in pieces)
+
+Why: every tablet fact the code guessed (LOOSE_ENDS section D) and every Mac fact marked UNVERIFIED is answered by one zip, so you never copy lines into the docs. `docs/FEEDBACK.md` is the full guide.
+
+1. Work through `docs/TESTING-CHECKLIST.md` one session at a time (Session 6 is the optional Overlay run).
+2. Where a row says so, tap "Send facts to Mac" on the tablet: on the web page tap "?" and find it under "This tablet"; in Daylight Ink open Settings > "This tablet". The tablet answers "Sent to your Mac."
+3. At the end of the day: Mac menu bar > "Export diagnostics...", tick "Run self-test first" if something misbehaved, Export. The menu shows "Diagnostics saved as diagnostics-<yyyy-MM-dd-HH-mm>.zip in Documents > Daylight Camera. Send this file back after the test." and Finder shows the zip.
+4. Send that zip, plus one sentence per surprise with the checklist row number.
+
+If it fails: the tablet says "Your Mac did not accept the facts (404). Update Daylight on your Mac." (the Mac runs an older build), "Could not reach your Mac. Check the connection and tap again." (get the chip to LIVE first) or, in Daylight Ink, "Connect to your Mac first."; the Mac says "Could not save the diagnostics file: <reason>. Use Diagnostics > Copy diagnostics instead." (row 47: free some disk space, or paste the Diagnostics window's text).
 
 ---
 
@@ -227,7 +240,7 @@ Switching ink sources: menu bar > "Ink source" > "Web whiteboard" / "Daylight In
 
 ## 📋 ADHD-friendly checklist (tick in order; ⏱️ about 3 hours in total, split over a day)
 
-🟢 = setup, ✍️ = draw something, 🟡 = make it fail on purpose, 🟣 = confirm a file or a fact, 📋 = paste a line into `docs/LOOSE_ENDS.md`
+🟢 = setup, ✍️ = draw something, 🟡 = make it fail on purpose, 🟣 = confirm a file or a fact, 📋 = a fact the diagnostics zip collects (tap "Send facts to Mac" where the row says so; nothing to paste)
 
 - [ ] 🟢 `brew install gh`, `gh auth login`, clone, `git checkout claude/daylight-whiteboard-camera-tzxfjb`. You see: `gh auth status` prints your login. ⏱️ 10 minutes
 - [ ] 🟢 `gh run list --workflow whiteboard-camera --branch claude/daylight-whiteboard-camera-tzxfjb --limit 3`, pick a green run, `gh run download <id> -n Daylight-unsigned`. You see: `Daylight-unsigned.zip` in the folder. ⏱️ 3 minutes
@@ -241,18 +254,17 @@ Switching ink sources: menu bar > "Ink source" > "Web whiteboard" / "Daylight In
 - [ ] 🟣 Finder: `~/Documents/Daylight Camera/<today>/<time>/page-01.png` and `page-01.json` exist. ⏱️ 1 minute
 - [ ] ✍️ Tap the chip. You see: "KEEP WHITEBOARD" in black. Hold the chip for a second. You see: back to "Camera". ⏱️ 1 minute
 - [ ] ✍️ Press Ctrl+Opt+Cmd+D. You see: Studio Split without drawing; press it again: camera. ⏱️ 1 minute
-- [ ] 📋 Tablet "?" card: copy the "This tablet" facts into LOOSE_ENDS D8. ⏱️ 2 minutes
-- [ ] 📋 Chrome console (desktop Chrome `chrome://inspect#devices` over the cable): copy the `daylight-web first pen pointerdown` line into D3 and D4; Daylight Ink's "This tablet" gives the same facts without a console. ⏱️ 3 minutes
+- [ ] 📋 Press the pen side button in the air, draw one stroke, then tap "?" > "Send facts to Mac" under "This tablet". You see: "Sent to your Mac." (the Chrome facts and the first pen pointerdown, LOOSE_ENDS D3, D4, D8). ⏱️ 2 minutes
 - [ ] 🟢 Tablet: Developer options > USB debugging on; plug in; "Always allow from this computer", Allow. ⏱️ 3 minutes
 - [ ] 🟢 Mac: "Ink source" > "Daylight Ink app"; Welcome window > "Set up over USB". You see: the app opens on the tablet by itself, its chip reads "Camera". ⏱️ 2 minutes
 - [ ] 🟢 Tablet: "Open the permission screen" > Daylight Ink > "Allow display over other apps" > Back; "Allow notifications"; "Start writing". ⏱️ 2 minutes
 - [ ] ✍️ Write one word in Daylight Ink. You see: ink under the pen at once, chip "LIVE", the board in the preview. ⏱️ 1 minute
 - [ ] 🟣 Unplug the cable. You see: within 10 s the chip reads "Camera" again and the Mac shows the Allow panel once; click "Allow". ⏱️ 1 minute
-- [ ] 📋 Daylight Ink > Settings > "This tablet": copy `model=`, `pressureRange=`, `sideButton=`, `frontBuffer=`, `tiramisuExt=`, `canDrawOverlays=` into LOOSE_ENDS D2, D3, D4, D14, D11, D15. ⏱️ 2 minutes
+- [ ] 📋 Daylight Ink > Settings > "This tablet" > "Send facts to Mac" (after a stroke and a side-button press). You see: "Sent to your Mac." (model, pressure range, side button, front buffer, extension version, overlay permission: LOOSE_ENDS D2, D3, D4, D11, D14, D15). ⏱️ 1 minute
 - [ ] 🟢 Plug in; "Ink source" > "Mirror the tablet"; menu bar > "Diagnostics...". You see: `mirror.status: mirroring <serial> 1200x1600` within 2 s. ⏱️ 1 minute
 - [ ] ✍️ Write in the SolOS note app. You see: the preview slides, the tablet screen is in the board slot, the pills row at the top of the tablet is not in the picture. ⏱️ 1 minute
 - [ ] ✍️ Double press the pen side button. You see: menu "Keep whiteboard" ticked. Hold it 0.7 s. You see: the board clears and returns. ⏱️ 1 minute
-- [ ] 📋 Diagnostics: copy `mirror.pen.node` (or `mirror.pen.status` when no pen node was found), the `getevent -pl devices:` line and `mirror.session.deviceModel` into LOOSE_ENDS D1 and D2. ⏱️ 2 minutes
+- [ ] 🟣 Diagnostics: `mirror.pen.node` names an `/dev/input/event` node (or `mirror.pen.status` says why not). Nothing to copy: the diagnostics zip carries it (LOOSE_ENDS D1, D2). ⏱️ 1 minute
 - [ ] 🟢 Unplug. Mac: Settings > Mirror > "Transport" > "Wi-Fi (Daylight Ink screen stream)". Tablet: Daylight Ink > Settings > "Share screen with your Mac" > "Start now". You see: the notification "Sharing screen with your Mac"; Diagnostics `mirror.wifi.tabletState: streaming`. ⏱️ 2 minutes
 - [ ] ✍️ Write in the SolOS note app without the cable. You see: the board slides in shortly after the ink appears. 📋 Write down the prompt wording (D19) and roughly how late the slide feels (D20). Tap "Stop" in the notification afterwards. ⏱️ 3 minutes
 - [ ] 🟢 Open `docs/SIGNING.md` and do its checklist (certificate, App IDs, profiles, API key, eight secrets). You see: `gh secret list` shows eight names. ⏱️ 30 minutes
@@ -265,4 +277,5 @@ Switching ink sources: menu bar > "Ink source" > "Web whiteboard" / "Daylight In
 - [ ] ⏱️ Close FaceTime and wait 60 s. You see and feel: the webcam LED goes off. Open FaceTime again: the picture is back within a second. ⏱️ 2 minutes
 - [ ] 🟢 Optional: Settings > Overlay > "Enable overlay mode", then Ctrl+Opt+Cmd+O. You see: the board slides in and your camera picture shrinks into a cut-out square in the bottom-right corner. Switch it off again afterwards if you prefer Studio Split. ⏱️ 5 minutes
 - [ ] 📋 Tell the integrator whether the "Open System Settings" button landed on the right pane (LOOSE_ENDS E13). The decisions A2 (macOS 26), A3, A4, A5, A6 and A14 are already settled (2026-10-03). ⏱️ 1 minute
-- [ ] 📋 Then run `docs/TESTING-CHECKLIST.md`, one session at a time (Mac only, web, Daylight Ink, mirror with the adb source rows 4.19 to 4.21, mirror over Wi-Fi in Session 4b, signed camera). ⏱️ 90 to 120 minutes, in pieces
+- [ ] 📋 Then run `docs/TESTING-CHECKLIST.md`, one session at a time (Mac only, web, Daylight Ink, mirror with the adb source rows 4.19 to 4.21, mirror over Wi-Fi in Session 4b, signed camera, optional Overlay in Session 6). ⏱️ 90 to 120 minutes, in pieces
+- [ ] 📋 Menu bar > "Export diagnostics...", Export. You see: "Diagnostics saved as diagnostics-<yyyy-MM-dd-HH-mm>.zip in Documents > Daylight Camera. Send this file back after the test." and Finder shows the zip. Send it back. ⏱️ 2 minutes

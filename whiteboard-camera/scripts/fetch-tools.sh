@@ -29,7 +29,7 @@ if [[ ! -f "$out/adb" ]]; then
 fi
 # Apache-2.0 section 4(a): a copy of the License ships with every redistribution of scrcpy-server and adb, and the
 # notices file carries the scrcpy attribution (SPEC 17, THIRD_PARTY_NOTICES.md). Both are committed, so no download.
-cp scripts/licenses/Apache-2.0.txt "$out/LICENSE-Apache-2.0.txt"
+cp LICENSES/Apache-2.0.txt "$out/LICENSE-Apache-2.0.txt"
 cp THIRD_PARTY_NOTICES.md "$out/THIRD_PARTY_NOTICES.md"
 # Facts for LOOSE_ENDS B2 and THIRD_PARTY_NOTICES.md, kept in the xcodebuild-logs artifact.
 {

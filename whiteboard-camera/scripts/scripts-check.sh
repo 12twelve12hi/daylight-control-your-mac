@@ -6,6 +6,8 @@
 #   ci-env.sh:           DAYLIGHT_XCODE_PATH writes DEVELOPER_DIR to $GITHUB_ENV (an export alone never reaches
 #                        the later steps of a job), and a wrong path leaves it untouched.
 #   fetch-tools.sh:      the committed Apache-2.0 text exists and is the license (shipped as Vendor/LICENSE-Apache-2.0.txt).
+#   LICENSE:             the project's own license is the standard Apache-2.0 text, identical to LICENSES/Apache-2.0.txt
+#                        apart from the appendix copyright lines (scrcpy's attribution there, the template here).
 #   kit-test.sh:         a crash of swift-package (exit 139) is retried with the whole suite and a log line; a test
 #                        failure (exit 1) is never retried; a crash on every attempt still fails (a stub swift).
 set -euo pipefail
@@ -67,14 +69,21 @@ set +e; out="$(DAYLIGHT_XCODE_PATH="$tmpdir/missing.app" GITHUB_ENV="$tmpdir/git
 expect "ci-env: a wrong DAYLIGHT_XCODE_PATH keeps the default Xcode" 0 "does not exist, keeping the default Xcode"
 if [[ ! -s "$tmpdir/github.env" ]]; then echo "ok    ci-env: GITHUB_ENV untouched for a wrong path"; passes=$((passes + 1)); else echo "FAIL  ci-env: GITHUB_ENV written for a wrong path"; fails=$((fails + 1)); fi
 
-# The committed license text fetch-tools.sh copies into Vendor/.
-lic="scripts/licenses/Apache-2.0.txt"
+# The committed license text fetch-tools.sh copies into Vendor/ (LICENSES/, LOOSE_ENDS G15).
+lic="LICENSES/Apache-2.0.txt"
 if [[ -f "$lic" ]] && grep -q "Apache License" "$lic" && grep -q "Version 2.0, January 2004" "$lic" && grep -q "Genymobile" "$lic"; then
   echo "ok    $lic is the Apache License 2.0 with the scrcpy attribution"; passes=$((passes + 1))
 else
   echo "FAIL  $lic missing or not the Apache License 2.0"; fails=$((fails + 1))
 fi
-grep -q 'cp scripts/licenses/Apache-2.0.txt "$out/LICENSE-Apache-2.0.txt"' scripts/fetch-tools.sh && { echo "ok    fetch-tools.sh ships the license text"; passes=$((passes + 1)); } || { echo "FAIL  fetch-tools.sh does not copy the license text"; fails=$((fails + 1)); }
+grep -q 'cp LICENSES/Apache-2.0.txt "$out/LICENSE-Apache-2.0.txt"' scripts/fetch-tools.sh && { echo "ok    fetch-tools.sh ships the license text"; passes=$((passes + 1)); } || { echo "FAIL  fetch-tools.sh does not copy the license text"; fails=$((fails + 1)); }
+# The project's own LICENSE (LOOSE_ENDS A14): the standard Apache-2.0 text with the unfilled appendix template.
+if [[ -f LICENSE ]] && grep -qx '   Copyright \[yyyy\] \[name of copyright owner\]' LICENSE \
+  && diff -q <(grep -v '^   Copyright ' LICENSE) <(grep -v '^   Copyright ' "$lic" | sed -e :a -e '/^$/{$d;N;ba' -e '}') >/dev/null; then
+  echo "ok    LICENSE is the standard Apache License 2.0 text"; passes=$((passes + 1))
+else
+  echo "FAIL  LICENSE missing or not the standard Apache License 2.0 text"; fails=$((fails + 1))
+fi
 
 # kit-test.sh against a stub swift in a scratch copy of the tree (the retry wipes mac/DaylightKit/.build). The stub
 # exits with the codes listed in $tmpdir/kit/codes, one per `swift test` call, and logs each call.

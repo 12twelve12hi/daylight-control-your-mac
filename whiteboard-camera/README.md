@@ -44,9 +44,11 @@ Every component is built, wired and green in CI (`docs/STATUS.md`): the Daylight
 
 There is no Mac or Android SDK on the development machine; GitHub Actions is the compiler (`.github/workflows/whiteboard-camera.yml` at the monorepo root, its standalone twin in `whiteboard-camera/.github/workflows/ci.yml`). Every push runs five jobs: `golden` (the protocol vectors never drift between the four copies; the script gates), `web` (`make web`, `make web-test`), `android` (`make android`, uploads the debug APK), `kit-linux` (`swift test` in a `swift:6.4-noble` container) and `mac` (macos-15: fetch the pinned adb and scrcpy-server, embed the APK and the web build, generate the project, build unsigned, run the hosted tests and the self-test, upload `Daylight-unsigned.zip`, then `make mac-release`, which signs, exports, notarizes and staples only when the eight secrets exist). A `v*` tag or a `workflow_dispatch` with `notarize` ticked produces `Daylight.dmg`.
 
+The same code is published standalone at https://github.com/a12k-a2b/whiteboard-camera once it has been pushed there (the repository exists but is not populated yet). Until then CI runs in the monorepo `12twelve12hi/daylight-control-your-mac` on the branch `claude/daylight-whiteboard-camera-tzxfjb`, and every command in `docs/` uses the monorepo.
+
 ## License
 
-To be chosen by the owner (`docs/LOOSE_ENDS.md` A14); until then this repository carries no `LICENSE` file. Third-party components bundled by the Mac app are listed in `THIRD_PARTY_NOTICES.md`.
+Apache License 2.0: see `LICENSE` (the standard text). The Mac app bundles two third-party binaries, listed with their versions and checksums in `THIRD_PARTY_NOTICES.md`: scrcpy-server (Apache License 2.0; its license text is `LICENSES/Apache-2.0.txt`, shipped in the app as `Vendor/LICENSE-Apache-2.0.txt`) and adb from Google's platform-tools (shipped with Google's notice file as `Vendor/NOTICE-platform-tools.txt`).
 
 ## Writing rules
 

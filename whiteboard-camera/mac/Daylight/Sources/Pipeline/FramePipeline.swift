@@ -387,8 +387,8 @@ final class FramePipeline: PipelineControl {
             let pushSignpost = self.telemetry.begin("sink.push")
             self.feeder.push(target, hostTimeNs: nil)
             self.telemetry.end(pushSignpost, "sink.push")
-            pool.release(target)
             self.onPreviewFrame?(target)
+            pool.release(target)
             self.recordComposedFrame(gpuMs: gpuSeconds * 1000, progress: progress)
         }
         let cpuMs = (CACurrentMediaTime() - cpuStart) * 1000
@@ -410,8 +410,8 @@ final class FramePipeline: PipelineControl {
         compositor.render(inputs, into: target) { [weak self] gpuSeconds in
             guard let self = self else { return }
             self.feeder.push(target, hostTimeNs: nil)
-            pool.release(target)
             self.onPreviewFrame?(target)
+            pool.release(target)
             self.recordComposedFrame(gpuMs: gpuSeconds * 1000, progress: 0)
         }
     }

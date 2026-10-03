@@ -129,6 +129,33 @@ final class FrameFeederTests: XCTestCase {
     }
 }
 
+/// research-mac-pipeline 1.9: the preview never holds more than one captured buffer, however long main stalls.
+final class LatestSampleCoalescerTests: XCTestCase {
+    func testOnlyTheNewestSampleReachesAStalledQueueOnce() {
+        let target = DispatchQueue(label: "coalescer-test.target")
+        let coalescer = LatestSampleCoalescer(queue: target)
+        let feeder = FrameFeeder(sink: FakeSink())
+        let pb = SelfTest.gradientBuffer(width: 64, height: 64)!
+        let delivered = Locked<[CMTime]>([])
+        target.suspend()
+        var lastOffered = CMTime.invalid
+        for _ in 0..<50 {
+            let sample = feeder.makeSampleBuffer(pb, hostTimeNs: nil)!
+            lastOffered = CMSampleBufferGetPresentationTimeStamp(sample)
+            coalescer.offer(sample) { s in delivered.withLock { $0.append(CMSampleBufferGetPresentationTimeStamp(s)) } }
+        }
+        target.resume()
+        target.sync {}
+        XCTAssertEqual(delivered.withLock { $0 }, [lastOffered], "one delivery, the newest sample")
+        // Once drained, the next frame is dispatched again.
+        let next = feeder.makeSampleBuffer(pb, hostTimeNs: nil)!
+        coalescer.offer(next) { s in delivered.withLock { $0.append(CMSampleBufferGetPresentationTimeStamp(s)) } }
+        target.sync {}
+        XCTAssertEqual(delivered.withLock { $0.count }, 2)
+        XCTAssertEqual(delivered.withLock { $0.last }, CMSampleBufferGetPresentationTimeStamp(next))
+    }
+}
+
 final class TelemetryTests: XCTestCase {
     func testPerfLineFormat() {
         var stats = PipelineStats()

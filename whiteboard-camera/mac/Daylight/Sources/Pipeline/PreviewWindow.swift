@@ -11,6 +11,7 @@ final class PreviewWindow: NSObject, NSWindowDelegate {
     private var window: NSWindow?
     private let displayLayer = AVSampleBufferDisplayLayer()
     private let feeder = FrameFeeder(sink: PreviewLayerSink())
+    private let coalescer = LatestSampleCoalescer(queue: .main)
     private let label = NSTextField(labelWithString: "")
     var onVisibility: ((Bool) -> Void)?
     var floats = true
@@ -37,7 +38,9 @@ final class PreviewWindow: NSObject, NSWindowDelegate {
         label.isHidden = text.isEmpty
     }
 
-    /// Called from the pipeline on any queue; drops when the window is hidden.
+    /// Called from the pipeline on any queue; drops when the window is hidden. Frames are coalesced: at most one
+    /// main-queue hop is in flight and it enqueues only the newest sample, so a stalled main thread never piles up
+    /// retained camera buffers and starves the capture pool (research-mac-pipeline 1.9).
     func display(_ pixelBuffer: CVPixelBuffer) {
         guard visible else { return }
         guard let sample = feeder.makeSampleBuffer(pixelBuffer, hostTimeNs: nil) else { return }
@@ -45,16 +48,17 @@ final class PreviewWindow: NSObject, NSWindowDelegate {
             let dictionary = unsafeBitCast(CFArrayGetValueAtIndex(attachments, 0), to: CFMutableDictionary.self)
             CFDictionarySetValue(dictionary, Unmanaged.passUnretained(kCMSampleAttachmentKey_DisplayImmediately).toOpaque(), Unmanaged.passUnretained(kCFBooleanTrue).toOpaque())
         }
-        DispatchQueue.main.async { [weak self] in
+        coalescer.offer(sample) { [weak self] latest in
             guard let self = self, self.visible else { return }
             if self.displayLayer.status == .failed { self.displayLayer.flush() }
-            self.displayLayer.enqueue(sample)
+            self.displayLayer.enqueue(latest)
         }
     }
 
     private func setVisible(_ v: Bool) {
         guard visible != v else { return }
         visible = v
+        if !v { coalescer.clear() }
         onVisibility?(v)
     }
 
@@ -94,6 +98,47 @@ final class PreviewWindow: NSObject, NSWindowDelegate {
 
     func windowWillClose(_ notification: Notification) {
         setVisible(false)
+    }
+}
+
+/// Hands the newest sample to `deliver` on `queue` with at most one dispatch in flight; older samples are released
+/// when they are replaced, so the preview holds at most one capture buffer however long the target queue stalls.
+final class LatestSampleCoalescer {
+    private struct State {
+        var sample: CMSampleBuffer?
+        var scheduled = false
+    }
+
+    private let state = Locked(State())
+    private let queue: DispatchQueue
+
+    init(queue: DispatchQueue) {
+        self.queue = queue
+    }
+
+    func offer(_ sample: CMSampleBuffer, deliver: @escaping (CMSampleBuffer) -> Void) {
+        let dispatch = state.withLock { s -> Bool in
+            s.sample = sample
+            if s.scheduled { return false }
+            s.scheduled = true
+            return true
+        }
+        guard dispatch else { return }
+        queue.async { [weak self] in
+            guard let self = self else { return }
+            let latest = self.state.withLock { s -> CMSampleBuffer? in
+                let taken = s.sample
+                s.sample = nil
+                s.scheduled = false
+                return taken
+            }
+            if let latest = latest { deliver(latest) }
+        }
+    }
+
+    /// Drops a held sample (the window went away).
+    func clear() {
+        state.withLock { $0.sample = nil }
     }
 }
 

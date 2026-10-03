@@ -99,11 +99,11 @@ final class StrokeStoreTests: XCTestCase {
         _ = store.append(id: id, points: points([(100, 100, 1, 0), (200, 150, 1, 10)]), now: 1)
         let op = store.cancel(id: id)
         guard case let .redraw(dirty)? = op, let r = dirty.rect else { return XCTFail("expected a redraw, got \(String(describing: op))") }
-        let inflate = 3.2 * 1.45 / 2 + 1
-        XCTAssertEqual(r.x, 100 - inflate, accuracy: 1e-9)
-        XCTAssertEqual(r.y, 100 - inflate, accuracy: 1e-9)
-        XCTAssertEqual(r.w, 100 + 2 * inflate, accuracy: 1e-9)
-        XCTAssertEqual(r.h, 50 + 2 * inflate, accuracy: 1e-9)
+        let inflate = 3.2 * 1.45 / 2 + 1   // baseWidth travels as a Float, so compare at 1e-6
+        XCTAssertEqual(r.x, 100 - inflate, accuracy: 1e-6)
+        XCTAssertEqual(r.y, 100 - inflate, accuracy: 1e-6)
+        XCTAssertEqual(r.w, 100 + 2 * inflate, accuracy: 1e-6)
+        XCTAssertEqual(r.h, 50 + 2 * inflate, accuracy: 1e-6)
         XCTAssertTrue(store.strokes.isEmpty)
         XCTAssertTrue(store.activeStrokeIDs.isEmpty)
         XCTAssertNil(store.cancel(id: id), "already gone")
@@ -187,8 +187,8 @@ final class StrokeStoreTests: XCTestCase {
         guard case let .redraw(dirty)? = op, let r = dirty.rect else { return XCTFail("redraw expected") }
         XCTAssertEqual(store.strokes.map { $0.id }, [open], "the open stroke survives")
         let inflate = 3.2 * 1.45 / 2 + 1
-        XCTAssertEqual(r.x, -inflate, accuracy: 1e-9)
-        XCTAssertEqual(r.x + r.w, 110 + inflate, accuracy: 1e-9)
+        XCTAssertEqual(r.x, -inflate, accuracy: 1e-6)
+        XCTAssertEqual(r.x + r.w, 110 + inflate, accuracy: 1e-6)
     }
 
     func testDirtyRectsUnionAndClip() {
@@ -214,8 +214,8 @@ final class StrokeStoreTests: XCTestCase {
         XCTAssertEqual(store.commit(id: id, pointCount: 1), .drawSegments(strokeID: id, fromIndex: 0), "a committed dot asks for a draw")
         let s = store.strokes[0]
         XCTAssertTrue(s.isDot)
-        XCTAssertEqual(s.dotDiameter, StrokeStore.width(base: 3.2, pressure: Double(128) / 255), accuracy: 1e-9)
-        XCTAssertEqual(s.dirtyBounds.w, 2 * (3.2 * 1.45 / 2 + 1), accuracy: 1e-9)
+        XCTAssertEqual(s.dotDiameter, StrokeStore.width(base: 3.2, pressure: Double(128) / 255), accuracy: 1e-6)
+        XCTAssertEqual(s.dirtyBounds.w, 2 * (3.2 * 1.45 / 2 + 1), accuracy: 1e-6)
         // Width rule: base * (0.55 + 0.9 * pressure).
         XCTAssertEqual(StrokeStore.width(base: 3.2, pressure: 0), 1.76, accuracy: 1e-9)
         XCTAssertEqual(StrokeStore.width(base: 3.2, pressure: 1), 4.64, accuracy: 1e-9)
@@ -322,7 +322,19 @@ final class StrokeStoreTests: XCTestCase {
         let text = String(decoding: data, as: UTF8.self)
         XCTAssertTrue(text.hasPrefix("{\"app\":\"Daylight 0.1.0 (42)\",\"canvas\":{\"dpi\":200,\"height\":1600,\"units\":\"canvas\",\"width\":1200},\"page\":{"), text)
         XCTAssertTrue(text.contains("\"schema\":\"daylight-whiteboard-strokes/1\""))
-        XCTAssertTrue(text.contains("\"points\":[[10.5,-3.25,0.7294117647058823,0],[100.5,200.25,0.2,8]]"), "points are [x, y, pressure, tMs] arrays: \(text)")
+        XCTAssertTrue(text.contains("\"points\":[[10.5,-3.25,0.7294"), "points are [x, y, pressure, tMs] arrays: \(text)")
+        XCTAssertTrue(text.contains(",0],[100.5,200.25,0.2,8]]"), "the second point and the integer tMs: \(text)")
+        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let strokeObjects = try XCTUnwrap(object["strokes"] as? [[String: Any]])
+        let firstPoints = try XCTUnwrap(strokeObjects[0]["points"] as? [[Double]])
+        XCTAssertEqual(firstPoints.count, 2)
+        XCTAssertEqual(firstPoints[0].count, 4, "[x, y, pressure, tMs]")
+        XCTAssertEqual(firstPoints[0][0], 10.5)
+        XCTAssertEqual(firstPoints[0][1], -3.25)
+        XCTAssertEqual(firstPoints[0][2], 186.0 / 255.0, accuracy: 1e-9)
+        XCTAssertEqual(firstPoints[0][3], 0)
+        XCTAssertEqual(firstPoints[1][3], 8)
+        XCTAssertEqual((strokeObjects[0]["baseWidth"] as? Double) ?? 0, 3.2, accuracy: 1e-9, "baseWidth is written at three decimals, not as the Float's binary value")
         XCTAssertTrue(text.contains("\"session\":{\"clientLabel\":\"Chrome on Daylight\",\"inkSource\":\"web\",\"reason\":\"returned\",\"saved\":\"2026-10-03T14:21:40Z\",\"started\":\"2026-10-03T14:05:09Z\"}"))
 
         let decoded = try JSONDecoder().decode(PageDocument.self, from: data)

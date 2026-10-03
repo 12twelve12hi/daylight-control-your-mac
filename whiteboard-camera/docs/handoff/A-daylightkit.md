@@ -141,3 +141,691 @@ The engage detector is the same value type for web, native and mirror: stylus co
 ## 7. Red CI runs caused by someone else's files
 
 None observed at the time of writing.
+
+## 8. Public surface (generated from the sources, one line per public declaration)
+
+`Protocol/ByteReader.swift`
+
+```swift
+public struct ByteReader
+public init(_ bytes: UnsafeRawBufferPointer)
+public var remaining: Int
+public var position: Int
+public mutating func u8() throws -> UInt8
+public mutating func i8() throws -> Int8
+public mutating func u16() throws -> UInt16
+public mutating func u32() throws -> UInt32
+public mutating func i32() throws -> Int32
+public mutating func u64() throws -> UInt64
+public mutating func f32() throws -> Float
+public mutating func uuid() throws -> UUID
+public mutating func bytes(_ n: Int) throws -> [UInt8]
+```
+
+`Protocol/ByteWriter.swift`
+
+```swift
+public struct ByteWriter
+public private(set) var storage: [UInt8]
+public init(reserving: Int = 64)
+public var count: Int
+public mutating func u8(_ v: UInt8)
+public mutating func i8(_ v: Int8)
+public mutating func u16(_ v: UInt16)
+public mutating func u32(_ v: UInt32)
+public mutating func i32(_ v: Int32)
+public mutating func u64(_ v: UInt64)
+public mutating func f32(_ v: Float)
+public mutating func uuid(_ v: UUID)
+public mutating func bytes(_ v: [UInt8])
+public mutating func patchU32(_ v: UInt32, at index: Int)
+```
+
+`Protocol/Codec.swift`
+
+```swift
+public enum CodecError: Error, Equatable
+public enum Codec
+public static func encode(_ m: Message, timestampUs: UInt64) -> [UInt8]
+public static func encode(_ m: Message, timestampUs: UInt64, into out: inout [UInt8])
+public static func decodeHeader(_ bytes: UnsafeRawBufferPointer) throws -> Header
+public static func decode(_ bytes: [UInt8]) throws -> (Header, Message)
+public static func decode(_ bytes: UnsafeRawBufferPointer) throws -> (Header, Message)
+public static func decodeLenient(_ bytes: UnsafeRawBufferPointer) throws -> (Header, Message?)
+```
+
+`Protocol/Identity.swift`
+
+```swift
+public struct Identity: Equatable
+public static let maxClientIDBytes = 64
+public static let maxLabelBytes = 64
+public var role: SolStream.Role
+public var clientID: String
+public var label: String
+public init(role: SolStream.Role, clientID: String, label: String)
+public init?(name: String)
+public var name: String
+public func mayControl(_ opcode: SolStream.Opcode) -> Bool
+```
+
+`Protocol/Messages.swift`
+
+```swift
+public struct Header: Equatable
+public var opcode: UInt16
+public var payloadLength: UInt32
+public var timestampUs: UInt64
+public init(opcode: UInt16, payloadLength: UInt32, timestampUs: UInt64)
+public var knownOpcode: SolStream.Opcode?
+public struct StrokeStart: Equatable
+public var id: UUID
+public var tool: SolStream.Tool
+public var colorARGB: UInt32
+public var baseWidth: Float
+public var pointer: SolStream.PointerType
+public var phase: SolStream.Phase
+public var pressure: Float
+public init(id: UUID, tool: SolStream.Tool, colorARGB: UInt32, baseWidth: Float, pointer: SolStream.PointerType, phase: SolStream.Phase, pressure: Float)
+public var engages: Bool
+public struct StateReport: Equatable
+public var governor: UInt8
+public var flags: UInt8
+public var mode: UInt8
+public var inkSource: UInt8
+public var progress: Float
+public var msToReturn: UInt32
+public var pageIndex: UInt16
+public var strokeCount: UInt16
+public var undoDepth: UInt16
+public var redoDepth: UInt16
+public static let noReturnScheduled: UInt32 = 0xFFFF_FFFF
+public init(governor: UInt8, flags: UInt8, mode: UInt8, inkSource: UInt8, progress: Float, msToReturn: UInt32, pageIndex: UInt16, strokeCount: UInt16, undoDepth: UInt16, redoDepth: UInt16)
+public struct Flags: OptionSet
+public let rawValue: UInt8
+public init(rawValue: UInt8)
+public static let pinned = Flags(rawValue: 1)
+public static let preWarning = Flags(rawValue: 2)
+public static let clientAllowed = Flags(rawValue: 4)
+public static let clientIsActiveSource = Flags(rawValue: 8)
+public static let cameraAttached = Flags(rawValue: 16)
+public static let sinkConnected = Flags(rawValue: 32)
+public static let saving = Flags(rawValue: 64)
+public static let captureIdle = Flags(rawValue: 128)
+public var flagSet: Flags
+public enum Message: Equatable
+public var opcode: SolStream.Opcode
+```
+
+`Protocol/SolStream.swift`
+
+```swift
+public enum SolStream
+public static let magic: UInt8 = 0xDA
+public static let version: UInt8 = 0x01
+public static let headerLength = 16
+public static let pointLength = 11
+public static let maxPayload = 1 << 20
+public static let maxPointsPerChunk = 4096
+public static let maxErasedPerMessage = 1024
+public static let maxNameLength = 200
+public static let defaultPort: UInt16 = 7788
+public static let serviceType = "_daylight-camera._tcp"
+public static let subprotocol = "solstream.v1"
+public static let canvasWidth = 1200
+public static let canvasHeight = 1600
+public static let targetWidth: UInt32 = 1920
+public static let targetHeight: UInt32 = 1080
+public static let targetFPS: UInt32 = 30
+public enum Opcode: UInt16
+public enum PointerType: UInt8
+public enum Phase: UInt8
+public enum Tool: UInt8
+public enum AckStatus: UInt32
+public enum Role: String
+public struct Point: Equatable
+public var x32: Int32
+public var y32: Int32
+public var pressure: UInt8
+public var deltaMs: UInt16
+public init(x32: Int32, y32: Int32, pressure: UInt8, deltaMs: UInt16)
+public init(x: Double, y: Double, pressure: Double, deltaMs: Int)
+public var x: Double
+public var y: Double
+public var pressureUnit: Double
+```
+
+`Governor/Clock.swift`
+
+```swift
+public protocol Clock
+public struct SystemClock: Clock
+public init()
+public func now() -> Double
+public final class ManualClock: Clock
+public init(start: Double = 0)
+public func now() -> Double
+public func advance(_ dt: Double)
+public func set(_ t: Double)
+```
+
+`Governor/EngageGovernor.swift`
+
+```swift
+public struct EngageGovernor
+public let config: GovernorConfig
+public private(set) var state: GovernorState = .passthrough
+public private(set) var generation: UInt64 = 0
+public init(config: GovernorConfig = GovernorConfig(), now: Double)
+public var snapshot: GovernorOutput
+public var needsTicks: Bool
+public var pinnedState: Bool
+public var holdState: HoldMode
+public var layout: LayoutStyle
+public var activeContactCount: Int
+public func nextDeadline(now: Double) -> Double?
+public mutating func tick(now: Double) -> GovernorOutput
+public mutating func handle(_ event: GovernorEvent, now: Double) -> GovernorOutput
+```
+
+`Governor/GovernorEvent.swift`
+
+```swift
+public enum GovernorState: UInt8
+public enum HoldMode: UInt8, Codable
+public var forcedLayout: LayoutStyle?
+public enum LayoutStyle: UInt8, Codable
+public enum InkSource: UInt8, Codable
+public var displayName: String
+public var jsonName: String
+public enum GovernorEvent: Equatable
+public struct GovernorConfig: Equatable
+public var idleTimeout: Double = 90
+public var preWarningLead: Double = 5
+public var snapBackWindow: Double = 0.080
+public var snapBackMaxProgress: Double = 0.15
+public var springK: Double = 1200
+public var engageOnEraser: Bool = false
+public var autoEngage: Bool = true
+public init()
+public init(settings: Settings)
+```
+
+`Governor/GovernorOutput.swift`
+
+```swift
+public enum SaveReason: String, Codable
+public enum GovernorEffect: Equatable
+public struct GovernorOutput: Equatable
+public var state: GovernorState
+public var progress: Double
+public var pinned: Bool
+public var hold: HoldMode
+public var layout: LayoutStyle
+public var preWarning: Bool
+public var breath: Double
+public var msToReturn: UInt32
+public var activeContacts: Int
+public var effects: [GovernorEffect]
+public init(state: GovernorState = .passthrough, progress: Double = 0, pinned: Bool = false, hold: HoldMode = .auto, layout: LayoutStyle = .studioSplit, preWarning: Bool = false, breath: Double = 0, msToReturn: UInt32 = StateReport.noReturnScheduled, activeContacts: Int = 0, effects: [GovernorEffect] = [])
+public static func breathWeight(secondsSincePreWarning t: Double) -> Double
+public func stateReport(clientFlags: StateReport.Flags, inkSource: InkSource, pageIndex: Int, strokeCount: Int, undoDepth: Int, redoDepth: Int) -> StateReport
+```
+
+`Spring/CriticalSpring.swift`
+
+```swift
+public struct CriticalSpring: Equatable
+public let omega: Double
+public private(set) var position: Double
+public private(set) var velocity: Double
+public private(set) var target: Double
+public init(k: Double = 1200, m: Double = 1, position: Double = 0)
+public mutating func retarget(_ newTarget: Double, at now: Double)
+public mutating func snap(to value: Double, at now: Double)
+public mutating func evaluate(at now: Double) -> Double
+public var isSettled: Bool
+public func eulerReferenceStep(x: inout Double, v: inout Double, target: Double, dt: Double, k: Double, m: Double)
+```
+
+`Layout/Rects.swift`
+
+```swift
+public struct PixelRect: Equatable
+public var x: Double
+public var y: Double
+public var w: Double
+public var h: Double
+public init(x: Double, y: Double, w: Double, h: Double)
+public struct UVRect: Equatable
+public var u0: Double
+public var v0: Double
+public var u1: Double
+public var v1: Double
+public init(u0: Double, v0: Double, u1: Double, v1: Double)
+public static let full = UVRect(u0: 0, v0: 0, u1: 1, v1: 1)
+public struct QuadSpec: Equatable
+public var dest: PixelRect
+public var uv: UVRect
+public init(dest: PixelRect, uv: UVRect)
+```
+
+`Layout/StudioLayout.swift`
+
+```swift
+public enum StudioLayout
+public static let outputWidth: Double = 1920
+public static let outputHeight: Double = 1080
+public static let portraitZoneWidth: Double = 1280
+public static let landscapeZoneWidth: Double = 1440
+public static let portraitAspect: Double = 3.0 / 4.0
+public static let landscapeAspect: Double = 4.0 / 3.0
+public static let dividerWidth: Double = 2
+public static let borderWidth: Double = 1
+public struct Frame: Equatable
+public var presenter: QuadSpec?
+public var canvas: QuadSpec?
+public var canvasClip: PixelRect?
+public var borders: [PixelRect]
+public var divider: PixelRect?
+public var dividerColor: RGBA
+public var dividerAlpha: Double
+public init(presenter: QuadSpec?, canvas: QuadSpec?, canvasClip: PixelRect?, borders: [PixelRect], divider: PixelRect?, dividerColor: RGBA, dividerAlpha: Double)
+public enum CanvasOrientation
+public var aspect: Double
+public var zoneWidth: Double
+public init(width: Int, height: Int)
+public static func passthrough() -> Frame
+public static func frame(progress s: Double, layout: LayoutStyle, orientation: CanvasOrientation, canvasAspect: Double, breath: Double = 0) -> Frame
+public static func fit(aspect: Double, into r: PixelRect) -> PixelRect
+public static func clip(_ r: PixelRect) -> (l: Double, t: Double, r: Double, b: Double)
+public static func amberBreath(weight: Double) -> RGBA
+```
+
+`Layout/Tokens.swift`
+
+```swift
+public struct RGBA: Equatable
+public var r: Double
+public var g: Double
+public var b: Double
+public var a: Double
+public init(r: Double, g: Double, b: Double, a: Double = 1)
+public init(hex: UInt32, alpha: Double = 1)
+public enum Tokens
+public static let inkBlack = RGBA(hex: 0x111111)
+public static let paperBg = RGBA(hex: 0xFAF8F5)
+public static let surfaceCream = RGBA(hex: 0xEAE5DC)
+public static let borderSubtle = RGBA(hex: 0xCDC6B8)
+public static let amber = RGBA(hex: 0xD97706)
+public static let amberDeep = RGBA(hex: 0xC87D20)
+public static let terracotta = RGBA(hex: 0x9C271D)
+public static let textMuted = RGBA(hex: 0x736F68)
+```
+
+`Canvas/CatmullRom.swift`
+
+```swift
+public enum CatmullRom
+public static func bezierControls(p0: (Double, Double), p1: (Double, Double), p2: (Double, Double), p3: (Double, Double)) -> (c1: (Double, Double), c2: (Double, Double))
+public static func point(p0: (Double, Double), p1: (Double, Double), p2: (Double, Double), p3: (Double, Double), t: Double) -> (Double, Double)
+public static func bezierPoint(p1: (Double, Double), c1: (Double, Double), c2: (Double, Double), p2: (Double, Double), t: Double) -> (Double, Double)
+```
+
+`Canvas/Geometry.swift`
+
+```swift
+public enum Geometry
+public static func distanceSquared(point: (Double, Double), segment a: (Double, Double), b: (Double, Double)) -> Double
+public static func segmentDistanceSquared(_ a: (Double, Double), _ b: (Double, Double), _ c: (Double, Double), _ d: (Double, Double)) -> Double
+public static func strokeHit(_ s: Stroke, segment a: (Double, Double), b: (Double, Double), radius: Double) -> Bool
+```
+
+`Canvas/PageDocument.swift`
+
+```swift
+public struct PageDocument: Codable, Equatable
+public static let schemaName = "daylight-whiteboard-strokes/1"
+public struct Canvas: Codable, Equatable
+public var width: Int
+public var height: Int
+public var dpi: Int
+public var units: String
+public init(width: Int = 1200, height: Int = 1600, dpi: Int = 200, units: String = "canvas")
+public struct Session: Codable, Equatable
+public var started: String
+public var saved: String
+public var reason: SaveReason
+public var inkSource: String
+public var clientLabel: String
+public init(started: String, saved: String, reason: SaveReason, inkSource: String, clientLabel: String)
+public struct Page: Codable, Equatable
+public var id: String
+public var index: Int
+public init(id: String, index: Int)
+public struct Point: Codable, Equatable
+public var x: Double
+public var y: Double
+public var pressure: Double
+public var tMs: Int
+public init(x: Double, y: Double, pressure: Double, tMs: Int)
+public init(from decoder: Decoder) throws
+public func encode(to encoder: Encoder) throws
+public struct StrokeRecord: Codable, Equatable
+public var id: String
+public var tool: String
+public var color: String
+public var baseWidth: Double
+public var points: [Point]
+public init(id: String, tool: String, color: String, baseWidth: Double, points: [Point])
+public var schema: String
+public var app: String
+public var canvas: Canvas
+public var session: Session
+public var page: Page
+public var strokes: [StrokeRecord]
+public init(schema: String = PageDocument.schemaName, app: String, canvas: Canvas, session: Session, page: Page, strokes: [StrokeRecord])
+public static func isoString(_ date: Date) -> String
+public static func toolName(_ tool: SolStream.Tool) -> String
+public static func tool(named name: String) -> SolStream.Tool?
+public static func colorString(_ argb: UInt32) -> String
+public static func colorValue(_ text: String) -> UInt32?
+public func strokeValues() -> [Stroke]
+```
+
+`Canvas/Stroke.swift`
+
+```swift
+public struct StrokeStyle: Equatable
+public var tool: SolStream.Tool
+public var colorARGB: UInt32
+public var baseWidth: Float
+public init(tool: SolStream.Tool, colorARGB: UInt32, baseWidth: Float)
+public static let pen = StrokeStyle(tool: .pen, colorARGB: 0xFF11_1111, baseWidth: 3.2)
+public static let highlighter = StrokeStyle(tool: .highlighter, colorARGB: 0x80D9_7706, baseWidth: 12.0)
+public var maxWidth: Double
+public struct Stroke
+public let id: UUID
+public var style: StrokeStyle
+public private(set) var points: ContiguousArray<SolStream.Point>
+public private(set) var bounds: PixelRect
+public var isCommitted: Bool
+public init(id: UUID, style: StrokeStyle)
+public mutating func append(_ pts: [SolStream.Point])
+public var dirtyBounds: PixelRect
+public var isDot: Bool
+public var dotDiameter: Double
+public func width(at index: Int) -> Double
+public struct DirtyRect: Equatable
+public var rect: PixelRect?
+public init(rect: PixelRect? = nil)
+public mutating func union(_ r: PixelRect)
+public func clipped(toWidth w: Int, height h: Int) -> PixelRect?
+public enum CanvasOp: Equatable
+```
+
+`Canvas/StrokeStore.swift`
+
+```swift
+public struct StrokeStore
+public private(set) var strokes: [Stroke] = []
+public private(set) var activeStrokeIDs: Set<UUID> = []
+public private(set) var pageID = UUID()
+public private(set) var pageIndex = 0
+public private(set) var pageWidth: Double
+public private(set) var pageHeight: Double
+public private(set) var lastInkAt: Double?
+public private(set) var savedAt: Double?
+public let canvasWidth: Int
+public let canvasHeight: Int
+public init(canvasWidth: Int = SolStream.canvasWidth, canvasHeight: Int = SolStream.canvasHeight)
+public var undoDepth: Int
+public var redoDepth: Int
+public var committedCount: Int
+public var hasInk: Bool
+public var isDirty: Bool
+public var pageAspect: Double
+public func stroke(id: UUID) -> Stroke?
+public mutating func start(_ s: StrokeStart, scale: (Double, Double) = (1, 1)) -> CanvasOp?
+public mutating func append(id: UUID, points: [SolStream.Point], now: Double) -> CanvasOp?
+public mutating func commit(id: UUID, pointCount: UInt32) -> CanvasOp?
+public mutating func commitAll(ids: Set<UUID>) -> [CanvasOp]
+public mutating func cancel(id: UUID) -> CanvasOp?
+public mutating func erase(x1: Float, y1: Float, x2: Float, y2: Float, radius: Float, hint: [UUID], now: Double? = nil) -> CanvasOp?
+public mutating func undo(now: Double? = nil) -> CanvasOp?
+public mutating func redo(now: Double? = nil) -> CanvasOp?
+public mutating func clear() -> CanvasOp
+public mutating func newPage(id: UUID, index: Int, width: Double, height: Double) -> CanvasOp
+public mutating func markSaved(at now: Double)
+public static func width(base: Double, pressure: Double) -> Double
+public func document(sessionStart: Date, savedAt: Date, reason: SaveReason, inkSource: InkSource, clientLabel: String, app: String = "Daylight") -> PageDocument
+```
+
+`HTTP/HTTPRequest.swift`
+
+```swift
+public struct HTTPRequest: Equatable
+public var method: String
+public var path: String
+public var query: [String: String]
+public var headers: [String: String]
+public init(method: String, path: String, query: [String: String] = [:], headers: [String: String] = [:])
+public static let webSocketGUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+public static let maxHeadLength = 16 * 1024
+public static func parse(_ buffer: UnsafeRawBufferPointer) throws -> (request: HTTPRequest, consumed: Int)?
+public static func parse(_ bytes: [UInt8]) throws -> (request: HTTPRequest, consumed: Int)?
+public var isWebSocketUpgrade: Bool
+public var webSocketKey: String?
+public var webSocketVersion: Int?
+public var webSocketProtocols: [String]
+public static func statusText(_ code: Int) -> String
+public static func response(status: Int, headers: [(String, String)], body: [UInt8]) -> [UInt8]
+public static func webSocketAccept(forKey key: String) -> String
+public static func upgradeResponse(accept: String, subprotocol: String?) -> [UInt8]
+public enum HTTPError: Error, Equatable
+```
+
+`HTTP/MIME.swift`
+
+```swift
+public enum MIME
+public static func type(forExtension ext: String) -> String?
+```
+
+`HTTP/SHA1.swift`
+
+```swift
+public enum SHA1
+public static func hash(_ bytes: UnsafeRawBufferPointer) -> [UInt8]
+public static func hash(_ bytes: [UInt8]) -> [UInt8]
+```
+
+`HTTP/WebRootPath.swift`
+
+```swift
+public enum WebRootPath
+public static func resolve(_ requestPath: String) -> String?
+```
+
+`HTTP/WebSocketFrame.swift`
+
+```swift
+public enum WebSocketError: Error, Equatable
+public struct WebSocketFrame: Equatable
+public var fin: Bool
+public var opcode: UInt8
+public var payload: [UInt8]
+public static let opcodeContinuation: UInt8 = 0x0
+public static let opcodeText: UInt8 = 0x1
+public static let opcodeBinary: UInt8 = 0x2
+public static let opcodeClose: UInt8 = 0x8
+public static let opcodePing: UInt8 = 0x9
+public static let opcodePong: UInt8 = 0xA
+public static let defaultMaxPayload = 2 * 1024 * 1024
+public static let maxControlPayload = 125
+public init(fin: Bool, opcode: UInt8, payload: [UInt8])
+public var isControl: Bool
+public static func parse(_ buffer: inout [UInt8], maxPayload: Int) throws -> (frame: WebSocketFrame, consumed: Int)?
+public static func encode(opcode: UInt8, payload: UnsafeRawBufferPointer, into out: inout [UInt8])
+public static func encode(opcode: UInt8, payload: [UInt8]) -> [UInt8]
+public static func encodeMasked(fin: Bool = true, opcode: UInt8, payload: [UInt8], key: (UInt8, UInt8, UInt8, UInt8)) -> [UInt8]
+public static func encodeClose(code: UInt16, reason: String) -> [UInt8]
+public static func closeCode(_ payload: [UInt8]) -> UInt16?
+public struct WebSocketMessageAssembler
+public let maxMessage: Int
+public init(maxMessage: Int = WebSocketFrame.defaultMaxPayload)
+public var isAssembling: Bool
+public mutating func accept(_ frame: WebSocketFrame) throws -> WebSocketFrame?
+```
+
+`Settings/FailureText.swift`
+
+```swift
+public enum FailureText
+public enum Case: String, CaseIterable
+public var row: String
+public static let approvalPathModern = "System Settings > General > Login Items & Extensions > Camera Extensions"
+public static let approvalPathLegacy = "System Settings > Privacy & Security > Security"
+public static func sentence(_ c: Case, _ args: [String] = []) -> String
+public static func followUp(_ c: Case) -> String?
+public static func logLine(_ c: Case, _ args: [String] = []) -> String
+```
+
+`Settings/Settings.swift`
+
+```swift
+public enum HotkeyAction: String, Codable, CaseIterable, CodingKeyRepresentable
+public struct HotkeyBinding: Codable, Equatable
+public var keyCode: UInt32
+public var modifiers: UInt32
+public init(keyCode: UInt32, modifiers: UInt32)
+public static let cmdKey: UInt32 = 1 << 8
+public static let optionKey: UInt32 = 1 << 11
+public static let controlKey: UInt32 = 1 << 12
+public static let defaultModifiers: UInt32 = cmdKey | optionKey | controlKey
+public static let keyW: UInt32 = 0x0D
+public static let keyD: UInt32 = 0x02
+public static let keyK: UInt32 = 0x28
+public static let keyC: UInt32 = 0x08
+public static let keyEscape: UInt32 = 0x35
+public enum MirrorPinClearMode: String, Codable
+public var includesPills: Bool
+public var includesPenButton: Bool
+public enum PillsPosition: String, Codable
+public enum AdbServerMode: String, Codable
+public struct Settings: Codable, Equatable
+public static let userDefaultsKey = "com.twelve.daylight.settings.v1"
+public static let documentsFolderName = "Daylight Camera"
+public static let clientsFileName = "clients.json"
+public static let applicationSupportFolderName = "Daylight"
+public var onboardingDone: Bool = false
+public var onboardingVersion: Int = 1
+public var cameraUniqueID: String? = nil
+public var inkSource: InkSource = .web
+public var preferredLayout: LayoutStyle = .studioSplit
+public var holdMode: HoldMode = .auto
+public var autoEngage: Bool = true
+public var idleTimeoutSeconds: Int = 90
+public var preWarningSeconds: Int = 5
+public var springK: Double = 1200
+public var engageOnEraser: Bool = false
+public var hotkeys: [HotkeyAction: HotkeyBinding] = Settings.defaultHotkeys
+public var port: UInt16 = SolStream.defaultPort
+public var bonjourName: String? = nil
+public var trustLoopback: Bool = true
+public var mirrorPinClearMode: MirrorPinClearMode = .both
+public var sideButtonDoublePressMs: Int = 400
+public var sideButtonLongPressMs: Int = 700
+public var sideButtonSwap: Bool = false
+public var mirrorCropInsetsPortrait: CropInsets = CropInsets(top: 96, left: 0, right: 0, bottom: 0)
+public var mirrorCropInsetsLandscape: CropInsets = CropInsets(top: 72, left: 0, right: 0, bottom: 0)
+public var pillStripHeight: Int = 96
+public var mirrorPillsPosition: PillsPosition = .top
+public var mirrorMaxSize: Int = 1600
+public var mirrorBitRate: Int = 8_000_000
+public var mirrorMaxFps: Int = 30
+public var mirrorDeviceSerial: String? = nil
+public var adbServerMode: AdbServerMode = .auto
+public var adbPrivatePort: UInt16 = 27180
+public var mirrorOverWiFi: Bool = false
+public var viewerIdleStopSeconds: Int = 60
+public var saveDirectory: URL? = nil
+public var saveStrokesJSON: Bool = true
+public var autosaveSeconds: Int = 60
+public var previewOnLaunch: Bool = false
+public var previewFloats: Bool = true
+public var frameReuse: Bool = false
+public var deadlineIdle: Bool = false
+public var perfLog: Bool = false
+public init()
+public static let defaults = Settings()
+public static let defaultHotkeys: [HotkeyAction: HotkeyBinding] = [
+public static let lowBandwidthMirror: (maxSize: Int, bitRate: Int, maxFps: Int) = (1200, 4_000_000, 24)
+public static let idleTimeoutRange = 15...600
+public static let preWarningRange = 0...30
+public static let springKRange: ClosedRange<Double> = 300...2400
+public static let viewerIdleStopRange = 10...600
+public static let autosaveRange = 15...600
+public static let portRange: ClosedRange<Int> = 1024...65535
+public func validated() -> Settings
+public init(from decoder: Decoder) throws
+public func encode(to encoder: Encoder) throws
+```
+
+`Session/SessionFiles.swift`
+
+```swift
+public enum SessionFiles
+public static let folderName = "Daylight Camera"
+public static let sessionGapSeconds: Double = 600
+public static func sessionDirectory(root: URL, sessionStart: Date, calendar: Calendar = Calendar(identifier: .gregorian)) -> URL
+public static func pageBaseName(index: Int) -> String
+public static func mirrorName(sessionStart: Date, calendar: Calendar = Calendar(identifier: .gregorian)) -> String
+public static func uniqueURL(_ url: URL, exists: (URL) -> Bool) -> URL
+public static func startsNewSession(lastInkAt: Double?, now: Double) -> Bool
+```
+
+`Util/FixedPoint.swift`
+
+```swift
+public enum FixedPoint
+public static func toX32(_ v: Double) -> Int32
+public static func fromX32(_ v: Int32) -> Double
+public static func quantizePressure(_ p: Double) -> UInt8
+```
+
+`Util/Hex.swift`
+
+```swift
+public enum Hex
+public static func encode(_ bytes: [UInt8]) -> String
+public static func decode(_ text: String) -> [UInt8]?
+```
+
+`Util/Locked.swift`
+
+```swift
+public final class Locked<Value>
+public init(_ value: Value)
+public func withLock<R>(_ body: (inout Value) throws -> R) rethrows -> R
+```
+
+`Util/RateLimiter.swift`
+
+```swift
+public struct RateLimiter
+public var minInterval: Double
+public init(minInterval: Double)
+public mutating func allow(now: Double) -> Bool
+```
+
+`Util/RingBuffer.swift`
+
+```swift
+public struct RingBuffer<T>
+public private(set) var count = 0
+public init(capacity: Int)
+public var capacity: Int
+public mutating func push(_ item: T)
+public mutating func drain() -> [T]
+```

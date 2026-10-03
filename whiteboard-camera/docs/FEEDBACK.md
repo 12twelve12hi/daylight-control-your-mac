@@ -24,19 +24,19 @@ One file carries everything the engineers need from a test day: the diagnostics 
 
 | File | What it holds | Bounded to |
 |---|---|---|
-| `MANIFEST.txt` | every file with its size in bytes, which parts were truncated or missing and why | |
-| `diagnostics.txt` | the Diagnostics window's full text (every key: capture, pipeline, governor, listener, clients, `mirror.*`, failures, the last log lines) plus one `tablet facts:` line per sender | |
-| `settings.json` | Daylight's Settings as saved; the save folder path is kept | |
-| `unified-log.txt` | `log show --predicate 'subsystem == "com.twelve.daylight"' --last 2h --style compact`, last 2000 lines | 2000 lines |
-| `extension-status.txt` | `systemextensionsctl list` | 256 KiB |
-| `self-test.txt` | the self-test output, only when "Run self-test first" was ticked | |
-| `perf-log.txt` | the last 2000 lines of the perf log, when Daylight ran with `--perf-log` | 2000 lines |
-| `vendor.txt` | the adb in use: path, version, source (Bundled, Download, Installed) | |
-| `clients.json` | the allowed tablets, IP addresses reduced to their last number | |
-| `tablet-facts.json` | the latest "Send facts to Mac" from each tablet (web page and Daylight Ink), PROTOCOL 15 | 16 senders |
-| `system.txt` | macOS version, Mac model, Daylight version and build number, signed or unsigned | |
+| `MANIFEST.txt` | every file as `- <name> (<n> bytes): <note>`, then a `missing:` section and a `truncated:` section (each reads `- none` when empty) | 64 KiB |
+| `diagnostics.txt` | the Diagnostics window's full text (every key: capture, pipeline, governor, listener, clients, `mirror.*`, failures, the last log lines) plus one `tablet facts: <key> received <time> (<n> facts)` line per sender | 1 MiB |
+| `system.txt` | `macOS:`, `Mac model:`, `DaylightBuildSigned:`, `CFBundleShortVersionString:` (version), `CFBundleVersion:` (the CI run number), `bundle:`, `in /Applications:`, processors, memory, time zone | 64 KiB |
+| `settings.json` | Daylight's Settings as saved; the save folder path (`saveDirectory`) is kept | 256 KiB |
+| `unified-log.txt` | `log show --predicate 'subsystem == "com.twelve.daylight"' --last 2h --style compact`, last 2000 lines (newest kept) | 2000 lines, 4 MiB |
+| `extension-status.txt` | `systemextensionsctl list` (10 s limit) | 256 KiB |
+| `self-test.txt` | the output of `Daylight --self-test`, run as a separate process (120 s limit), only when "Run self-test first" was ticked | 1 MiB |
+| `perf-log.txt` | the `perf` lines Daylight keeps in memory (the last 200), present when the perf log is on (Settings, or launched with `--perf-log`) | 512 KiB |
+| `vendor.txt` | the adb in use: `adb.source`, `adb.path`, `adb.version`, the Vendor folder's files with sizes and sha256, the bundled adb's version | 64 KiB |
+| `clients.json` | the allowed tablets, IP addresses reduced to their last number, client ids to their first 8 characters | 256 KiB |
+| `tablet-facts.json` | the latest "Send facts to Mac" from each tablet (web page and Daylight Ink), PROTOCOL 15, as `{"schema":"daylight-tablet-facts-export/1","entries":[{key, source, clientId, sentAt, receivedAt, remoteAddress, allowed, facts}]}` | 16 senders, 1 MiB |
 
-What is never inside: Wi-Fi network names, tokens or keys, full IP addresses, and file paths outside Daylight's own folders (your home folder shows as `~`). The whole zip stays under 16 MiB.
+What is never inside: Wi-Fi network names, tokens or keys, full IP addresses, and file paths outside Daylight's own folders (your home folder shows as `~`). Logs that hit their cap keep their newest part, other files their beginning, and MANIFEST says so. The whole zip stays under 16 MiB; it is a plain (uncompressed) zip that Finder, `unzip` and `ditto` open.
 
 ## 4. Which file answers which LOOSE_ENDS section D row
 
@@ -54,7 +54,7 @@ What is never inside: Wi-Fi network names, tokens or keys, full IP addresses, an
 | D10 | which app opens `http://` | `unified-log.txt`: the USB "Open on the tablet" `am start` lines |
 | D11 | Tethering module extension version | `tablet-facts.json` source `ink`: `tiramisuExt` |
 | D12 | getevent latency, getevent exit | `unified-log.txt` (the `-t` stamps against arrival time); `adb shell ps` stays manual |
-| D13 | B-frames or reordered PTS | `diagnostics.txt` `mirror.decoder.outOfOrder`; `perf-log.txt` |
+| D13 | B-frames or reordered PTS | `diagnostics.txt` `mirror.decoder.outOfOrder`; `unified-log.txt` |
 | D14 | front-buffer rendering | `tablet-facts.json` source `ink`: `frontBuffer` |
 | D15 | overlay permission after USB setup | `tablet-facts.json` source `ink`: `canDrawOverlays` |
 | D16 | Activity Monitor numbers, engage latency | `perf-log.txt`, `diagnostics.txt` `pipeline:` and `governor:` lines; Activity Monitor numbers stay a note |

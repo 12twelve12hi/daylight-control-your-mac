@@ -74,6 +74,8 @@ Writing rules: no em-dashes; LivePaper is a transflective LCD; the backlight is 
 
 ## D. Device facts to collect on the DC-1 (all `Device`; owner runs `docs/TESTING-CHECKLIST.md`)
 
+Since phase 3 the owner pastes nothing: "Send facts to Mac" on the tablet, then menu bar > "Export diagnostics..." once, and the zip comes back. `docs/FEEDBACK.md` section 4 maps every row below to the export file and key that answers it; the "How to collect" column stays as the engineers' reference.
+
 | # | Item | Why it matters | How to collect |
 |---|---|---|---|
 | D1 | Wacom evdev node: name, `/dev/input/eventN`, `ABS_X/Y/PRESSURE` ranges, presence of `ABS_DISTANCE` and tilt, whether `BTN_STYLUS` / `BTN_STYLUS2` are reported under SolOS. | mirror-mode engage and the pen-button Pin/Clear | `adb shell getevent -pl` once; paste into COMPARE.md; the Mac logs it too (row 28). |
@@ -248,3 +250,14 @@ Engineering tickets that follow the owner's decisions of 2026-10-03, ready to be
 | R3-6 | A Homebrew adb installed while Daylight runs is not probed until a source change or relaunch. | Choosing the source again applies it at once. | None. |
 | R3-7 | Settings: the adb source picker stays enabled during a download (optional `.disabled(model.downloading)`). | Downloads are single-flight. | Settings owner, optional. |
 
+## K. Diagnostics export (phase 3, 2026-10-03)
+
+`docs/handoff/vp-diagnostics.md` has the details; the owner guide is `docs/FEEDBACK.md`.
+
+| # | Item | Fallback in place | Owner, or how the owner confirms |
+|---|---|---|---|
+| K1 | "Send facts to Mac" has not run on the DC-1 against a real Mac (web page and Daylight Ink); proven only against the Node fake Mac (Playwright), the JVM payload test and the Mac's loopback route tests. | The tablet shows the exact failure line; the facts stay readable in the "This tablet" sections. | TESTING-CHECKLIST 2.7 and 3.7: "Sent to your Mac.", then `tablet-facts.json` in the export. |
+| K2 | `HTTPRequest.statusText` has no 411 and 415 reason phrases (`411 Unknown`, `415 Unknown` on the wire). | Clients read the status code only. | DaylightKit owner: add "Length Required" and "Unsupported Media Type". |
+| K3 | The Perf log toggle says the lines go to the unified log, but `Telemetry.emit` prints to stdout and the in-memory ring (200 lines) only; `perf-log.txt` holds that ring. | The export's `perf-log.txt` still carries the last 200 perf lines while the toggle is on. | Pipeline or Settings owner: log through `Logger`, or reword the toggle. |
+| K4 | Daylight Ink remembers the last reached Mac for "Send facts to Mac" only within the process. | Falls back to the typed host, else "Connect to your Mac first." | Hardening VP: a persisted last-reached URL in `InkConnection` or Prefs. |
+| K5 | `Mac model:` in `system.txt` comes from `sysctlbyname("hw.model")` (UNVERIFIED). | "unknown" when the call fails. | The first export's `system.txt`. |

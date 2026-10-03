@@ -12,6 +12,8 @@ final class StylusWatcher {
         case idle
         case probing
         case watching(path: String, name: String, pressureMax: Int)
+        /// getevent ended and waits for its restart (backoff): no pen events can arrive until `.watching` again.
+        case restarting
         case noPenDevice([String])
         case sideButtonSilent
         case error(String)
@@ -238,6 +240,9 @@ final class StylusWatcher {
         let lived = ProcessInfo.processInfo.systemUptime - streamStartedAt
         onLog?("getevent ended with status \(status) after \(String(format: "%.1f", lived)) s; restarting in \(backoff) s")
         if lived > 30 { backoff = backoffInitial }
+        // Not watching until the next child runs (DIFF-A5/B5): the controller must not keep the pen as the engage
+        // source through the backoff, or through a restart that keeps failing. The respawn reports `.watching` again.
+        setStatus(.restarting)
         scheduleRestart(generation: generation)
     }
 
@@ -264,6 +269,7 @@ final class StylusWatcher {
         case .idle: d["pen.status"] = "idle"
         case .probing: d["pen.status"] = "probing"
         case let .watching(path, name, pressureMax): d["pen.status"] = "watching \(path) \"\(name)\" pressureMax=\(pressureMax)"
+        case .restarting: d["pen.status"] = "getevent ended; restarting"
         case let .noPenDevice(names): d["pen.status"] = "no pen node among \(names)"
         case .sideButtonSilent: d["pen.status"] = "watching, no side button events after \(Int(sideButtonSanitySeconds)) s of inking"
         case let .error(text): d["pen.status"] = "error: \(text)"

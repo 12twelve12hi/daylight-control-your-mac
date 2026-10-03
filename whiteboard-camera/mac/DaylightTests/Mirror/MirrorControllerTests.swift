@@ -421,6 +421,15 @@ final class MirrorControllerTests: XCTestCase {
 
     // MARK: Transport switches and the pen watcher (hardening round 3)
 
+    private static let usbDaylight = "JP0001   device usb:1-1 product:daylight model:Daylight_DC_1 device:dc1 transport_id:1\n"
+
+    /// Runs one decoded Wi-Fi frame through frame-difference engage, as `frameDecoded` does (mirror.queue).
+    private func decodeOneWifiFrame(_ controller: MirrorController) {
+        let source = controller.wifiSource
+        let buffer = FrameDiffEngageHostedTests.makeBuffer()
+        source.mirrorQueue.sync { source.engage(buffer: buffer, uv: FrameDiffEngageHostedTests.fullCrop, orientation: .portrait, now: 0) }
+    }
+
     private func switchTransport(_ controller: MirrorController, to transport: MirrorTransport) {
         var settings = controller.settings
         settings.mirrorTransport = transport
@@ -481,6 +490,150 @@ final class MirrorControllerTests: XCTestCase {
         switchTransport(controller, to: .usb)
         XCTAssertNil(controller.latestFrameForSave(), "the USB frame from before the switch is not saved")
         XCTAssertNil(controller.activeSource.latest(), "nor shown")
+        controller.stop()
+    }
+
+    /// USB-A3/B5: a `.watching` hop queued behind `endSession` set the pen present with no watcher, which disabled
+    /// frame-difference engage until the next session. The control queue is held while the probe answers so the hop
+    /// lands after `stop()`. Before the fix `penWatcherPresent()` was true at the end.
+    func testAStaleWatchingFromAStoppedPenWatcherIsIgnored() {
+        let adb = FakeAdb()
+        adb.respond(containing: ["devices"], with: FakeAdb.ok(MirrorControllerTests.usbDaylight))
+        let probeEntered = DispatchSemaphore(value: 0)
+        let probeGate = DispatchSemaphore(value: 0)
+        adb.respond { args in
+            guard args.contains("-pl") else { return nil }
+            probeEntered.signal()
+            _ = probeGate.wait(timeout: .now() + 10)
+            return FakeAdb.ok(StylusFixtures.listingWithPen)
+        }
+        var settings = Settings.defaults
+        settings.mirrorTransport = .wifiStream
+        let controller = makeController(settings: settings, adb: adb, pipeline: FakePipelineControl())
+        let spawned = expectation(description: "getevent spawned")
+        adb.onSpawn = { args, _ in if args.contains("-lt") { spawned.fulfill() } }
+        controller.start()
+        XCTAssertEqual(probeEntered.wait(timeout: .now() + 8), .success, "the pen probe started")
+        let controlGate = DispatchSemaphore(value: 0)
+        controller.queue.async { _ = controlGate.wait(timeout: .now() + 10) }
+        controller.stop()
+        probeGate.signal()
+        wait(for: [spawned], timeout: 8)
+        controlGate.signal()
+        // The watcher's stop runs on the stylus queue after the block that queued `.watching`, so once the child is
+        // terminated that hop is on the control queue; one drain runs it.
+        XCTAssertTrue(waitUntil(10) { adb.spawned.allSatisfy { !$0.isRunning } }, "the stopped watcher ends its child")
+        controller.queue.sync {}
+        XCTAssertFalse(controller.wifiSource.penWatcherPresent(), "a stopped watcher never marks the pen present")
+    }
+
+    /// USB-B4: in the Wi-Fi transport a DC-1 also listed over TCP (listed first) hid the USB one, so no pen watcher
+    /// started. Before the fix nothing was spawned.
+    func testWifiTransportWatchesTheUSBPenWhenATCPDaylightIsListedFirst() {
+        let adb = FakeAdb()
+        adb.respond(containing: ["devices"], with: FakeAdb.ok("192.168.1.40:5555 device product:daylight model:Daylight_DC_1 device:dc1 transport_id:2\n" + MirrorControllerTests.usbDaylight))
+        adb.respond(containing: ["getevent", "-pl"], with: FakeAdb.ok(StylusFixtures.listingWithPen))
+        var settings = Settings.defaults
+        settings.mirrorTransport = .wifiStream
+        let controller = makeController(settings: settings, adb: adb, pipeline: FakePipelineControl())
+        let spawned = expectation(description: "getevent on the USB serial")
+        spawned.assertForOverFulfill = false
+        adb.onSpawn = { args, _ in
+            if args == ["-s", "JP0001", "shell", "-T", "getevent", "-lt", "/dev/input/event3"] { spawned.fulfill() }
+        }
+        controller.start()
+        wait(for: [spawned], timeout: 8)
+        XCTAssertFalse(adb.calls.contains { $0.contains("192.168.1.40:5555") && $0.contains("getevent") }, "never the TCP device")
+        controller.stop()
+    }
+
+    /// USB-B6 and DIFF-B4: a DC-1 without a pen node in the Wi-Fi transport. Row 28 ("auto-engage does not work") was
+    /// raised although frame difference engages there; row 37 is the one that applies, raised once the probe settled.
+    /// Before the fix row 28 was in the list.
+    func testWifiTransportWithoutAPenNodeRaisesRow37NotRow28() {
+        let adb = FakeAdb()
+        adb.respond(containing: ["devices"], with: FakeAdb.ok(MirrorControllerTests.usbDaylight))
+        adb.respond(containing: ["getevent", "-pl"], with: FakeAdb.ok(StylusFixtures.listingWithoutPen))
+        var settings = Settings.defaults
+        settings.mirrorTransport = .wifiStream
+        let controller = makeController(settings: settings, adb: adb, pipeline: FakePipelineControl())
+        let failures = Locked<[FailureText.Case]>([])
+        let row37 = expectation(description: "row 37")
+        controller.onFailure = { failure, _ in
+            failures.withLock { $0.append(failure) }
+            if failure == .wifiStreamFrameDiffEngage { row37.fulfill() }
+        }
+        let probed = expectation(description: "probe answered")
+        probed.assertForOverFulfill = false
+        controller.onLog = { line in if line.contains("getevent -pl devices:") { probed.fulfill() } }
+        controller.start()
+        decodeOneWifiFrame(controller)
+        wait(for: [probed], timeout: 8)
+        controller.stylusQueue.sync {}   // the probe result block, which queued the status hop, finished
+        controller.queue.sync {}         // the status hop ran
+        wait(for: [row37], timeout: 8)
+        XCTAssertFalse(failures.withLock { $0 }.contains(.noPenDevice), "no row 28 in the Wi-Fi transport")
+        XCTAssertEqual(failures.withLock { $0 }.filter { $0 == .wifiStreamFrameDiffEngage }.count, 1)
+        controller.stop()
+    }
+
+    /// DIFF-B4: a decoded Wi-Fi frame that won the race against the USB pen probe raised row 37 ("plug in USB") with
+    /// the cable in, and nothing ever withdrew it. Now it waits for the probe and is resolved when the pen watcher
+    /// starts. Before the fix row 37 was raised at once (and `onResolve` did not exist).
+    func testRow37WaitsForThePenProbeAndIsResolvedWhenThePenWatcherStarts() {
+        let adb = FakeAdb()
+        adb.respond(containing: ["devices"], with: FakeAdb.ok(MirrorControllerTests.usbDaylight))
+        let probeEntered = DispatchSemaphore(value: 0)
+        let probeGate = DispatchSemaphore(value: 0)
+        adb.respond { args in
+            guard args.contains("-pl") else { return nil }
+            probeEntered.signal()
+            _ = probeGate.wait(timeout: .now() + 10)
+            return FakeAdb.ok(StylusFixtures.listingWithPen)
+        }
+        var settings = Settings.defaults
+        settings.mirrorTransport = .wifiStream
+        let controller = makeController(settings: settings, adb: adb, pipeline: FakePipelineControl())
+        let failures = Locked<[FailureText.Case]>([])
+        controller.onFailure = { failure, _ in failures.withLock { $0.append(failure) } }
+        let resolved = expectation(description: "row 37 resolved")
+        resolved.assertForOverFulfill = false
+        controller.onResolve = { cases in if cases.contains(.wifiStreamFrameDiffEngage) { resolved.fulfill() } }
+        controller.start()
+        XCTAssertEqual(probeEntered.wait(timeout: .now() + 8), .success, "the pen probe started")
+        decodeOneWifiFrame(controller)
+        controller.queue.sync {}   // the source's row 37 hop ran
+        XCTAssertFalse(failures.withLock { $0 }.contains(.wifiStreamFrameDiffEngage), "held while the probe runs")
+        probeGate.signal()
+        wait(for: [resolved], timeout: 8)
+        XCTAssertTrue(controller.wifiSource.penWatcherPresent())
+        controller.queue.sync {}
+        XCTAssertFalse(failures.withLock { $0 }.contains(.wifiStreamFrameDiffEngage), "the pen watcher started: never raised")
+        controller.stop()
+    }
+
+    /// DIFF-A5/B5: a getevent that ended (and could not be restarted) left the pen marked present, so frame difference
+    /// stayed suppressed with no pen events. Before the fix `penWatcherPresent()` stayed true and the first wait timed
+    /// out. The restarted child makes the pen the engage source again.
+    func testADeadGeteventNoLongerSuppressesFrameDifference() {
+        let adb = FakeAdb()
+        adb.respond(containing: ["devices"], with: FakeAdb.ok(MirrorControllerTests.usbDaylight))
+        adb.respond(containing: ["getevent", "-pl"], with: FakeAdb.ok(StylusFixtures.listingWithPen))
+        var settings = Settings.defaults
+        settings.mirrorTransport = .wifiStream
+        let controller = makeController(settings: settings, adb: adb, pipeline: FakePipelineControl())
+        let spawned = expectation(description: "getevent spawned")
+        spawned.assertForOverFulfill = false
+        adb.onSpawn = { args, _ in if args.contains("-lt") { spawned.fulfill() } }
+        controller.start()
+        wait(for: [spawned], timeout: 8)
+        XCTAssertTrue(waitUntil(8) { controller.wifiSource.penWatcherPresent() }, "the pen is the engage source")
+        guard let child = adb.spawned.first(where: { $0.args.contains("-lt") }) else { return XCTFail("no getevent child") }
+        adb.canSpawn = false
+        child.exit(1)
+        XCTAssertTrue(waitUntil(10) { !controller.wifiSource.penWatcherPresent() }, "no getevent runs: frame difference engages")
+        adb.canSpawn = true
+        XCTAssertTrue(waitUntil(20) { controller.wifiSource.penWatcherPresent() }, "the restarted getevent is the engage source again")
         controller.stop()
     }
 

@@ -173,6 +173,34 @@ final class StylusWatcherTests: XCTestCase {
         watcher.stop()
     }
 
+    /// DIFF-A5/B5: while getevent is down (EOF until the respawn) the watcher reports `.restarting`, so the controller
+    /// stops treating the pen as the engage source; the respawn reports `.watching` again. Before the fix the status
+    /// stayed `.watching` through the restart.
+    func testEOFReportsRestartingUntilTheNextChildRuns() {
+        let adb = FakeAdb()
+        let watcher = makeWatcher(listing: StylusFixtures.listingWithPen, adb: adb)
+        let statuses = Locked<[StylusWatcher.Status]>([])
+        let firstWatching = expectation(description: "watching")
+        let secondWatching = expectation(description: "watching after the restart")
+        watcher.onStatus = { status in
+            let watchingCount = statuses.withLock { list -> Int in
+                list.append(status)
+                return list.filter { if case .watching = $0 { return true } else { return false } }.count
+            }
+            guard case .watching = status else { return }
+            if watchingCount == 1 { firstWatching.fulfill() }
+            if watchingCount == 2 { secondWatching.fulfill() }
+        }
+        watcher.start()
+        wait(for: [firstWatching], timeout: 5)
+        guard let child = adb.spawned.first else { return XCTFail("no child") }
+        child.exit(0)
+        wait(for: [secondWatching], timeout: 5)
+        let watching = StylusWatcher.Status.watching(path: "/dev/input/event3", name: "Wacom I2C Digitizer", pressureMax: 4095)
+        XCTAssertEqual(statuses.withLock { $0 }, [.probing, watching, .restarting, watching])
+        watcher.stop()
+    }
+
     func testSideButtonSanityAfterThirtySecondsOfInking() {
         let adb = FakeAdb()
         adb.respond(containing: ["getevent", "-pl"], with: FakeAdb.ok(StylusFixtures.listingWithPen))

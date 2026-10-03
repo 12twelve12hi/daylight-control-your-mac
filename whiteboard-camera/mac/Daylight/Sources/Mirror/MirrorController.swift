@@ -60,6 +60,16 @@ final class MirrorController: MirrorControl {
     let wifiSource: WifiMirrorSource
     /// True while the USB getevent watcher has a pen node (the preferred engage signal over frame difference).
     private let penWatching = Locked(false)
+    /// Row 37 ("frame difference engages; plug in USB for pen-exact engage") is shown only once the pen probe settled
+    /// without a pen (DIFF-B4). True while a USB pen watcher runs or may still start: adb or the first device list is
+    /// pending, the DC-1's `getevent -pl` probe runs, or getevent restarts. False once adb failed, no usable USB DC-1
+    /// is listed, or the probe found no pen node.
+    private var penMayEngage = true
+    /// Row 37 reported by the Wi-Fi source while `penMayEngage` was still true: raised when the probe settles without
+    /// a pen, dropped when the pen watcher starts or the transport changes.
+    private var frameDiffNoticeHeld = false
+    /// The running tracker delivered a device list, so an empty list means "no device", not "not listed yet".
+    private var devicesListed = false
 
     /// Mutated on the control queue; readable from any thread (B's 2 Hz mirror reads them from main).
     private var currentStatus: MirrorStatus {
@@ -94,6 +104,9 @@ final class MirrorController: MirrorControl {
     var onLog: ((String) -> Void)?
     /// Failure rows for the menu (B shows them through `FailureText`); called on the control queue.
     var onFailure: ((FailureText.Case, [String]) -> Void)?
+    /// Rows that no longer apply (B passes them to `AppModel.resolve`); called on the control queue. Row 37 is
+    /// resolved when the USB pen watcher starts in the Wi-Fi transport.
+    var onResolve: ((Set<FailureText.Case>) -> Void)?
 
     // MARK: MirrorControl
 
@@ -133,7 +146,16 @@ final class MirrorController: MirrorControl {
         let penWatching = self.penWatching
         wifiSource.penWatcherPresent = { penWatching.withLock { $0 } }
         wifiSource.onLog = { [weak self] line in self?.onLog?(line) }
-        wifiSource.onFailure = { [weak self] failure, args in self?.queue.async { self?.onFailure?(failure, args) } }
+        wifiSource.onFailure = { [weak self] failure, args in
+            self?.queue.async {
+                guard let self = self else { return }
+                if failure == .wifiStreamFrameDiffEngage {
+                    self.frameDiffNoticeArrived()
+                } else {
+                    self.onFailure?(failure, args)
+                }
+            }
+        }
         wifiSource.onStatusChange = { [weak self] status in
             self?.queue.async {
                 guard let self = self, self.usesWifi else { return }
@@ -175,6 +197,8 @@ final class MirrorController: MirrorControl {
         queue.async { [weak self] in
             guard let self = self, !self.started else { return }
             self.started = true
+            self.penMayEngage = true
+            self.frameDiffNoticeHeld = false
             self.log("mirror start: vendor \(self.vendorDirectory.path) transport \(self.settings.mirrorTransport.rawValue)")
             self.wifiSource.setActive(self.usesWifi)
             if self.usesWifi { self.onStatusChange?(self.status) }
@@ -189,7 +213,13 @@ final class MirrorController: MirrorControl {
             self.setStatus(.noDevice)
             let tracker = DeviceTracker(adb: adb, queue: self.adbQueue, pollInterval: self.trackerTuning.pollInterval, useTrackSocket: self.trackerTuning.useTrackSocket)
             tracker.onLog = { [weak self] line in self?.queue.async { self?.log(line) } }
-            tracker.onDevices = { [weak self] list in self?.queue.async { self?.devicesChanged(list) } }
+            tracker.onDevices = { [weak self] list in
+                self?.queue.async {
+                    self?.devicesListed = true
+                    self?.devicesChanged(list)
+                }
+            }
+            self.devicesListed = false
             self.tracker = tracker
             tracker.start()
         }
@@ -208,7 +238,9 @@ final class MirrorController: MirrorControl {
         log("\(reason); locating adb again")
         tracker?.stop()
         tracker = nil
+        devicesListed = false
         endSession(reason: "adb source changed")
+        penMayEngage = true
         wifi = nil
         adb = nil
         policyDecision = nil
@@ -249,6 +281,8 @@ final class MirrorController: MirrorControl {
             self.wifiSource.setActive(false)
             self.tracker?.stop()
             self.tracker = nil
+            self.devicesListed = false
+            self.frameDiffNoticeHeld = false
             self.endSession(reason: "stopped")
             self.setStatus(.idle)
         }
@@ -340,6 +374,8 @@ final class MirrorController: MirrorControl {
         }
         endSession(reason: "transport changed")
         wifiSource.setActive(usesWifi)
+        frameDiffNoticeHeld = false
+        penMayEngage = true
         // No tracker: adb did not resolve (or is still resolving). "No device" here would replace the cause in the
         // status, and nothing else would locate adb again (USB-A1/B2). Locate it again instead; a resolution still in
         // flight finishes on its own.
@@ -464,6 +500,7 @@ final class MirrorController: MirrorControl {
                 if case .notDownloaded = error { scheduleAdbDownloadPoll() }
                 setStatus(.error(.scrcpyServerFailed, error.sentence))
                 if let row = error.failure { onFailure?(row.0, row.1) }
+                penProbeSettledWithoutPen()
                 completion(nil)
                 return
             }
@@ -522,7 +559,10 @@ final class MirrorController: MirrorControl {
         onDevicesChange?(list)
         guard started else { return }
         let settings = self.settings
-        let chosen = DeviceTracker.chooseDaylight(list, preferredSerial: settings.mirrorDeviceSerial)
+        // Wi-Fi transport: only a USB device can run the pen watcher, so a DC-1 also listed over TCP (the USB
+        // transport's Wi-Fi interim) must not hide the USB one (USB-B4), whatever order adb lists them in.
+        let candidates = usesWifi ? list.filter { $0.isUSB } : list
+        let chosen = DeviceTracker.chooseDaylight(candidates, preferredSerial: settings.mirrorDeviceSerial)
         if let serial = currentSerial, !list.contains(where: { $0.serial == serial && $0.isReady }) {
             log("device \(serial) left the list")
             endSession(reason: "device gone")
@@ -530,6 +570,7 @@ final class MirrorController: MirrorControl {
         guard let device = chosen else {
             setStatus(.noDevice)
             log(FailureText.logLine(.adbNoDevice, ["(no devices)"]))
+            if devicesListed { penProbeSettledWithoutPen() }
             maybeTryWiFi(settings: settings)
             return
         }
@@ -541,9 +582,11 @@ final class MirrorController: MirrorControl {
         case AdbDevicesParser.stateUnauthorized:
             setStatus(.error(.adbUnauthorized, device.serial))
             log(FailureText.logLine(.adbUnauthorized, [device.serial]))
+            if currentSerial == nil { penProbeSettledWithoutPen() }
         case AdbDevicesParser.stateOffline:
             setStatus(.error(.adbOffline, device.serial))
             log(FailureText.logLine(.adbOffline, [device.serial]))
+            if currentSerial == nil { penProbeSettledWithoutPen() }
         default:
             setStatus(.connecting(serial: device.serial))
             log("device \(device.serial) is \(device.state); waiting")
@@ -747,21 +790,33 @@ final class MirrorController: MirrorControl {
 
     private func startStylus(adb: AdbRunning, serial: String, settings: Settings) {
         let watcher = StylusWatcher(adb: adb, serial: serial, queue: stylusQueue, gestures: settings.sideButtonGestures)
+        penMayEngage = true
         watcher.onLog = { [weak self] line in self?.queue.async { self?.log("[pen] \(line)") } }
-        watcher.onStatus = { [weak self] status in
+        watcher.onStatus = { [weak self, weak watcher] status in
             self?.queue.async {
-                guard let self = self else { return }
+                // A status hop queued before `endSession` dropped this watcher must not mark the pen present with no
+                // watcher running (USB-A3/B5): only the current watcher counts.
+                guard let self = self, let watcher = watcher, watcher === self.stylus else { return }
                 switch status {
                 case let .noPenDevice(names):
                     self.penWatching.withLock { $0 = false }
-                    self.onFailure?(.noPenDevice, ["\(names)"])
+                    // Wi-Fi transport: frame difference engages (row 37 says so), so row 28's "auto-engage does not
+                    // work" would be wrong there (USB-B6). The watcher logged the row 28 line already.
+                    if !self.usesWifi { self.onFailure?(.noPenDevice, ["\(names)"]) }
+                    self.penProbeSettledWithoutPen()
                 case .sideButtonSilent:
+                    // The pen still works, only its side button is silent: it stays the engage source.
                     if self.settings.mirrorPinClearMode.includesPenButton { self.onFailure?(.noSideButtonEvents, []) }
                 case let .watching(path, name, pressureMax):
                     self.penWatching.withLock { $0 = true }
+                    self.penMayEngage = true
+                    self.frameDiffNoticeHeld = false
                     self.extraDiagnostics["pen.node"] = "\(path) \"\(name)\" pressureMax=\(pressureMax)"
-                default:
-                    break
+                    if self.usesWifi { self.onResolve?([.wifiStreamFrameDiffEngage]) }
+                case .idle, .probing, .restarting, .error:
+                    // No getevent child runs (probe, restart backoff, failed spawn): frame difference must not stay
+                    // suppressed meanwhile (DIFF-A5/B5). The next child reports `.watching` again.
+                    self.penWatching.withLock { $0 = false }
                 }
             }
         }
@@ -792,6 +847,27 @@ final class MirrorController: MirrorControl {
         }
         stylus = watcher
         watcher.start()
+    }
+
+    /// Row 37 from the Wi-Fi source (control queue): dropped when the pen watcher runs, held while it may still start.
+    private func frameDiffNoticeArrived() {
+        guard started, usesWifi else { return }
+        if penWatching.withLock({ $0 }) { return }
+        if penMayEngage {
+            frameDiffNoticeHeld = true
+            log("row 37 held until the USB pen probe settles")
+            return
+        }
+        onFailure?(.wifiStreamFrameDiffEngage, [])
+    }
+
+    /// No USB pen watcher can run (adb failed, no usable USB DC-1, or no pen node): a held row 37 is raised now.
+    private func penProbeSettledWithoutPen() {
+        penMayEngage = false
+        guard frameDiffNoticeHeld else { return }
+        frameDiffNoticeHeld = false
+        guard started, usesWifi, !penWatching.withLock({ $0 }) else { return }
+        onFailure?(.wifiStreamFrameDiffEngage, [])
     }
 
     /// Governor events go through the source callback B wires to `pipeline.post`, or straight to the pipeline.

@@ -1,9 +1,16 @@
 {
   "name": "Daylight Whiteboard",
   "short_name": "Whiteboard",
+  "description": "Draw with the pen on your Daylight; the picture appears in Daylight Camera on your Mac.",
   "start_url": "./",
+  "scope": "./",
   "display": "fullscreen",
   "orientation": "portrait",
   "background_color": "#EAE5DC",
-  "theme_color": "#EAE5DC"
+  "theme_color": "#EAE5DC",
+  "icons": [
+    { "src": "./icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "./icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "./icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
 }

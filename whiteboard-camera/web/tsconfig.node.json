@@ -3,13 +3,22 @@
     "target": "ES2022",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-    "lib": ["ES2022"],
+    "lib": [
+      "ES2022"
+    ],
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "skipLibCheck": true,
-    "types": ["node"],
+    "types": [
+      "node"
+    ],
     "rootDir": ".",
     "outDir": "build/node-tests"
   },
-  "include": ["src/protocol.ts", "tests/unit"]
+  "include": [
+    "src/protocol.ts",
+    "src/ring.ts",
+    "src/chip-state.ts",
+    "tests/unit"
+  ]
 }

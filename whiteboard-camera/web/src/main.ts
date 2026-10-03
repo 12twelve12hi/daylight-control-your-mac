@@ -1,148 +1,259 @@
-// Daylight whiteboard page: a pen-only canvas and a WebSocket client stub. Tools, chip and ring buffer land in M3.
+// Daylight whiteboard page: wiring of the ink canvas, the toolbar, the chip, the socket and the
+// Start overlay. Served by the Mac at http://<mac>:7788/ (or over adb reverse at http://localhost:7788/).
 import "./styles.css";
-import { Encoder, newUuid16, nowUs, type WirePoint } from "./protocol.js";
-import { InkClient, type ConnectionState } from "./ws.js";
+import { capabilities, enterFullscreenAndWake, wakeLockHeld, type Capabilities, type StartResult } from "./caps.js";
+import { Chip } from "./chip.js";
+import type { ConnectionPhase } from "./chip-state.js";
+import { CANVAS_H, CANVAS_W, InkCanvas } from "./ink.js";
+import * as protocol from "./protocol.js";
+import { newUuid16, type HandshakeAck, type StateReport } from "./protocol.js";
+import { Toolbar, type Tool } from "./tools.js";
+import { InkClient } from "./ws.js";
 
-const CANVAS_W = 1200;
-const CANVAS_H = 1600;
-
-interface DebugState {
-  strokes: number;
-  points: number;
-  ignored: number;
-  connection: ConnectionState;
-  framesSent: number;
+interface ApiInfo {
+  app?: string;
+  version?: string;
+  build?: number;
+  port?: number;
+  inkSource?: string;
+  pillStripHeight?: number;
+  secureHint?: string;
+  origin?: string;
 }
 
-const debug: DebugState = { strokes: 0, points: 0, ignored: 0, connection: "disconnected", framesSent: 0 };
-(window as unknown as { __daylight: DebugState }).__daylight = debug;
+const STORAGE_CLIENT_ID = "daylight.clientId";
+const STORAGE_DEVICE_NAME = "daylight.deviceName";
+const STORAGE_FLAG_DISMISSED = "daylight.flagHintDismissed";
+const DEFAULT_LABEL = "Chrome on Daylight";
 
-const canvas = document.getElementById("ink") as HTMLCanvasElement;
-const chip = document.getElementById("chip") as HTMLSpanElement;
-const ctx = canvas.getContext("2d", { desynchronized: true }) ?? canvas.getContext("2d");
-if (!ctx) throw new Error("no 2d context");
-ctx.lineCap = "round";
-ctx.lineJoin = "round";
-ctx.strokeStyle = "#111111";
+function storageGet(key: string): string | null {
+  try { return localStorage.getItem(key); } catch { return null; }
+}
+function storageSet(key: string, value: string): void {
+  try { localStorage.setItem(key, value); } catch { /* storage unavailable */ }
+}
 
-function clientIdentity(): string {
-  let id: string | null = null;
-  try { id = localStorage.getItem("daylight.clientId"); } catch { /* storage unavailable */ }
+function clientId(): string {
+  let id = storageGet(STORAGE_CLIENT_ID);
   if (!id) {
-    id = crypto.randomUUID();
-    try { localStorage.setItem("daylight.clientId", id); } catch { /* ignore */ }
+    id = protocol.uuidToString(newUuid16());
+    storageSet(STORAGE_CLIENT_ID, id);
   }
-  return `web;${id};Chrome on Daylight`;
+  return id;
 }
 
-function socketUrl(): string | null {
+function identity(): string {
+  const label = (storageGet(STORAGE_DEVICE_NAME) ?? DEFAULT_LABEL).slice(0, 64);
+  return `web;${clientId()};${label}`;
+}
+
+/** ws://<same host>/ink, or ?host=<ip[:port]> to point a dev page at another Mac. */
+function socketUrl(): string {
   const params = new URLSearchParams(location.search);
+  const scheme = location.protocol === "https:" ? "wss" : "ws";
   const host = params.get("host");
-  if (host) return `ws://${host}:7788/ink`;
-  // Served by the Mac app itself: same origin, path /ink.
-  if (location.port === "7788") return `ws://${location.host}/ink`;
-  return null;
+  if (host) return `${scheme}://${host.includes(":") ? host : `${host}:7788`}/ink`;
+  return `${scheme}://${location.host}/ink`;
 }
 
-const url = socketUrl();
-const client = url
-  ? new InkClient(url, clientIdentity(), {
-      onConnection(state) {
-        debug.connection = state;
-        chip.dataset.state = state === "live" ? "live" : state;
-        chip.textContent = state === "live" ? "LIVE" : state === "pending" ? "Look at your Mac" : state === "connecting" ? "Connecting" : "Not connected";
-      },
-      onState(state) {
-        if (state.governor === 3) { chip.dataset.state = "returning"; chip.textContent = "Returning"; }
-        else if (state.governor === 0) { chip.dataset.state = "live"; chip.textContent = "Camera"; }
-        else { chip.dataset.state = "live"; chip.textContent = state.pinned ? "KEEP WHITEBOARD" : "LIVE"; }
-      },
-    })
-  : null;
-client?.start();
-if (!client) chip.textContent = "Not connected (open from your Mac's address)";
-
-const encoder = client?.encoder ?? new Encoder(nowUs);
-
-function send(frame: ArrayBuffer): void {
-  if (client?.send(frame)) debug.framesSent++;
+function $(id: string): HTMLElement {
+  const el = document.getElementById(id);
+  if (!el) throw new Error(`#${id} missing`);
+  return el;
 }
 
-/** Canvas units from a pointer event (independent of CSS size and DPR). */
-function canvasPoint(e: PointerEvent): { x: number; y: number } {
-  const rect = canvas.getBoundingClientRect();
-  return { x: ((e.clientX - rect.left) * CANVAS_W) / rect.width, y: ((e.clientY - rect.top) * CANVAS_H) / rect.height };
-}
+const caps: Capabilities = capabilities();
+const paper = $("paper");
+const chipEl = $("chip");
+const toolbarEl = $("toolbar");
+const startEl = $("start");
+const cardEl = $("card");
 
-interface ActiveStroke {
-  id: Uint8Array;
-  startedAt: number;
-  last: { x: number; y: number };
-  pending: WirePoint[];
-  count: number;
-}
+// -- page model ----------------------------------------------------------------
 
-let active: ActiveStroke | null = null;
-let rafQueued = false;
+let pageId = newUuid16();
+let pageIndex = 0;
+let lastState: StateReport | null = null;
+let lastAck: HandshakeAck | null = null;
+let info: ApiInfo | null = null;
+let startResult: StartResult | null = null;
+const consoleFacts: string[] = [];
 
-function flush(): void {
-  rafQueued = false;
-  if (!active || active.pending.length === 0) return;
-  send(encoder.strokeChunk(active.id, active.pending));
-  active.count += active.pending.length;
-  active.pending = [];
-}
-
-function queueFlush(): void {
-  if (!rafQueued) { rafQueued = true; requestAnimationFrame(flush); }
-}
-
-function isPen(e: PointerEvent): boolean {
-  return e.pointerType === "pen";
-}
-
-canvas.addEventListener("pointerdown", (e) => {
-  // Fingers and palms never draw and never engage; a pen with pressure 0 is a side button in the air.
-  if (!isPen(e) || e.buttons === 0 || e.pressure <= 0) { debug.ignored++; return; }
-  canvas.setPointerCapture(e.pointerId);
-  const p = canvasPoint(e);
-  const id = newUuid16();
-  active = { id, startedAt: e.timeStamp, last: p, pending: [{ ...p, pressure: e.pressure, deltaMs: 0 }], count: 0 };
-  send(encoder.strokeStart(id, 0, 0xff111111, 3.2, e.pressure));
-  debug.strokes++;
-  debug.points++;
-  ctx.beginPath();
-  ctx.moveTo(p.x, p.y);
-  queueFlush();
+const client = new InkClient(socketUrl(), identity(), {
+  onPhase(phase: ConnectionPhase) {
+    chip.setPhase(phase);
+    document.body.dataset.connection = phase;
+    if (phase !== "live") ink.restartOpenStroke();
+    if (phase === "live" && !lastState) toolbar.setDepths(0, 0);
+  },
+  onState(state: StateReport) {
+    lastState = state;
+    chip.setState(state);
+    toolbar.setDepths(state.undoDepth, state.redoDepth);
+    ink.applyDepths(state.undoDepth, state.redoDepth);
+    document.body.dataset.governor = String(state.governor);
+    renderCard();
+  },
+  onAck(ack) {
+    lastAck = ack;
+  },
 });
 
-canvas.addEventListener("pointermove", (e) => {
-  if (!active || !isPen(e) || e.buttons === 0) return;
-  const events = typeof e.getCoalescedEvents === "function" ? e.getCoalescedEvents() : [e];
-  for (const ev of events.length ? events : [e]) {
-    const p = canvasPoint(ev);
-    ctx.lineWidth = 3.2 * (0.55 + 0.9 * ev.pressure);
-    ctx.beginPath();
-    ctx.moveTo(active.last.x, active.last.y);
-    ctx.lineTo(p.x, p.y);
-    ctx.stroke();
-    active.last = p;
-    active.pending.push({ ...p, pressure: ev.pressure, deltaMs: Math.round(ev.timeStamp - active.startedAt) });
-    debug.points++;
+const ink = new InkCanvas(paper, client);
+
+const toolbar = new Toolbar(toolbarEl, {
+  setTool(tool: Tool) { ink.tool = tool; },
+  undo() { client.sendControl(client.encoder.undo(pageId)); },
+  redo() { client.sendControl(client.encoder.redo(pageId)); },
+  newPage() {
+    pageId = newUuid16();
+    pageIndex += 1;
+    client.sendControl(client.encoder.pageChange(pageId, CANVAS_W, CANVAS_H, pageIndex));
+    ink.clearLocal();
+  },
+  clear() {
+    client.sendControl(client.encoder.clear(pageId));
+    ink.clearLocal();
+  },
+  info() { toggleCard(); },
+});
+
+const chip = new Chip(chipEl, {
+  togglePin() { client.sendControl(client.encoder.togglePin(-1)); },
+  returnNow() { client.sendControl(client.encoder.returnNow()); },
+  retry() { client.retry(); },
+  explain() { toggleCard(true); },
+});
+
+// -- Start overlay ---------------------------------------------------------------
+
+function hideStart(): void {
+  startEl.hidden = true;
+  document.body.classList.add("started");
+  ink.layout();
+}
+
+startEl.addEventListener("click", () => {
+  hideStart();
+  void enterFullscreenAndWake().then((r) => { startResult = r; renderCard(); });
+});
+
+document.addEventListener("fullscreenchange", () => {
+  // Leaving fullscreen (system gesture) offers the Start tap again so the owner can re-enter.
+  if (!document.fullscreenElement && document.body.classList.contains("started") && caps.fullscreen) {
+    startEl.hidden = false;
+    startEl.querySelector(".start-title")!.textContent = "Tap to go full screen again";
   }
-  queueFlush();
 });
 
-function finish(e: PointerEvent, cancelled: boolean): void {
-  if (!active || !isPen(e)) return;
-  flush();
-  const young = e.timeStamp - active.startedAt < 80 && active.count < 2;
-  if (cancelled || young) send(encoder.strokeCancel(active.id));
-  else send(encoder.strokeCommit(active.id, active.count));
-  active = null;
+// -- expanded card ---------------------------------------------------------------
+
+function toggleCard(force?: boolean): void {
+  const show = force ?? cardEl.hidden;
+  cardEl.hidden = !show;
+  if (show) renderCard();
 }
 
-canvas.addEventListener("pointerup", (e) => finish(e, false));
-canvas.addEventListener("pointercancel", (e) => finish(e, true));
-canvas.addEventListener("pointerleave", (e) => { if (active && e.buttons !== 0) finish(e, false); });
-window.addEventListener("beforeunload", () => client?.stop());
+function renderCard(): void {
+  const origin = info?.origin ?? location.origin;
+  const flag = info?.secureHint ?? "chrome://flags/#unsafely-treat-insecure-origin-as-secure";
+  const source = lastState ? ["web", "Daylight Ink", "mirror"][lastState.inkSource] : null;
+  const rows: string[] = [];
+  if (lastState && !lastState.activeSource) {
+    rows.push(`<section class="row warn"><h3>Ink source is ${source} on the Mac</h3><p>On the Mac: menu bar &gt; Daylight &gt; Ink source &gt; Web. The chip turns to LIVE when the pen touches the glass.</p></section>`);
+  }
+  rows.push(`<section class="row"><h3>Add to Home screen</h3><p>Chrome menu &gt; Add to Home screen. Every later day: tap the icon.</p></section>`);
+  rows.push(`<section class="row"><h3>Get the Daylight Ink app</h3><p><a href="./daylight-ink.apk" id="apk-link">Download Daylight Ink</a> (one-time install; it finds the Mac by itself).</p></section>`);
+  if (!caps.secureContext) {
+    const dismissed = storageGet(STORAGE_FLAG_DISMISSED) === "1";
+    rows.push(`<section class="row flag" data-dismissed="${dismissed}"><h3>Better ink and the screen stays awake over Wi-Fi</h3><p>One time, in Chrome open <code id="flag-url">${flag}</code>, choose Enabled, paste <code id="flag-origin">${origin}</code>, then relaunch Chrome.</p><button type="button" id="flag-dismiss">${dismissed ? "Shown again" : "Got it"}</button></section>`);
+  }
+  rows.push(`<section class="row facts"><h3>This tablet</h3><p id="facts">${factsText()}</p></section>`);
+  cardEl.innerHTML = `<div class="card-head"><h2>Daylight Whiteboard</h2><button type="button" id="card-close" aria-label="Close">Close</button></div>${rows.join("")}`;
+  cardEl.querySelector("#card-close")?.addEventListener("click", () => toggleCard(false));
+  cardEl.querySelector("#flag-dismiss")?.addEventListener("click", () => {
+    storageSet(STORAGE_FLAG_DISMISSED, storageGet(STORAGE_FLAG_DISMISSED) === "1" ? "0" : "1");
+    renderCard();
+  });
+}
+
+function factsText(): string {
+  const c = caps;
+  const parts = [
+    `secure ${c.secureContext}`,
+    `wake lock ${c.wakeLock}${startResult ? (startResult.wakeLockOk ? " held" : startResult.wakeLockRequested ? " refused" : "") : ""}${wakeLockHeld() ? " active" : ""}`,
+    `coalesced ${c.coalescedEvents}`,
+    `rawupdate ${c.rawUpdate}`,
+    `fullscreen ${c.fullscreen}${startResult ? (startResult.fullscreenOk ? " on" : startResult.fullscreenRequested ? " refused" : "") : ""}`,
+    `display ${c.displayMode}`,
+    `dpr ${c.devicePixelRatio}`,
+    `viewport ${c.viewport[0]}x${c.viewport[1]}`,
+    `rtt ${client.stats.rttMs === null ? "?" : `${client.stats.rttMs.toFixed(1)} ms`}`,
+    `mac ${info ? `${info.app ?? "?"} ${info.version ?? ""} build ${info.build ?? "?"} source ${info.inkSource ?? "?"}` : "no /api/info"}`,
+    c.userAgent,
+  ];
+  return parts.join(" | ");
+}
+
+// -- /api/info -------------------------------------------------------------------
+
+async function loadInfo(): Promise<void> {
+  try {
+    const res = await fetch("./api/info", { cache: "no-cache" });
+    if (!res.ok) return;
+    info = (await res.json()) as ApiInfo;
+    renderCard();
+  } catch {
+    info = null;
+  }
+}
+
+// -- device facts for LOOSE_ENDS D3, D4, D8 (logged once, copied by the owner) -----
+
+function logFacts(): void {
+  const line = `daylight-web caps ${JSON.stringify(caps)}`;
+  consoleFacts.push(line);
+  console.info(line);
+}
+
+let firstPenLogged = false;
+paper.addEventListener("pointerdown", (e) => {
+  if (firstPenLogged || e.pointerType !== "pen") return;
+  firstPenLogged = true;
+  const line = `daylight-web first pen pointerdown button=${e.button} buttons=${e.buttons} pressure=${e.pressure} tiltX=${e.tiltX} tiltY=${e.tiltY}`;
+  consoleFacts.push(line);
+  console.info(line);
+}, true);
+
+// -- debug surface for Playwright ------------------------------------------------------
+
+const debug = {
+  version: "0.1.0",
+  protocol,
+  caps,
+  consoleFacts,
+  get phase() { return client.phase; },
+  get state() { return lastState; },
+  get ack() { return lastAck; },
+  get info() { return info; },
+  get start() { return startResult; },
+  get ink() { return ink.stats; },
+  get client() { return client.stats; },
+  get ring() { return { length: client.ring.length, points: client.ring.points, droppedStrokes: client.ring.droppedStrokes }; },
+  get chip() { return { ...chip.current, breath: chip.breathWeight(), taps: chip.stats.taps, longPresses: chip.stats.longPresses }; },
+  get pageIndex() { return pageIndex; },
+  get pageId() { return protocol.uuidToString(pageId); },
+  get visibleStrokes() { return ink.strokeCount; },
+  get wakeLockHeld() { return wakeLockHeld(); },
+  get bufferedAmount() { return client.bufferedAmount; },
+  get tool() { return toolbar.tool; },
+};
+(window as unknown as { __daylight: typeof debug }).__daylight = debug;
+
+// -- go ----------------------------------------------------------------------------
+
+logFacts();
+renderCard();
+void loadInfo();
+client.start();
+window.addEventListener("beforeunload", () => client.stop());

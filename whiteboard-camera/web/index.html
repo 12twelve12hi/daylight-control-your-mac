@@ -2,19 +2,41 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
     <meta name="theme-color" content="#EAE5DC" />
+    <meta name="mobile-web-app-capable" content="yes" />
     <title>Daylight Whiteboard</title>
     <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" href="./icons/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="./icons/icon-192.png" />
   </head>
   <body>
     <div id="app">
-      <div id="toolbar">
-        <span id="title">Daylight Whiteboard</span>
-        <span id="chip" data-state="disconnected">Not connected</span>
+      <div id="stage">
+        <div id="paper"></div>
       </div>
-      <canvas id="ink" width="1200" height="1600" aria-label="Whiteboard canvas"></canvas>
+      <div id="toolbar">
+        <div class="group left">
+          <button type="button" class="tool" id="tool-pen" aria-pressed="true" aria-label="Pen">Pen</button>
+          <button type="button" class="tool" id="tool-highlighter" aria-pressed="false" aria-label="Highlighter">Highlight</button>
+          <button type="button" class="tool" id="tool-eraser" aria-pressed="false" aria-label="Eraser">Erase</button>
+        </div>
+        <button type="button" id="chip" data-state="searching" aria-live="polite"></button>
+        <div class="group right">
+          <button type="button" class="action" id="undo" aria-label="Undo" disabled>Undo</button>
+          <button type="button" class="action" id="redo" aria-label="Redo" disabled>Redo</button>
+          <button type="button" class="action" id="new-page" aria-label="New page">New page</button>
+          <button type="button" class="action danger" id="clear" aria-label="Clear">Clear</button>
+          <button type="button" class="action" id="info" aria-label="About this tablet">?</button>
+        </div>
+      </div>
     </div>
+    <div id="card" hidden></div>
+    <button type="button" id="start">
+      <span class="start-title">Tap to start</span>
+      <span class="start-sub">Daylight Whiteboard goes full screen and keeps the screen on.</span>
+      <span class="start-url">Pen only. Fingers never draw.</span>
+    </button>
     <script type="module" src="./src/main.ts"></script>
   </body>
 </html>

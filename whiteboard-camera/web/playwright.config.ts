@@ -1,6 +1,8 @@
 import { defineConfig } from "@playwright/test";
 
-// Portrait DC-1 viewport, touch enabled so finger input is distinguishable from the pen (CDP pen events in tests).
+// Portrait DC-1 viewport, touch enabled so finger input is distinguishable from the pen (CDP pen events
+// in tests). The web server is the fake Mac (tests/fake-mac.mjs): static dist, /api/info, /healthz and
+// a SolStream WebSocket on /ink with a scripted Allow handshake and STATE pushes.
 export default defineConfig({
   testDir: "./tests",
   testMatch: /.*\.spec\.ts/,
@@ -18,8 +20,8 @@ export default defineConfig({
     baseURL: "http://127.0.0.1:4173/",
   },
   webServer: {
-    command: "npm run preview",
-    url: "http://127.0.0.1:4173/",
+    command: "node tests/fake-mac.mjs 4173",
+    url: "http://127.0.0.1:4173/healthz",
     reuseExistingServer: false,
     timeout: 60_000,
   },

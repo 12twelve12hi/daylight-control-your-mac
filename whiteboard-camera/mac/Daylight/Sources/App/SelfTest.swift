@@ -207,7 +207,12 @@ enum SelfTest {
         let router = InkRouter(pipeline: pipeline, rasterizer: rasterizer, registry: registry, saver: nil, settings: Settings.defaults, queue: inkQueue)
         router.onLog = { report.note("router: \($0)") }
         pipeline.onStateForClients = { state in inkQueue.async { router.receiveState(state) } }
-        let server = WebServer(config: WebServer.Config(preferredPort: 0, bonjourName: nil, loopbackOnly: true, scanPorts: false), info: { ["version": "self-test"] }, queue: netQueue)
+        // The bundle's own resources, resolved as AppDelegate.wireServer does, so the probes below see what ships.
+        let resources = Bundle.main.resourceURL
+        let apk = resources?.appendingPathComponent("DaylightInk.apk")
+        let apkURL = (apk.map { FileManager.default.fileExists(atPath: $0.path) } ?? false) ? apk : nil
+        let config = WebServer.Config(webRoot: resources?.appendingPathComponent("web"), apkURL: apkURL, preferredPort: 0, bonjourName: nil, loopbackOnly: true, scanPorts: false)
+        let server = WebServer(config: config, info: { ["version": "self-test"] }, queue: netQueue)
         server.onLog = { report.note("server: \($0)") }
         server.onInkClientOpened = { c in inkQueue.async { router.clientOpened(c) } }
         // The same routing as AppDelegate.wireServer: the Wi-Fi mirror family goes to the ingest, the rest to the router.
@@ -252,6 +257,23 @@ enum SelfTest {
             report.check("http: /api/info says app daylight", info.contains("\"app\":\"daylight\""), info)
         } else {
             report.check("http: /api/info says app daylight", false, "no answer")
+        }
+        // The bundled whiteboard (SPEC 9.2) is a real web build: mac-generate.sh writes a placeholder index.html when
+        // web/dist is missing, and only `vite build` produces manifest.webmanifest.
+        if let index = httpFetch("http://127.0.0.1:\(boundPort)/") {
+            let placeholder = index.body.contains("was not built into this app")
+            report.check("http: / serves the bundled whiteboard", index.status == 200 && index.contentType.hasPrefix("text/html") && !placeholder, "status \(index.status) \(index.contentType)\(placeholder ? ", placeholder page" : "")")
+        } else {
+            report.check("http: / serves the bundled whiteboard", false, "no answer")
+        }
+        if let manifest = httpFetch("http://127.0.0.1:\(boundPort)/manifest.webmanifest") {
+            report.check("http: /manifest.webmanifest is application/manifest+json", manifest.status == 200 && manifest.contentType.hasPrefix("application/manifest+json"), "status \(manifest.status) \(manifest.contentType)")
+        } else {
+            report.check("http: /manifest.webmanifest is application/manifest+json", false, "no answer")
+        }
+        if strictBundle {
+            let route = httpFetch("http://127.0.0.1:\(boundPort)\(ApiRoutes.apkPath)")
+            report.check("http: \(ApiRoutes.apkPath) serves the bundled APK (CI)", route?.status == 200, "status \(route.map { "\($0.status)" } ?? "no answer")")
         }
 
         // WebSocket client.
@@ -415,16 +437,33 @@ enum SelfTest {
     }
 
     static func httpGet(_ urlText: String) -> String? {
+        return httpFetch(urlText)?.body
+    }
+
+    /// GET with the status and Content-Type, nil when nothing answered within 5 s.
+    static func httpFetch(_ urlText: String) -> (status: Int, contentType: String, body: String)? {
         guard let url = URL(string: urlText) else { return nil }
         let done = DispatchSemaphore(value: 0)
-        var body: String?
-        let task = URLSession.shared.dataTask(with: url) { data, _, _ in
-            if let data = data { body = String(decoding: data, as: UTF8.self) }
+        let result = Locked<(status: Int, contentType: String, body: String)?>(nil)
+        let task = URLSession.shared.dataTask(with: url) { data, response, _ in
+            if let http = response as? HTTPURLResponse {
+                var contentType = ""
+                for (key, value) in http.allHeaderFields where "\(key)".lowercased() == "content-type" { contentType = "\(value)" }
+                let body = data.map { String(decoding: $0, as: UTF8.self) } ?? ""
+                result.withLock { $0 = (status: http.statusCode, contentType: contentType, body: body) }
+            }
             done.signal()
         }
         task.resume()
         _ = done.wait(timeout: .now() + 5)
-        return body
+        return result.withLock { $0 }
+    }
+
+    /// Under CI (`CI == "true"`, which mac-smoke.sh passes through) the bundled tools and the APK are checks: the mac
+    /// job runs fetch-tools and embed-apk first, so a missing file is a packaging regression. A local build without
+    /// them only notes it.
+    static var strictBundle: Bool {
+        return ProcessInfo.processInfo.environment["CI"] == "true"
     }
 
     /// A minimal `URLSessionWebSocketTask` client that records decoded server messages.
@@ -549,26 +588,35 @@ enum SelfTest {
         guard let resources = Bundle.main.resourceURL else { report.note("vendor: no resource URL"); return }
         let vendor = resources.appendingPathComponent("Vendor")
         let adb = vendor.appendingPathComponent("adb")
+        var archs = ""
         if FileManager.default.fileExists(atPath: adb.path) {
-            let archs = runTool("/usr/bin/lipo", ["-archs", adb.path]) ?? "lipo failed"
+            archs = (runTool("/usr/bin/lipo", ["-archs", adb.path]) ?? "lipo failed").trimmingCharacters(in: .whitespacesAndNewlines)
             let size = (try? FileManager.default.attributesOfItem(atPath: adb.path)[.size] as? Int) ?? 0
-            report.note("vendor: adb \(size) bytes, lipo -archs: \(archs.trimmingCharacters(in: .whitespacesAndNewlines))")
+            report.note("vendor: adb \(size) bytes, lipo -archs: \(archs)")
         } else {
             report.note("vendor: adb missing (make fetch-tools)")
         }
         let server = vendor.appendingPathComponent("scrcpy-server-v4.1")
-        if let data = try? Data(contentsOf: server) {
+        let serverData = try? Data(contentsOf: server)
+        if let data = serverData {
             let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
             report.note("vendor: scrcpy-server-v4.1 \(data.count) bytes sha256 \(digest)")
         } else {
             report.note("vendor: scrcpy-server-v4.1 missing (make fetch-tools)")
         }
         let apk = resources.appendingPathComponent("DaylightInk.apk")
-        if let size = try? FileManager.default.attributesOfItem(atPath: apk.path)[.size] as? Int {
+        let apkSize = try? FileManager.default.attributesOfItem(atPath: apk.path)[.size] as? Int
+        if let size = apkSize {
             report.note("vendor: DaylightInk.apk \(size) bytes")
         } else {
             report.note("vendor: DaylightInk.apk absent (served as 404)")
         }
+        guard strictBundle else { return }
+        let archList = archs.split(whereSeparator: { $0 == " " || $0 == "\n" }).map(String.init)
+        let adbOK = FileManager.default.isExecutableFile(atPath: adb.path) && archList.contains("arm64") && archList.contains("x86_64")
+        report.check("vendor: Vendor/adb is executable with arm64 and x86_64 (CI)", adbOK, "lipo -archs: \(archs.isEmpty ? "none" : archs)")
+        report.check("vendor: Vendor/scrcpy-server-v4.1 is bundled (CI)", (serverData?.count ?? 0) > 0)
+        report.check("vendor: DaylightInk.apk is bundled (CI)", (apkSize ?? 0) > 0)
     }
 
     static func extensionFacts(report: Report) {

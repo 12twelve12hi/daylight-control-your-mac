@@ -41,14 +41,14 @@ class SettingsFactsTest {
         assertEquals(protocolInkKeys.size, SettingsFacts.INK_KEYS.size)
         assertEquals(SettingsFacts.INK_KEYS, SettingsFacts.facts(full).keys.toList())
         val facts = JSONObject(SettingsFacts.json("abc", at, full)).getJSONObject("facts")
-        assertEquals(protocolInkKeys, facts.keySet())
+        assertEquals(protocolInkKeys, facts.keys().asSequence().toSet())
         assertTrue(facts.length() <= 64)
     }
 
     @Test
     fun envelopeFieldsArePresent() {
         val o = JSONObject(SettingsFacts.json("3f0c-uuid", at, full))
-        assertEquals(setOf("schema", "source", "clientId", "sentAt", "facts"), o.keySet())
+        assertEquals(setOf("schema", "source", "clientId", "sentAt", "facts"), o.keys().asSequence().toSet())
         assertEquals("daylight-tablet-facts/1", o.getString("schema"))
         assertEquals("ink", o.getString("source"))
         assertEquals("3f0c-uuid", o.getString("clientId"))

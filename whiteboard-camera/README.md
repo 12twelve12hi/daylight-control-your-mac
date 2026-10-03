@@ -44,7 +44,7 @@ Every component is built, wired and green in CI (`docs/STATUS.md`): the Daylight
 
 There is no Mac or Android SDK on the development machine; GitHub Actions is the compiler (`.github/workflows/whiteboard-camera.yml` at the monorepo root, its standalone twin in `whiteboard-camera/.github/workflows/ci.yml`). Every push runs five jobs: `golden` (the protocol vectors never drift between the four copies; the script gates), `web` (`make web`, `make web-test`), `android` (`make android`, uploads the debug APK), `kit-linux` (`swift test` in a `swift:6.4-noble` container) and `mac` (macos-15: fetch the pinned adb and scrcpy-server, embed the APK and the web build, generate the project, build unsigned, run the hosted tests and the self-test, upload `Daylight-unsigned.zip`, then `make mac-release`, which signs, exports, notarizes and staples only when the eight secrets exist). A `v*` tag or a `workflow_dispatch` with `notarize` ticked produces `Daylight.dmg`.
 
-The same code is published standalone at https://github.com/a12k-a2b/whiteboard-camera once it has been pushed there (the repository exists but is not populated yet). Until then CI runs in the monorepo `12twelve12hi/daylight-control-your-mac` on the branch `claude/daylight-whiteboard-camera-tzxfjb`, and every command in `docs/` uses the monorepo.
+The same code is published standalone at https://github.com/12twelve12hi/whiteboard-camera-draw (its `main` is a subtree split of this directory and runs the same CI from `.github/workflows/ci.yml`). The monorepo `12twelve12hi/daylight-control-your-mac` keeps the development branch `claude/daylight-whiteboard-camera-tzxfjb`; the commands in `docs/` name the monorepo, and the standalone repository's runs carry the same artifacts.
 
 ## License
 

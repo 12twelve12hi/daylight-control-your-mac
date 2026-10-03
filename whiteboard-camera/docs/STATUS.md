@@ -326,4 +326,4 @@ The owner settled the open decisions of LOOSE_ENDS section A; each is recorded i
 - A5: the Chrome flag paste stays optional and offered (D52).
 - A6: the bundled adb stays the default; downloading platform-tools on first use and reusing an installed adb are the engineering ticket LOOSE_ENDS H1, with the legal note kept in A6 and `THIRD_PARTY_NOTICES.md`.
 - A14: Apache-2.0. `LICENSE` is the standard text; the scrcpy copy moved to `LICENSES/Apache-2.0.txt` (G15 closed); `make scripts-check` now runs 26 checks, one of them asserting `LICENSE`.
-- The public standalone repository is https://github.com/a12k-a2b/whiteboard-camera (created by the owner, not yet populated); README and OWNER-NEXT-STEPS say so, and CI keeps running in the monorepo.
+- The public standalone repository is https://github.com/12twelve12hi/whiteboard-camera-draw (created by the owner, populated on 2026-10-03 by `git subtree split --prefix=whiteboard-camera`, 92 commits, tree identical to this directory); its `ci.yml` runs the same jobs, and CI also keeps running in the monorepo.

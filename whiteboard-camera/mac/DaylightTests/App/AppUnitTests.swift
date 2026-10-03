@@ -202,3 +202,21 @@ final class DiagnosticsReportTests: XCTestCase {
         XCTAssertTrue(text.contains("Mike's DC-1 (web)"))
     }
 }
+
+/// "Set up over USB" failures: the adb rows 21 to 23 when the tablet is the problem, the real reason otherwise
+/// (an install that failed must not read "Is USB debugging on?").
+final class USBSetupFailureTests: XCTestCase {
+    func testFailuresMapOntoRows21To23OrTheBanner() {
+        XCTAssertEqual(AppDelegate.usbSetupFailure(AdbError.noDevice)?.0, .adbNoDevice)
+        XCTAssertEqual(AppDelegate.usbSetupFailure(AdbError.deviceNotReady(serial: "JP0001", state: "unauthorized"))?.0, .adbUnauthorized)
+        XCTAssertEqual(AppDelegate.usbSetupFailure(AdbError.deviceNotReady(serial: "JP0001", state: "offline"))?.0, .adbOffline)
+        XCTAssertEqual(AppDelegate.usbSetupFailure(AdbError.deviceNotReady(serial: "JP0001", state: "recovery"))?.0, .adbNoDevice)
+        let install = AdbError.failed(status: 1, detail: "INSTALL_FAILED_OLDER_SDK", command: "-s JP0001 install -r -d x.apk")
+        XCTAssertNil(AppDelegate.usbSetupFailure(install))
+        XCTAssertNil(AppDelegate.usbSetupFailure(AdbError.executableMissing("/x/adb")))
+        XCTAssertNil(AppDelegate.usbSetupFailure(AdbError.timeout(command: "install")))
+        XCTAssertEqual(AppDelegate.describeUSBSetupError(install), "adb -s JP0001 install -r -d x.apk failed: INSTALL_FAILED_OLDER_SDK")
+        XCTAssertEqual(AppDelegate.describeUSBSetupError(AdbError.failed(status: 3, detail: "", command: "reverse")), "adb reverse failed: exit 3")
+        XCTAssertEqual(AppModel.usbSetupFailedText("adb install failed"), "Set up over USB failed: adb install failed")
+    }
+}

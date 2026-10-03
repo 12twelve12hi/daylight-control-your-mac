@@ -145,6 +145,20 @@ final class AppModel: ObservableObject {
         banner = nil
     }
 
+    /// "Set up over USB" stopped on something that is not one of the adb rows (an install or grant that failed, a build
+    /// without the APK): the menu shows the real reason instead of row 21's "Is USB debugging on?".
+    func noteUSBSetupFailed(_ detail: String) {
+        let text = AppModel.usbSetupFailedText(detail)
+        telemetry?.note("failure", "usb setup: \(detail)")
+        failures.append(text)
+        if failures.count > 20 { failures.removeFirst() }
+        banner = text
+    }
+
+    static func usbSetupFailedText(_ detail: String) -> String {
+        return "Set up over USB failed: \(detail)"
+    }
+
     func setCameraPresent(_ present: Bool) {
         cameraPresent = present
     }

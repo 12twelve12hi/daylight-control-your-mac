@@ -15,6 +15,8 @@ final class MirrorController: MirrorControl {
     static let sessionRetryMax: Double = 24
     /// `adb connect` for the Wi-Fi interim is tried at most once per this interval while no USB device is listed.
     static let wifiRetryInterval: Double = 30
+    /// `refreshDevices()` runs `adb devices -l` at most once per this interval while the tracker is not running.
+    static let devicesRefreshInterval: Double = 5
 
     let queue: DispatchQueue
     let mirrorQueue = DispatchQueue(label: "com.twelve.daylight.mirror", qos: .userInteractive)
@@ -38,6 +40,9 @@ final class MirrorController: MirrorControl {
     private var sessionRetryDelay = MirrorController.sessionRetryInitial
     private var pillsInstalledFor: Set<String> = []
     private var lastWifiAttempt: Double = 0
+    private var lastDevicesRefresh: Double = -.infinity
+    /// Set once the bundled adb could not be located, so a 1 Hz caller of `refreshDevices()` does not log it forever.
+    private var adbUnavailable = false
     private let statusBox = Locked<MirrorStatus>(.idle)
     private let devicesBox = Locked<[AdbDevice]>([])
     private let extraBox = Locked<[String: String]>([:])
@@ -143,6 +148,22 @@ final class MirrorController: MirrorControl {
             self.tracker = nil
             self.endSession(reason: "stopped")
             self.setStatus(.idle)
+        }
+    }
+
+    /// SPEC 13.1 step 3: with the Web or Daylight Ink source selected the tracker is not running, so `devices` would
+    /// stay empty and the Welcome window could never offer "Set up over USB". The window's 1 Hz refresh calls this;
+    /// one `adb devices -l` per `devicesRefreshInterval` fills `devices` (and `onDevicesChange`). Nothing is mirrored.
+    func refreshDevices() {
+        queue.async { [weak self] in
+            guard let self = self, self.tracker == nil, !self.adbUnavailable else { return }
+            let now = CACurrentMediaTime()
+            guard now - self.lastDevicesRefresh >= MirrorController.devicesRefreshInterval else { return }
+            self.lastDevicesRefresh = now
+            self.ensureAdb { adb in
+                guard let adb = adb, self.tracker == nil else { return }
+                self.usbDevice(adb: adb) { _ in }
+            }
         }
     }
 
@@ -293,6 +314,7 @@ final class MirrorController: MirrorControl {
                 default: detail = "\(error)"
                 }
                 log(detail)
+                adbUnavailable = true
                 setStatus(.error(.scrcpyServerFailed, detail))
                 completion(nil)
                 return

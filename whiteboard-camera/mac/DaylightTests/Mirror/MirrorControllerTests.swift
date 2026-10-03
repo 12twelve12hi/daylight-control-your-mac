@@ -220,6 +220,34 @@ final class MirrorControllerTests: XCTestCase {
         XCTAssertEqual(FailureText.sentence(.adbNoDevice), "No Daylight found over USB. Is USB debugging on?")
     }
 
+    /// SPEC 13.1 step 3: the Welcome window offers "Set up over USB" with the Web or Daylight Ink source selected, when
+    /// the tracker is not running. `refreshDevices()` lists the tablet without mirroring and is rate limited.
+    func testRefreshDevicesListsTheUSBTabletWithoutStartingTheMirror() {
+        let adb = FakeAdb()
+        adb.respond(containing: ["devices"], with: FakeAdb.ok("JP0001   device usb:1-1 model:Daylight_DC_1 transport_id:1\n"))
+        adb.respond(containing: ["version"], with: FakeAdb.ok("Android Debug Bridge version 1.0.41\n"))
+        let pipeline = FakePipelineControl()
+        let controller = makeController(adb: adb, pipeline: pipeline)
+        let listed = expectation(description: "devices listed")
+        listed.assertForOverFulfill = false
+        controller.onDevicesChange = { list in if list.contains(where: { $0.serial == "JP0001" }) { listed.fulfill() } }
+        controller.refreshDevices()
+        wait(for: [listed], timeout: 8)
+        XCTAssertEqual(controller.devices.first?.serial, "JP0001")
+        XCTAssertEqual(controller.devices.first?.isUSB, true)
+        XCTAssertEqual(controller.status, .idle, "a device listing never starts the mirror")
+        XCTAssertTrue(adb.spawned.isEmpty, "no scrcpy server, no getevent")
+        XCTAssertTrue(pipeline.posted.isEmpty)
+        let listings = adb.calls(containing: "devices").count
+        controller.refreshDevices()
+        controller.refreshDevices()
+        let settled = expectation(description: "control queue drained")
+        controller.queue.async { settled.fulfill() }
+        wait(for: [settled], timeout: 2)
+        XCTAssertEqual(adb.calls(containing: "devices").count, listings, "rate limited to one listing per devicesRefreshInterval")
+        XCTAssertEqual(MirrorController.devicesRefreshInterval, 5)
+    }
+
     func testMissingBundledAdbIsReportedNotCrashed() {
         let empty = FileManager.default.temporaryDirectory.appendingPathComponent("daylight-no-vendor-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: empty, withIntermediateDirectories: true)

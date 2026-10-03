@@ -515,6 +515,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func refreshOnboardingInputs() {
         let s = settingsStore.settings
+        // The "Your Daylight" row must see a tablet on USB with every ink source (SPEC 13.1 step 3); the tracker runs
+        // only in mirror mode, so ask for one rate-limited `adb devices -l` while this window is open.
+        mirror?.refreshDevices()
         // The owner may have answered the system prompt without this window's button: follow the TCC status, and
         // open the capture gate the moment access is granted.
         let permission = AppDelegate.cameraPermission(AVCaptureDevice.authorizationStatus(for: .video))
@@ -560,7 +563,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let host = LocalAddresses.list().first?.ip
             mirror.setUpOverUSB(source: source, host: host, pills: self.settingsStore.settings.mirrorPinClearMode.includesPills) { result in
                 DispatchQueue.main.async {
-                    if case let .failure(error) = result { self.model.noteFailure(.adbNoDevice, ["\(error)"]) }
+                    guard case let .failure(error) = result else { return }
+                    if let row = AppDelegate.usbSetupFailure(error) {
+                        self.model.noteFailure(row.0, row.1)
+                    } else {
+                        self.model.noteUSBSetupFailed(AppDelegate.describeUSBSetupError(error))
+                    }
                 }
             }
         }
@@ -586,6 +594,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.onboarding?.close()
         }
         onboardingModel.actions = actions
+    }
+
+    /// "Set up over USB" failures onto the adb rows (SPEC 13.3 rows 21 to 23): no USB tablet is row 21, a tablet that
+    /// still shows the RSA prompt is row 22, an offline one is row 23. Anything else (an install or grant that failed,
+    /// a build without the APK, a missing adb) has no row and returns nil; the caller shows the error text itself
+    /// instead of blaming USB debugging.
+    static func usbSetupFailure(_ error: Error) -> (FailureText.Case, [String])? {
+        guard let adbError = error as? AdbError else { return nil }
+        switch adbError {
+        case .noDevice:
+            return (.adbNoDevice, ["(no USB device)"])
+        case let .deviceNotReady(serial, state):
+            if state == AdbDevicesParser.stateUnauthorized { return (.adbUnauthorized, [serial]) }
+            if state == AdbDevicesParser.stateOffline { return (.adbOffline, [serial]) }
+            return (.adbNoDevice, ["\(serial) \(state)"])
+        case .executableMissing, .launchFailed, .timeout, .failed:
+            return nil
+        }
+    }
+
+    /// One readable line for the menu banner when `usbSetupFailure` has no row.
+    static func describeUSBSetupError(_ error: Error) -> String {
+        guard let adbError = error as? AdbError else { return "\(error)" }
+        switch adbError {
+        case let .executableMissing(path): return "the bundled adb is missing at \(path)"
+        case let .launchFailed(detail): return "adb could not be launched (\(detail))"
+        case let .timeout(command): return "adb \(command) timed out"
+        case let .failed(status, detail, command):
+            let text = detail.isEmpty ? "exit \(status)" : detail
+            return "adb \(command) failed: \(text)"
+        case .noDevice: return FailureText.sentence(.adbNoDevice)
+        case let .deviceNotReady(serial, state): return "\(serial) is \(state)"
+        }
     }
 
     /// The camera privacy pane for row 3; otherwise the installer's Camera Extensions pane (macOS 15 and later first,

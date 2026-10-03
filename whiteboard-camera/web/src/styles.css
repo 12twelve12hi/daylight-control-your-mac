@@ -119,6 +119,7 @@ button { font: inherit; color: inherit; }
 #chip[data-state="pending"] { color: var(--ink-black); }
 #chip[data-state="denied"] { color: var(--terracotta); border-color: var(--terracotta); }
 #chip[data-state="incompatible"] { color: var(--terracotta); border-color: var(--terracotta); }
+#chip[data-state="refused"] { color: var(--terracotta); border-color: var(--terracotta); }
 #chip[data-state="inactive"] { color: var(--ink-black); }
 #chip[data-state="camera"] { background: var(--surface-cream); }
 #chip[data-state="live"] { background: var(--paper-bg); }

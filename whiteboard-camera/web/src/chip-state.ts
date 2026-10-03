@@ -10,13 +10,15 @@ export type ConnectionPhase =
   | "pending"        // ACK status 1: the Mac shows the Allow panel
   | "live"           // ACK status 0
   | "denied"         // ACK status 2: retry only on user action
-  | "incompatible";  // ACK status 3 or the server did not echo solstream.v1
+  | "incompatible"   // ACK status 3 or the server did not echo solstream.v1
+  | "refused";       // the Mac answers /api/info but the socket never opens (LOOSE_ENDS E18); re-dial every 60 s
 
 export type ChipKind =
   | "searching"
   | "pending"
   | "denied"
   | "incompatible"
+  | "refused"
   | "inactive"
   | "camera"
   | "live"
@@ -65,6 +67,9 @@ export function chipView(phase: ConnectionPhase, state: StateReport | null, msEl
       return { kind: "denied", text: "Not allowed by the Mac", dot: false, breathing: false, tap: "retry", longPressReturns: false };
     case "incompatible":
       return { kind: "incompatible", text: "Update Daylight on your Mac", dot: false, breathing: false, tap: "retry", longPressReturns: false };
+    case "refused":
+      // The page cannot tell an old protocol from a refused socket (Chromium hides the upgrade result); say what it knows.
+      return { kind: "refused", text: "Mac found, socket refused. Tap to retry", dot: false, breathing: false, tap: "retry", longPressReturns: false };
     case "live":
       break;
   }

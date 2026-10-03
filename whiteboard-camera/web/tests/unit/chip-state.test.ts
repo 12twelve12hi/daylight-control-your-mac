@@ -51,6 +51,14 @@ test("connection phases before any STATE", () => {
   assert.equal(denied.text, "Not allowed by the Mac");
   assert.equal(denied.tap, "retry");
   assert.equal(chipView("live", null).text, "Looking for your Mac");
+  const incompatible = chipView("incompatible", null);
+  assert.equal(incompatible.text, "Update Daylight on your Mac");
+  assert.equal(incompatible.tap, "retry");
+  const refused = chipView("refused", null);
+  assert.equal(refused.kind, "refused");
+  assert.equal(refused.text, "Mac found, socket refused. Tap to retry");
+  assert.equal(refused.tap, "retry");
+  assert.equal(refused.longPressReturns, false);
 });
 
 test("STATE mapping of PROTOCOL 6.14", () => {

@@ -16,6 +16,11 @@ export class Toolbar {
   private readonly toolButtons: Record<Tool, HTMLButtonElement>;
   private readonly undoButton: HTMLButtonElement;
   private readonly redoButton: HTMLButtonElement;
+  private readonly newPageButton: HTMLButtonElement;
+  private readonly clearButton: HTMLButtonElement;
+  private live = false;
+  private undoDepth = 0;
+  private redoDepth = 0;
   tool: Tool = "pen";
 
   constructor(root: HTMLElement, private readonly actions: ToolbarActions) {
@@ -30,13 +35,30 @@ export class Toolbar {
     for (const tool of Object.keys(this.toolButtons) as Tool[]) {
       this.toolButtons[tool].addEventListener("click", () => this.select(tool));
     }
+    this.newPageButton = q("new-page");
+    this.clearButton = q("clear");
     this.undoButton.addEventListener("click", () => { if (!this.undoButton.disabled) actions.undo(); });
     this.redoButton.addEventListener("click", () => { if (!this.redoButton.disabled) actions.redo(); });
-    q("new-page").addEventListener("click", () => actions.newPage());
-    q("clear").addEventListener("click", () => actions.clear());
+    this.newPageButton.addEventListener("click", () => { if (!this.newPageButton.disabled) actions.newPage(); });
+    this.clearButton.addEventListener("click", () => { if (!this.clearButton.disabled) actions.clear(); });
     q("info").addEventListener("click", () => actions.info());
-    this.setDepths(0, 0);
+    this.setLive(false);
     this.select("pen");
+  }
+
+  /**
+   * Clear, New page, Undo and Redo are control messages: meaningful now or never (PROTOCOL 9), and a Clear
+   * replayed after a reconnect would make the Mac save a page the owner never saw. Off while not live.
+   */
+  setLive(live: boolean): void {
+    this.live = live;
+    this.newPageButton.disabled = !live;
+    this.clearButton.disabled = !live;
+    this.apply();
+  }
+
+  get isLive(): boolean {
+    return this.live;
   }
 
   select(tool: Tool): void {
@@ -47,9 +69,15 @@ export class Toolbar {
     this.actions.setTool(tool);
   }
 
-  /** Enabled states come from STATE `undo_depth` and `redo_depth` (the Mac's truth). */
+  /** Enabled states come from STATE `undo_depth` and `redo_depth` (the Mac's truth), and only while live. */
   setDepths(undoDepth: number, redoDepth: number): void {
-    this.undoButton.disabled = undoDepth <= 0;
-    this.redoButton.disabled = redoDepth <= 0;
+    this.undoDepth = undoDepth;
+    this.redoDepth = redoDepth;
+    this.apply();
+  }
+
+  private apply(): void {
+    this.undoButton.disabled = !this.live || this.undoDepth <= 0;
+    this.redoButton.disabled = !this.live || this.redoDepth <= 0;
   }
 }

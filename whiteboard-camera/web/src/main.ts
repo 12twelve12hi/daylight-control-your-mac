@@ -8,7 +8,7 @@ import { CANVAS_H, CANVAS_W, InkCanvas } from "./ink.js";
 import * as protocol from "./protocol.js";
 import { newUuid16, type HandshakeAck, type StateReport } from "./protocol.js";
 import { Toolbar, type Tool } from "./tools.js";
-import { InkClient } from "./ws.js";
+import { InkClient, REFUSED_REDIAL_MS } from "./ws.js";
 
 interface ApiInfo {
   app?: string;
@@ -83,7 +83,10 @@ const client = new InkClient(socketUrl(), identity(), {
   onPhase(phase: ConnectionPhase) {
     chip.setPhase(phase);
     document.body.dataset.connection = phase;
-    if (phase !== "live") ink.restartOpenStroke();
+    // Control buttons (Clear, New page, Undo, Redo) are gated rather than ringed: a Clear replayed after a reconnect
+    // would make the Mac save a page the owner never saw; the depths come back with the next STATE.
+    toolbar.setLive(phase === "live");
+    if (phase !== "live") { ink.restartOpenStroke(); toolbar.setDepths(0, 0); }
     if (phase === "live" && !lastState) toolbar.setDepths(0, 0);
   },
   onState(state: StateReport) {
@@ -106,13 +109,15 @@ const toolbar = new Toolbar(toolbarEl, {
   undo() { client.sendControl(client.encoder.undo(pageId)); },
   redo() { client.sendControl(client.encoder.redo(pageId)); },
   newPage() {
-    pageId = newUuid16();
+    // The page id and index advance only when the Mac heard about them (a refused control is dropped, PROTOCOL 9).
+    const id = newUuid16();
+    if (!client.sendControl(client.encoder.pageChange(id, CANVAS_W, CANVAS_H, pageIndex + 1))) return;
+    pageId = id;
     pageIndex += 1;
-    client.sendControl(client.encoder.pageChange(pageId, CANVAS_W, CANVAS_H, pageIndex));
     ink.clearLocal();
   },
   clear() {
-    client.sendControl(client.encoder.clear(pageId));
+    if (!client.sendControl(client.encoder.clear(pageId))) return;
     ink.clearLocal();
   },
   info() { toggleCard(); },
@@ -154,8 +159,14 @@ function toggleCard(force?: boolean): void {
   if (show) renderCard();
 }
 
+let cardHtml = "";
+
+/** Re-renders the card only while it is open and only when its text changed (STATE arrives up to 10 Hz). */
 function renderCard(): void {
-  const origin = info?.origin ?? location.origin;
+  if (cardEl.hidden) return;
+  // The flag paste must name the origin the tablet really loaded, which is this page's own (the Mac's /api/info
+  // origin is the fallback for a page opened from a file or a non-http scheme).
+  const origin = /^https?:$/.test(location.protocol) ? location.origin : (info?.origin ?? location.origin);
   const flag = info?.secureHint ?? "chrome://flags/#unsafely-treat-insecure-origin-as-secure";
   const source = lastState ? ["web", "Daylight Ink", "mirror"][lastState.inkSource] : null;
   const rows: string[] = [];
@@ -169,7 +180,10 @@ function renderCard(): void {
     rows.push(`<section class="row flag" data-dismissed="${dismissed}"><h3>Better ink and the screen stays awake over Wi-Fi</h3><p>One time, in Chrome open <code id="flag-url">${flag}</code>, choose Enabled, paste <code id="flag-origin">${origin}</code>, then relaunch Chrome.</p><button type="button" id="flag-dismiss">${dismissed ? "Shown again" : "Got it"}</button></section>`);
   }
   rows.push(`<section class="row facts"><h3>This tablet</h3><p id="facts">${factsText()}</p></section>`);
-  cardEl.innerHTML = `<div class="card-head"><h2>Daylight Whiteboard</h2><button type="button" id="card-close" aria-label="Close">Close</button></div>${rows.join("")}`;
+  const html = `<div class="card-head"><h2>Daylight Whiteboard</h2><button type="button" id="card-close" aria-label="Close">Close</button></div>${rows.join("")}`;
+  if (html === cardHtml) return;
+  cardHtml = html;
+  cardEl.innerHTML = html;
   cardEl.querySelector("#card-close")?.addEventListener("click", () => toggleCard(false));
   cardEl.querySelector("#flag-dismiss")?.addEventListener("click", () => {
     storageSet(STORAGE_FLAG_DISMISSED, storageGet(STORAGE_FLAG_DISMISSED) === "1" ? "0" : "1");
@@ -239,7 +253,18 @@ const debug = {
   get start() { return startResult; },
   get ink() { return ink.stats; },
   get client() { return client.stats; },
-  get ring() { return { length: client.ring.length, points: client.ring.points, droppedStrokes: client.ring.droppedStrokes }; },
+  get ring() {
+    return {
+      length: client.ring.length,
+      points: client.ring.points,
+      droppedStrokes: client.ring.droppedStrokes,
+      droppedFrames: client.ring.droppedFrames,
+      // Opcode of every queued frame (header bytes 2 and 3, little endian), for the suite.
+      opcodes: client.ring.peek().map((e) => new DataView(e.frame).getUint16(2, true)),
+    };
+  },
+  get toolbarLive() { return toolbar.isLive; },
+  constants: { REFUSED_REDIAL_MS },
   get chip() { return { ...chip.current, breath: chip.breathWeight(), taps: chip.stats.taps, longPresses: chip.stats.longPresses }; },
   get pageIndex() { return pageIndex; },
   get pageId() { return protocol.uuidToString(pageId); },

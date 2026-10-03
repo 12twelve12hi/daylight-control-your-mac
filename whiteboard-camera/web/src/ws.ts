@@ -1,6 +1,7 @@
 // WebSocket client for ws://<mac>:7788/ink (PROTOCOL 1, 8). Offers the solstream.v1 subprotocol and
 // requires it back; backoff 1000 ms x 1.7 capped at 15 s; PING every 10 s; ring replay on ACK 0;
-// no ink leaves while the Mac shows the Allow panel (ACK 1); re-dials on visibilitychange and online.
+// no ink leaves while the Mac shows the Allow panel (ACK 1); re-dials on visibilitychange and online;
+// a Mac that answers /api/info while the socket keeps failing is "refused" and re-dialled every 60 s.
 
 import type { ConnectionPhase } from "./chip-state.js";
 import { Encoder, decodeServer, nowUs, type HandshakeAck, type StateReport } from "./protocol.js";
@@ -20,6 +21,8 @@ export const HANDSHAKE_DPI = 200;
  * the client asks GET /api/info; a daylight answer means "reachable but not compatible": stop retrying.
  */
 export const INCOMPATIBLE_PROBE_AFTER = 5;
+/** While "refused" (the probe found a Daylight that will not take the socket) one re-dial per minute, plus taps. */
+export const REFUSED_REDIAL_MS = 60_000;
 
 export function backoffDelay(attempt: number): number {
   return Math.min(BACKOFF_CAP_MS, BACKOFF_BASE_MS * Math.pow(BACKOFF_FACTOR, attempt));
@@ -40,6 +43,8 @@ export interface InkClientStats {
   framesRinged: number;
   framesReplayed: number;
   controlDropped: number;
+  /** Re-dials made by the 60 s timer of the refused phase. */
+  refusedRedials: number;
   lastDelayMs: number;
   rttMs: number | null;
   lastCloseCode: number | null;
@@ -52,11 +57,12 @@ export class InkClient {
   readonly encoder = new Encoder(nowUs);
   readonly ring: Ring;
   phase: ConnectionPhase = "disconnected";
-  readonly stats: InkClientStats = { dials: 0, opens: 0, closes: 0, framesSent: 0, framesRinged: 0, framesReplayed: 0, controlDropped: 0, lastDelayMs: 0, rttMs: null, lastCloseCode: null };
+  readonly stats: InkClientStats = { dials: 0, opens: 0, closes: 0, framesSent: 0, framesRinged: 0, framesReplayed: 0, controlDropped: 0, refusedRedials: 0, lastDelayMs: 0, rttMs: null, lastCloseCode: null };
   private ws: WebSocket | null = null;
   private stopped = true;
   private attempt = 0;
   private redialTimer: number | null = null;
+  private refusedTimer: number | null = null;
   private pingTimer: number | null = null;
   private pingSeq = 0n;
   private consecutiveFailures = 0;
@@ -91,7 +97,7 @@ export class InkClient {
     this.setPhase("disconnected");
   }
 
-  /** User action after "Not allowed by the Mac" or an incompatible server: dial again from scratch. */
+  /** User action after "Not allowed by the Mac", a refused socket or an incompatible server: dial again from scratch. */
   retry(): void {
     this.clearTimers();
     this.consecutiveFailures = 0;
@@ -158,7 +164,19 @@ export class InkClient {
 
   private clearTimers(): void {
     if (this.redialTimer !== null) { clearTimeout(this.redialTimer); this.redialTimer = null; }
+    if (this.refusedTimer !== null) { clearTimeout(this.refusedTimer); this.refusedTimer = null; }
     if (this.pingTimer !== null) { clearInterval(this.pingTimer); this.pingTimer = null; }
+  }
+
+  /** Refused: the chip says "Tap to retry"; one quiet re-dial a minute catches a Mac that was merely restarting. */
+  private scheduleRefusedRedial(): void {
+    if (this.stopped || this.refusedTimer !== null) return;
+    this.refusedTimer = window.setTimeout(() => {
+      this.refusedTimer = null;
+      if (this.stopped || this.ws || this.phase !== "refused") return;
+      this.stats.refusedRedials++;
+      this.dial();
+    }, REFUSED_REDIAL_MS);
   }
 
   private dial(): void {
@@ -216,9 +234,9 @@ export class InkClient {
       if (!this.ackedOnThisSocket) this.consecutiveFailures++;
       this.ackedOnThisSocket = false;
       if (this.consecutiveFailures >= INCOMPATIBLE_PROBE_AFTER) {
-        void this.probeIncompatible().then((incompatible) => {
+        void this.probeIncompatible().then((reachable) => {
           if (this.stopped || this.ws) return;
-          if (incompatible) { this.setPhase("incompatible"); this.clearTimers(); }
+          if (reachable) { this.setPhase("refused"); this.clearTimers(); this.scheduleRefusedRedial(); }
           else this.scheduleRedial();
         });
         return;
@@ -227,7 +245,7 @@ export class InkClient {
     };
   }
 
-  /** True when the Mac answers /api/info as daylight while our socket keeps failing. */
+  /** True when the Mac answers /api/info as daylight while our socket keeps failing (refused, or an old protocol). */
   private async probeIncompatible(): Promise<boolean> {
     try {
       const u = new URL(this.url);

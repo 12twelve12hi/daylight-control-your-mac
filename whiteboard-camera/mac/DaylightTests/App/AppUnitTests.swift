@@ -60,6 +60,14 @@ final class HotkeysTests: XCTestCase {
         XCTAssertEqual(HotkeyRecorder.carbonModifiers([.shift]), 1 << 9)
         XCTAssertEqual(HotkeyRecorder.carbonModifiers([]), 0)
     }
+
+    /// Settings names a recorded chord the way the menu and onboarding do (it used to read "Key 7" for X).
+    func testRecorderNamesEveryKeyLikeTheMenu() {
+        let x = HotkeyBinding(keyCode: 0x07, modifiers: HotkeyBinding.defaultModifiers)
+        XCTAssertEqual(HotkeyRecorder.describe(x), "Ctrl+Opt+Cmd+X")
+        XCTAssertEqual(HotkeyRecorder.describe(HotkeyBinding(keyCode: 0x31, modifiers: HotkeyBinding.cmdKey)), "Cmd+Space")
+        XCTAssertEqual(HotkeyRecorder.describe(HotkeyBinding(keyCode: 0x00, modifiers: HotkeyBinding.defaultModifiers)), "Ctrl+Opt+Cmd+A")
+    }
 }
 
 final class OnboardingStepsTests: XCTestCase {

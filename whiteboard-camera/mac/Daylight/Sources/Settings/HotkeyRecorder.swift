@@ -16,18 +16,13 @@ struct HotkeyRecorder: NSViewRepresentable {
     }
 
     func updateNSView(_ view: RecorderView, context: Context) {
-        view.text = (conflict.map { $0 + ": " } ?? "") + describe(binding)
+        view.text = (conflict.map { $0 + ": " } ?? "") + HotkeyRecorder.describe(binding)
         view.needsDisplay = true
     }
 
-    private func describe(_ b: HotkeyBinding) -> String {
-        var parts: [String] = []
-        if b.modifiers & HotkeyBinding.controlKey != 0 { parts.append("Ctrl") }
-        if b.modifiers & HotkeyBinding.optionKey != 0 { parts.append("Opt") }
-        if b.modifiers & UInt32(shiftKey) != 0 { parts.append("Shift") }
-        if b.modifiers & HotkeyBinding.cmdKey != 0 { parts.append("Cmd") }
-        parts.append(RecorderView.keyName(b.keyCode))
-        return parts.joined(separator: "+")
+    /// The chord as the menu and onboarding name it, so every key the owner records reads the same everywhere.
+    static func describe(_ b: HotkeyBinding) -> String {
+        return Hotkeys.describe(b)
     }
 
     /// Converts AppKit modifier flags into the Carbon mask `RegisterEventHotKey` expects.
@@ -76,17 +71,6 @@ struct HotkeyRecorder: NSViewRepresentable {
             let shown = recording ? "Press the new chord..." : text
             let attributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 12), .foregroundColor: NSColor.labelColor]
             NSAttributedString(string: shown, attributes: attributes).draw(at: NSPoint(x: 8, y: 5))
-        }
-
-        static func keyName(_ keyCode: UInt32) -> String {
-            switch keyCode {
-            case HotkeyBinding.keyW: return "W"
-            case HotkeyBinding.keyD: return "D"
-            case HotkeyBinding.keyK: return "K"
-            case HotkeyBinding.keyC: return "C"
-            case HotkeyBinding.keyEscape: return "Esc"
-            default: return "Key \(keyCode)"
-            }
         }
     }
 }

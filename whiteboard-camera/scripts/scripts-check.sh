@@ -28,7 +28,8 @@ asc="ASC_API_KEY_ID=KEY ASC_API_ISSUER_ID=ISSUER ASC_API_PRIVATE_KEY_BASE64=cDg=
 
 run_release
 expect "no secrets: skip with exit 0" 0 "skipping the signed build"
-expect "no secrets: the message points at an existing file" 0 "docs/handoff/c-camera-extension-and-host-sink-client.md section 7"
+expect "no secrets: the message points at an existing file" 0 "docs/SIGNING.md"
+[[ -f docs/SIGNING.md ]] && { echo "ok    docs/SIGNING.md exists"; passes=$((passes + 1)); } || { echo "FAIL  docs/SIGNING.md is missing"; fails=$((fails + 1)); }
 run_release DAYLIGHT_TEAM_ID=ABCDE12345 DAYLIGHT_DEVELOPER_ID_P12_BASE64=cDEy DAYLIGHT_APP_PROVISIONING_PROFILE_BASE64=cHJvZmlsZQ==
 expect "three of four signing secrets: exit 1 naming the password" 1 "missing or misnamed: DAYLIGHT_DEVELOPER_ID_P12_PASSWORD$"
 run_release HAS_SIGNING=true

@@ -36,7 +36,7 @@ There is no Mac or Android SDK on the development machine; GitHub Actions is the
 
 A `v*` tag push runs the same workflow with the notarization path armed (it still needs the secrets). Locally, `make help` lists the targets and `make doctor` says which of them can run on this machine. `make web web-test` and `make golden-check` work anywhere with Node and Python 3; `make kit-test` needs a Swift toolchain; `make android` needs an Android SDK; the `mac-*` targets need Xcode and XcodeGen.
 
-An unsigned build can show the menu bar item and the preview window, but macOS loads a camera extension only when it is signed with a Developer ID and notarized. The owner checklist for that lives in `docs/LOOSE_ENDS.md` item A1 and `docs/handoff/c-camera-extension-and-host-sink-client.md` section 7 (folded into `docs/SIGNING.md` at M6).
+An unsigned build can show the menu bar item and the preview window, but macOS loads a camera extension only when it is signed with a Developer ID and notarized. The owner checklist for that lives in `docs/SIGNING.md` (about 30 minutes, no Xcode needed), with `docs/LOOSE_ENDS.md` item A1 as the pointer.
 
 ## License
 

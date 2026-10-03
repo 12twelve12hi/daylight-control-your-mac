@@ -13,7 +13,7 @@
 # (OBS setup-macos-codesigning action, Apple TN3125 and TN3147). Written for the runner's /bin/bash 3.2.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-checklist="docs/handoff/c-camera-extension-and-host-sink-client.md section 7 (owner checklist, becomes docs/SIGNING.md)"
+checklist="docs/SIGNING.md (owner checklist and what this script asserts)"
 
 # ---- 0. Gate: which secrets exist, and is the set complete? -------------------------------------------------
 required="DAYLIGHT_TEAM_ID DAYLIGHT_DEVELOPER_ID_P12_BASE64 DAYLIGHT_DEVELOPER_ID_P12_PASSWORD DAYLIGHT_APP_PROVISIONING_PROFILE_BASE64"

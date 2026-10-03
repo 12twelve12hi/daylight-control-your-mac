@@ -281,6 +281,8 @@ final class AdbDownloader {
     let session: URLSession
     let queue: DispatchQueue
     private let fileManager: FileManager
+    /// The completions of the download in flight (nil when none runs); touched on `queue` only.
+    private var waiting: [(Result<AdbLocation, AdbSourceError>) -> Void]?
 
     init(directory: URL = AdbDownloader.defaultDirectory(), pins: AdbPins = .current, session: URLSession = .shared,
          queue: DispatchQueue = DispatchQueue(label: "com.twelve.daylight.adb.download", qos: .utility), fileManager: FileManager = .default) {
@@ -323,30 +325,36 @@ final class AdbDownloader {
         return .success(AdbLocation(url: executable, source: .download, version: "platform-tools \(manifest.version)"))
     }
 
-    /// Downloads when `locateInstalled` fails; completion on `queue`. The caller has checked the terms.
+    /// Downloads when `locateInstalled` fails; completion on `queue`. The caller has checked the terms. Single-flight: a
+    /// call while a download runs joins it and gets the same result, so a second transfer never reinstalls over the first.
     func ensure(completion: @escaping (Result<AdbLocation, AdbSourceError>) -> Void) {
         queue.async {
+            if self.waiting != nil {
+                self.waiting?.append(completion)
+                return
+            }
             if case let .success(location) = self.locateInstalled() {
                 completion(.success(location))
                 return
             }
+            self.waiting = [completion]
             let url = self.pins.url
             AdbDownloader.log.notice("adb download: \(url.absoluteString, privacy: .public)")
             let task = self.session.dataTask(with: url) { data, response, error in
                 self.queue.async {
+                    let result: Result<AdbLocation, AdbSourceError>
                     if let error = error {
-                        completion(.failure(.downloadFailed(reason: error.localizedDescription, url: url.absoluteString)))
-                        return
+                        result = .failure(.downloadFailed(reason: error.localizedDescription, url: url.absoluteString))
+                    } else if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+                        result = .failure(.downloadFailed(reason: "the server answered HTTP \(http.statusCode)", url: url.absoluteString))
+                    } else if let data = data, !data.isEmpty {
+                        result = self.install(zip: data)
+                    } else {
+                        result = .failure(.downloadFailed(reason: "the download was empty", url: url.absoluteString))
                     }
-                    if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
-                        completion(.failure(.downloadFailed(reason: "the server answered HTTP \(http.statusCode)", url: url.absoluteString)))
-                        return
-                    }
-                    guard let data = data, !data.isEmpty else {
-                        completion(.failure(.downloadFailed(reason: "the download was empty", url: url.absoluteString)))
-                        return
-                    }
-                    completion(self.install(zip: data))
+                    let callers = self.waiting ?? []
+                    self.waiting = nil
+                    callers.forEach { $0(result) }
                 }
             }
             task.resume()

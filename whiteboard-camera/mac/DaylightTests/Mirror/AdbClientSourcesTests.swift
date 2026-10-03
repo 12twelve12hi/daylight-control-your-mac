@@ -191,6 +191,45 @@ final class AdbClientSourcesTests: XCTestCase {
         XCTAssertEqual(downloader.locateInstalled().failureValue, .notDownloaded(version: "37.0.0"), "the manifest is dropped, so the next ensure downloads again")
     }
 
+    /// ADB-B5: Settings can call `ensure` again while a download runs (pick Bundled, then Download). The second call
+    /// joins the first: one transfer, both callers get the same result. Before the fix the second call started its own
+    /// transfer (2 requests) and reinstalled over the first copy.
+    func testASecondEnsureJoinsTheDownloadInFlight() throws {
+        let zip = try makeZip()
+        let body = try Data(contentsOf: zip)
+        let sha = try XCTUnwrap(AdbSHA256.hex(of: zip))
+        GatedZipProtocol.reset(body: body)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [GatedZipProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        let url = URL(string: "https://adb-download.test/platform-tools_r37.0.0-darwin.zip")!
+        let downloader = AdbDownloader(directory: installDirectory, pins: AdbPins(version: "37.0.0", sha256: sha, url: url), session: session)
+
+        // Hold every response until both calls have been taken on the downloader's queue.
+        GatedZipProtocol.gate.suspend()
+        var released = false
+        defer { if !released { GatedZipProtocol.gate.resume() } }
+        let results = Locked<[Result<AdbLocation, AdbSourceError>]>([])
+        let done = expectation(description: "both callers complete")
+        done.expectedFulfillmentCount = 2
+        downloader.ensure { result in results.withLock { $0.append(result) }; done.fulfill() }
+        downloader.ensure { result in results.withLock { $0.append(result) }; done.fulfill() }
+        downloader.queue.sync {}
+        GatedZipProtocol.gate.resume()
+        released = true
+        wait(for: [done], timeout: 30)
+
+        XCTAssertEqual(GatedZipProtocol.requests, 1, "one transfer for two callers")
+        let expected = AdbLocation(url: installDirectory.appendingPathComponent("adb"), source: .download, version: "platform-tools 37.0.0")
+        let got = results.withLock { $0 }
+        XCTAssertEqual(got.count, 2)
+        for result in got { XCTAssertEqual(try result.get(), expected) }
+        // Afterwards a new call finds the installed copy and starts nothing.
+        XCTAssertEqual(try ensure(downloader).get(), expected)
+        XCTAssertEqual(GatedZipProtocol.requests, 1)
+    }
+
     func testANewPinDownloadsAgain() throws {
         let zip = try makeZip()
         let sha = try XCTUnwrap(AdbSHA256.hex(of: zip))
@@ -298,6 +337,37 @@ final class AdbClientSourcesTests: XCTestCase {
         XCTAssertEqual(AdbSourceStatus.diagnostics()["adb.path"], "none")
         XCTAssertEqual(AdbSourceStatus.diagnostics()["adb.error"], FailureText.logLine(.adbTermsDeclined, ["37.0.0"]))
     }
+}
+
+/// Serves one zip for every request, after `gate` lets it through, and counts the requests (ADB-B5).
+private final class GatedZipProtocol: URLProtocol {
+    static let gate = DispatchQueue(label: "adb-download-gate")
+    private static let state = Locked<(requests: Int, body: Data)>((0, Data()))
+
+    static var requests: Int { return state.withLock { $0.requests } }
+
+    static func reset(body: Data) {
+        state.withLock { $0 = (0, body) }
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool { return true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { return request }
+
+    override func startLoading() {
+        let body = GatedZipProtocol.state.withLock { s -> Data in
+            s.requests += 1
+            return s.body
+        }
+        let url = request.url ?? URL(string: "https://adb-download.test/")!
+        GatedZipProtocol.gate.async {
+            guard let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: nil) else { return }
+            self.client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            self.client?.urlProtocol(self, didLoad: body)
+            self.client?.urlProtocolDidFinishLoading(self)
+        }
+    }
+
+    override func stopLoading() {}
 }
 
 private extension Result {

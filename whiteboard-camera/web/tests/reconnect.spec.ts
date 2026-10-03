@@ -53,8 +53,8 @@ test("a stroke drawn while disconnected is ringed and replayed after the reconne
   await expect(page.locator("#chip")).toHaveText("Looking for your Mac");
   const box = await paperBox(page);
   await penStroke(page, [{ ...toPage(box, 100, 100), p: 0.4 }, { ...toPage(box, 200, 160), p: 0.6 }, { ...toPage(box, 300, 220), p: 0.8 }]);
-  // START, one or two CHUNKs (an animation frame may split the three points), COMMIT; three points in all.
-  await expect.poll(() => debugValue<{ opcodes: number[] }>(page, "ring").then((r) => r.opcodes.map((o) => o.toString(16)).join(","))).toMatch(/^10(,11){1,2},12$/);
+  // START, one to three CHUNKs (animation frames may split the three points), COMMIT; three points in all.
+  await expect.poll(() => debugValue<{ opcodes: number[] }>(page, "ring").then((r) => r.opcodes.map((o) => o.toString(16)).join(","))).toMatch(/^10(,11){1,3},12$/);
   const ringedBefore = await debugValue<{ length: number; points: number }>(page, "ring");
   expect(ringedBefore.points).toBe(3);
   expect((await fake.framesNamed("STROKE_START")).length).toBe(0);
@@ -165,7 +165,8 @@ test("Clear, New page, Undo and Redo are gated while the Mac is away; the ring k
   const box = await paperBox(page);
   await penStroke(page, [{ ...toPage(box, 100, 100), p: 0.4 }, { ...toPage(box, 200, 160), p: 0.6 }, { ...toPage(box, 300, 220), p: 0.8 }]);
   const ringed = () => debugValue<{ opcodes: number[] }>(page, "ring").then((r) => r.opcodes.map((o) => o.toString(16)).join(","));
-  await expect.poll(ringed).toMatch(/^10(,11){1,2},12$/);
+  await expect.poll(ringed).toMatch(/^10(,11){1,3},12$/);
+  expect((await debugValue<{ points: number }>(page, "ring")).points).toBe(3);
   const before = await ringed();
   // A disabled button fires no click; even a scripted one changes nothing.
   await page.evaluate(() => { for (const id of ["clear", "new-page"]) document.getElementById(id)!.click(); });

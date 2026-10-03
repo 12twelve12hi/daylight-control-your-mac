@@ -226,7 +226,7 @@ test("the stroke tail goes out before COMMIT even while the socket asks to hold 
   const a = toPage(box, 100, 600);
   const b = toPage(box, 160, 630);
   await penStroke(page, [{ ...a, p: 0.5 }, { ...b, p: 0.5 }], { release: false });
-  await waitForFrames(fake, "STROKE_CHUNK");
+  await expect.poll(async () => (await fake.framesNamed("STROKE_CHUNK")).reduce((n, ch) => n + (ch.points as unknown[]).length, 0)).toBe(2);
   await page.evaluate(() => { (window as unknown as { __ba: number }).__ba = 70_000; });
   const c = toPage(box, 220, 660);
   const d = toPage(box, 280, 700);

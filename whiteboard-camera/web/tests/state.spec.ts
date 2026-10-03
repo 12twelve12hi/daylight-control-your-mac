@@ -100,7 +100,8 @@ test("tap sends TOGGLE_PIN -1; long press 600 ms sends AUTO_ENGAGE_RETURN", asyn
   const cy = box.y + box.height / 2;
   await page.mouse.move(cx, cy);
   await page.mouse.down();
-  await page.waitForTimeout(750);
+  // Held until the page has fired the long press: an overdue timer never races the pointerup.
+  await expect.poll(() => debugValue<{ longPresses: number }>(page, "chip").then((c) => c.longPresses)).toBe(1);
   await page.mouse.up();
   const ret = (await waitForFrames(fake, "AUTO_ENGAGE_RETURN"))[0]!;
   expect(ret.payloadLen).toBe(8);
@@ -114,16 +115,19 @@ test("tap sends TOGGLE_PIN -1; long press 600 ms sends AUTO_ENGAGE_RETURN", asyn
 
 test("a short press under 600 ms is a tap, not a return", async ({ page, request }) => {
   const fake = new FakeMac(request);
+  await page.clock.install();   // before navigation: the 600 ms long-press timer runs on the fake clock
   await openWhiteboard(page);
   await fake.state({ governor: 2, flags: allowed });
   const chip = page.locator("#chip");
   const box = (await chip.boundingBox())!;
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  const t = await page.evaluate(() => Date.now());
+  await page.clock.pauseAt(t + 50);
   await page.mouse.down();
-  await page.waitForTimeout(300);
+  await page.clock.runFor(300);
   await page.mouse.up();
   await waitForFrames(fake, "TOGGLE_PIN");
-  await page.waitForTimeout(500);
+  await page.clock.runFor(500);   // the cleared timer is past its deadline
   expect((await fake.framesNamed("AUTO_ENGAGE_RETURN")).length).toBe(0);
 });
 
@@ -181,10 +185,9 @@ test("a STATE older than our COMMIT does not hide the stroke we just drew; a Mac
   expect(await inkAlphaAt(page, 300, 500)).toBeGreaterThan(0);
   // The Mac's periodic STATE generated before it processed the COMMIT: depths 0 / 0.
   await fake.state({ governor: 2, flags: allowed, undoDepth: 0, redoDepth: 0, strokeCount: 0 });
-  await page.waitForTimeout(150);
+  await expect.poll(() => debugValue<{ staleStates: number }>(page, "ink").then((i) => i.staleStates)).toBe(1);
   expect(await debugValue<number>(page, "visibleStrokes")).toBe(1);
   expect(await inkAlphaAt(page, 300, 500)).toBeGreaterThan(0);
-  expect((await debugValue<{ staleStates: number }>(page, "ink")).staleStates).toBe(1);
   // The STATE that carries the commit.
   await fake.state({ governor: 2, flags: allowed, undoDepth: 1, redoDepth: 0, strokeCount: 1 });
   await page.waitForTimeout(150);
@@ -254,7 +257,7 @@ test("the eraser only reaches visible strokes and keeps the redo tail", async ({
   // Rub across A: its id goes out, the local list drops it and still carries B as the redo tail.
   await fake.reset();
   await penStroke(page, [{ ...toPage(box, 300, 300), p: 0.5 }, { ...toPage(box, 300, 500), p: 0.5 }]);
-  const erases = await waitForFrames(fake, "ERASE_STROKES");
+  const erases = await waitForFrames(fake, "ERASE_STROKES", 2);
   const withIds = erases.filter((e) => (e.ids as string[]).length > 0);
   expect(withIds.length).toBe(1);
   expect(withIds[0]!.ids).toEqual([starts[0]!.strokeId]);

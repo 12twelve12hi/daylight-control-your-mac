@@ -27,13 +27,13 @@ Sending "delta operations" between frames is what an H.264 encoder already does;
 |---|---|---|---|
 | Install on the tablet | nothing; Chrome opens a page the Mac serves | one APK (over the cable in one click, or downloaded from the web page's "?" card) | the Daylight Ink APK for the pills (installed over the cable automatically) plus USB debugging |
 | Pairing | type the address once, "Allow" once, add to the home screen | "Set up over USB" once, or open the app and "Allow" once; it reconnects by itself every day | plug in once, "Always allow from this computer"; every later day plugging in is enough |
-| Needs USB debugging | no | no | yes |
+| Needs USB debugging | no | no | yes over USB (adb); no with Settings > Mirror > "Transport" > "Wi-Fi (Daylight Ink screen stream)" (section 2.1) |
 | Pen input path | Chrome pointer events; one sample per display frame on a plain `http://` origin, the full digitizer rate on `localhost` or with the one-time Chrome flag | `MotionEvent` with unbuffered dispatch, the full digitizer rate, one chunk per frame or per sample (Settings A/B) | the Wacom evdev node read over `adb shell getevent` |
 | Wet ink on the tablet | drawn by the page at the frame rate | front-buffer rendering (lowest latency wet ink; toggle in Settings for A/B) | the note app's own |
 | Pin and Clear | the chip (tap pins, hold returns), the toolbar | the chip, the toolbar, the pills | the pills, the pen side button (double press pins, hold clears), or both |
 | Expected engage latency | 35 to 60 ms pen to camera | the same, slightly lower | 60 to 90 ms engage, 100 to 200 ms picture |
 | Bandwidth | KB/s | KB/s | about 1 MB/s |
-| Works over Tailscale or an isolated office network | yes with the numeric address; USB as the fallback | yes with the address typed once; USB as the fallback | USB only (Wi-Fi mirror after a USB session is an interim, `adb tcpip 5555`) |
+| Works over Tailscale or an isolated office network | yes with the numeric address; USB as the fallback | yes with the address typed once; USB as the fallback | USB (adb) needs the cable ("Mirror over Wi-Fi after a USB session" is an interim, `adb tcpip 5555`); the Wi-Fi (Daylight Ink screen stream) transport works wherever Daylight Ink reaches the Mac (section 2.1) |
 | What breaks it | a non-secure origin dims the screen and halves the sample rate (flag or USB cures it); Chrome tab discards lose the local strokes (the Mac keeps its own) | Bonjour blocked (type the address); a Bonjour answer with a link-local IPv6 address only (type the address) | a second adb on the Mac (row 24); SolOS hiding the Wacom node (row 28) or the side button (row 28b); a SolOS update changing scrcpy's hidden APIs (row 25); a 7-day adb authorisation expiry without the developer toggle |
 | Reconnect after a Wi-Fi blip | automatic; the strokes drawn during the gap are replayed from an offline ring | automatic; strokes during the gap stay on the tablet only | automatic replug detection; Wi-Fi mirror reconnects when enabled |
 | Measured engage (ms) | | | |
@@ -74,7 +74,7 @@ Mirror mode has two transports since mirror v2 (LOOSE_ENDS A9), chosen in Settin
 | You want the SolOS note app (or any app) on camera | Mirror | the only source that shows another app |
 | The note app on camera, without USB debugging or a cable | Mirror over Wi-Fi (Daylight Ink screen stream) | no developer options; slower engage (frame differencing) and more battery than USB, see 2.1 |
 | Teaching with pages you keep | Web or Daylight Ink | the strokes JSON and the 1200x1600 PNG per page |
-| Judging whether to ship adb and scrcpy to customers (SPEC 17) | measure mirror against Daylight Ink for a week | the consumer default is the native app; mirror's end state is a SolOS service (LOOSE_ENDS A9) |
+| Judging whether to ship adb and scrcpy to customers (SPEC 17) | measure mirror against Daylight Ink for a week | the consumer default is the native app; the Wi-Fi transport needs no adb at all; Settings > Mirror > "adb source" already offers "Download on first use" and "Use installed adb" beside "Bundled (default)", so a release can drop the bundled adb (`DAYLIGHT_BUNDLE_ADB=0`) without a redesign; mirror's end state is a SolOS service (LOOSE_ENDS A9) |
 
 The engage detector, the slide, the 90 s return, the 85 s warning and the pin rules are the same value type for all three sources, so any difference you feel is transport latency and rendering, not governor behaviour.
 
@@ -118,7 +118,7 @@ The web "?" card and the Daylight Ink "This tablet" screen give the pressure ran
 
 ## 5. Verdict so far (before measurements)
 
-Daylight Ink is the recommended default: strokes, native input, self-reconnecting, no debugging. The web whiteboard is the same product with zero install and is the right first try. Mirror mode is the only way to put the SolOS note app on camera and the right tool when the drawing app matters more than the latency; its cost is USB debugging and a video pipeline, and its long-term answer is a SolOS service rather than adb (SPEC 17, LOOSE_ENDS A9). Measure for a week and let the numbers above decide.
+Daylight Ink is the recommended default: strokes, native input, self-reconnecting, no debugging. The web whiteboard is the same product with zero install and is the right first try. Mirror mode is the only way to put the SolOS note app on camera and the right tool when the drawing app matters more than the latency; its cost is USB debugging and a video pipeline (or, over the Wi-Fi transport, a slower frame-differencing engage and the tablet's battery), and its long-term answer is a SolOS service rather than adb (SPEC 17, LOOSE_ENDS A9). Measure for a week and let the numbers above decide.
 
 ## 📋 ADHD-friendly measurement checklist (⏱️ about 45 minutes plus one 30-minute battery run per source)
 

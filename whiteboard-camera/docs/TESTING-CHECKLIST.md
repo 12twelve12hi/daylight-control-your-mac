@@ -1,8 +1,8 @@
 # Testing checklist: the device run
 
-Everything the code could not prove without hardware, as atomic steps grouped into five sessions you can do on different days. Each row says what you do, what you see (or the exact log line), how long it takes, and where the result goes: a `docs/LOOSE_ENDS.md` row id (D1 to D23, E2 and so on, G rows) when a fact is collected, or "note" when a tick is enough. Results that surprise you go into a new row under LOOSE_ENDS section G with the Diagnostics report attached ("Diagnostics..." > "Copy diagnostics").
+Everything the code could not prove without hardware, as atomic steps grouped into six sessions (Session 4b is mirror over Wi-Fi) you can do on different days. Each row says what you do, what you see (or the exact log line), how long it takes, and where the result goes: a `docs/LOOSE_ENDS.md` row id (D1 to D23, E2 and so on, G rows) when a fact is collected, or "note" when a tick is enough. Results that surprise you go into a new row under LOOSE_ENDS section G with the Diagnostics report attached ("Diagnostics..." > "Copy diagnostics").
 
-Prerequisites per session are at the top of each one. Sessions 1 to 4 run on the unsigned build (the preview window stands in for the camera); session 5 needs the signed, notarized build of `docs/SIGNING.md`. Legend: 🟢 setup, ✍️ draw something, 🟡 make it fail on purpose, 🟣 confirm a file or a value, 📋 paste a line into LOOSE_ENDS, ⏱️ a timed wait.
+Prerequisites per session are at the top of each one. Sessions 1 to 4b run on the unsigned build (the preview window stands in for the camera); session 5 needs the signed, notarized build of `docs/SIGNING.md`. Legend: 🟢 setup, ✍️ draw something, 🟡 make it fail on purpose, 🟣 confirm a file or a value, 📋 paste a line into LOOSE_ENDS, ⏱️ a timed wait.
 
 Writing rules: no em-dashes; LivePaper is a transflective LCD; the backlight is DC dimming; VRR is 45 to 90 Hz.
 
@@ -125,13 +125,13 @@ Prerequisites: USB debugging on, the cable, "Always allow from this computer" ac
 | 4.18 | ⏱️ | Mirror for 30 minutes; Activity Monitor memory for Daylight before and after | the resident set does not grow (app-12, G14); budget under 180 MB | 30 min | G14, PERFORMANCE.md |
 | 4.19 | 🟢 | Settings > Mirror > "adb source": "Bundled (default)"; quit and reopen Daylight; mirror as in 4.1 | the row under the picker shows `.../Daylight.app/Contents/Resources/Vendor/adb, platform-tools 37.0.0 (bundled)`; Diagnostics `mirror.adb.source: bundled` and the same path | 2 min | H1 |
 | 4.20 | 🟣 | "adb source": "Download on first use"; Cancel on "Download adb from Google?", then choose it again and Accept; quit and reopen; mirror; then Wi-Fi off, quit and reopen, mirror again | Cancel shows row 39; Accept shows "Downloading adb..." then `~/Library/Application Support/Daylight/platform-tools/adb, platform-tools 37.0.0`; Diagnostics `mirror.adb.source: download`; mirroring works, also offline | 4 min | H1 |
-| 4.21 | 🟣 | "adb source": "Use installed adb" (needs `brew install android-platform-tools` or Android Studio); quit and reopen; mirror | the row shows the path found (for example `/opt/homebrew/bin/adb, 1.0.41 (37.0.0-...)`), or row 42 or 43 with the reason; Diagnostics `mirror.adb.source: installed`, `mirror.adb.version`; mirroring works; set "Bundled (default)" back afterwards | 3 min | H1 |
+| 4.21 | 🟣 | "adb source": "Use installed adb" (needs `brew install android-platform-tools` or Android Studio); quit and reopen; mirror | the row shows the path found (for example `/opt/homebrew/bin/adb, 1.0.41 (37.0.0-...)`), or row 42 or 43 with the reason (with Ink source on "Mirror the tablet" the menu shows the same sentence as a red line, never `launchFailed(...)`); Diagnostics `mirror.adb.source: installed`, `mirror.adb.version`; mirroring works; set "Bundled (default)" back afterwards | 3 min | H1 |
 
 ---
 
 ## Session 4b: mirror over Wi-Fi without USB debugging (⏱️ about 25 minutes plus one 60-minute battery run)
 
-Prerequisites: Daylight Ink installed and allowed (Session 3), the tablet and the Mac on the same Wi-Fi, the cable unplugged, USB debugging may stay off. On the Mac, "Ink source" > "Mirror the tablet" and Settings > Mirror > "Transport" > "Wi-Fi (Daylight Ink screen stream)". The tablet logs everything under `adb logcat -s DaylightInk.mirror` (only if you happen to have adb) and shows the same facts in Daylight Ink > Settings > "This tablet".
+Prerequisites: Daylight Ink installed and allowed (Session 3), the tablet and the Mac on the same Wi-Fi, the cable unplugged, USB debugging may stay off. On the Mac, "Ink source" > "Mirror the tablet" and Settings > Mirror > "Transport" > "Wi-Fi (Daylight Ink screen stream)" ("Transport" is the first row of the Mirror tab, which scrolls; if the tab looks cut off at the top, note it in LOOSE_ENDS J). The tablet logs everything under `adb logcat -s DaylightInk.mirror` (only if you happen to have adb) and shows the same facts in Daylight Ink > Settings > "This tablet".
 
 | # | | Step | You see, or the log line | ⏱️ | Paste into |
 |---|---|---|---|---|---|

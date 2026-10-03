@@ -8,7 +8,7 @@ Writing rules: no em-dashes; LivePaper is a transflective LCD; the backlight is 
 
 Every component is built and green in CI (`docs/STATUS.md`), but nothing has run on real hardware. Two things only you can do: sign the Mac app with your Apple Developer account (without it the virtual camera cannot appear in any call; the unsigned build still shows everything in a preview window), and put the DC-1 next to the Mac to confirm the tablet facts the code guessed (`docs/LOOSE_ENDS.md` section D). You need no Xcode at any point: GitHub Actions builds, signs and notarizes; your Mac only needs Keychain Access, Terminal and the `gh` command.
 
-Order of the day, and why: try the web whiteboard first (nothing to install on the tablet, works from the unsigned build in the preview window), then Daylight Ink over USB (one click installs it), then mirror mode (needs USB debugging on the tablet). Signing can run in parallel; it is 30 minutes of clicking in Apple's portal and then CI does the rest.
+Order of the day, and why: try the web whiteboard first (nothing to install on the tablet, works from the unsigned build in the preview window), then Daylight Ink over USB (one click installs it), then mirror mode (needs USB debugging on the tablet), then mirror over Wi-Fi (no USB debugging: Daylight Ink shares the tablet screen itself). Signing can run in parallel; it is 30 minutes of clicking in Apple's portal and then CI does the rest.
 
 | Step | What | Time | Needs |
 |---|---|---|---|
@@ -17,6 +17,7 @@ Order of the day, and why: try the web whiteboard first (nothing to install on t
 | 2 | Pair the web whiteboard | 10 min | the DC-1 on the same Wi-Fi |
 | 3 | Pair Daylight Ink over USB | 10 min | a USB-C cable, USB debugging on the DC-1 |
 | 4 | Try mirror mode | 10 min | the same cable |
+| 4b | Try mirror over Wi-Fi (no USB debugging) | 10 min | Daylight Ink from step 3, the same Wi-Fi |
 | 5 | Signing in Apple's portal and the eight secrets | 30 min | your Apple Developer account, `gh` |
 | 6 | The first notarized build | 25 min, mostly waiting | step 5 |
 | 7 | Install the signed app and approve the camera extension | 10 min | step 6 |
@@ -36,7 +37,7 @@ Done looks like: `gh auth status` prints your GitHub login and `gh run list --li
 
 If it fails: `gh` says "not logged in" (run `gh auth login` again); `gh run list` says the workflow does not exist (you are in the wrong folder; the workflow file is `.github/workflows/whiteboard-camera.yml` at the monorepo root).
 
-Optional, for later: the `adb` you need for the tablet is bundled inside the app at `Daylight.app/Contents/Resources/Vendor/adb`; you do not need Android Studio or Homebrew's platform-tools, and a second adb on the Mac is one of the failure rows (24).
+Optional, for later: the `adb` you need for the tablet is bundled inside the app at `Daylight.app/Contents/Resources/Vendor/adb`; you do not need Android Studio or Homebrew's platform-tools, and a second adb on the Mac is one of the failure rows (24). Settings > Mirror > "adb source" can instead use "Download on first use" (Google's platform-tools 37.0.0 after you accept the Android SDK License once) or "Use installed adb" (the one from Homebrew or Android Studio, platform-tools 35 or newer); the default "Bundled (default)" needs nothing. A new choice applies the next time Daylight starts; `docs/SETUP.md` section 2.3 "adb source" has the details.
 
 ---
 
@@ -105,6 +106,22 @@ Done looks like: menu bar > "Diagnostics..." shows `mirror.status: mirroring <se
 4. The top 96 tablet pixels (where the pills live) are cropped out of the camera picture. If the crop is wrong, Settings > Mirror > Crop, drag the edges over the live picture.
 
 If it fails: "The screen mirror could not start: ..." (row 25; copy the sentence into LOOSE_ENDS); "Pen events not found on this Daylight. Mirror works, but auto-engage and the pen button do not. Use the pills or the Whiteboard hotkey." (row 28: the Wacom input node is not where the code expects; paste the Diagnostics `mirror.pen.status` line (it reads "no pen node among [...]") into LOOSE_ENDS D1); "Pen button events not seen; use the pills." (row 28b). "Recovering video..." means the decoder is waiting for a key frame (row 27); after 12 s without one Daylight restarts the mirror by itself; if the text stays, unplug and replug.
+
+---
+
+## Step 4b: try mirror over Wi-Fi, no USB debugging (10 min, optional)
+
+Why: the same mirror picture without developer options or a cable. Daylight Ink captures the tablet screen itself (Android asks for consent each time sharing starts) and sends it over the Wi-Fi connection it already holds. The board slides in when the screen changes inside the canvas crop, so it starts later than over USB (an estimate of 150 to 300 ms, `docs/COMPARE.md` section 2.1), and the tablet's battery drains faster because nothing charges it.
+
+Done looks like: menu bar > "Diagnostics..." shows `mirror.wifi.tabletState: streaming` and `mirror.wifi.engageSource: frame difference`; writing in the note app slides the preview to Studio Split with the tablet screen in the board slot.
+
+1. Mac: menu bar > "Settings..." > Mirror > "Transport" > "Wi-Fi (Daylight Ink screen stream)". Then menu bar > "Ink source" > "Mirror the tablet". (This is not the older "Mirror over Wi-Fi after a USB session" switch, which still needs USB debugging.)
+2. Tablet: open Daylight Ink > Settings. Under "Share this screen with the Mac over Wi-Fi (no cable, no USB debugging)" tap "Share screen with your Mac".
+3. Android asks whether Daylight Ink may record or cast the screen; tap "Start now" (write down the exact SolOS wording, LOOSE_ENDS D19). The notification "Sharing screen with your Mac" appears and stays while sharing is ready.
+4. Write in the SolOS note app. The Daylight Ink state line reads "Sharing with your Mac" and the board slides in when the ink appears. Pin and Clear are the floating pills.
+5. When the call ends, tap "Stop" in the notification.
+
+If it fails: "Daylight Ink was not allowed to share the tablet screen. Tap the Daylight Ink notification on the tablet and choose Start now." (row 34: you tapped Cancel); "Your Daylight could not start its screen encoder. Restart Daylight Ink, or use Mirror over USB." (row 35); "The tablet's screen stream paused. Reconnecting..." (row 36: Wi-Fi congestion or a still screen the encoder stopped repeating, D21); "Open Daylight Ink on your Daylight to mirror over Wi-Fi." (row 38: no Daylight Ink connection announced the capability; open the app). Scrolling or animations that start the board by mistake: raise Settings > Mirror > "Change threshold". The full owner run is `docs/TESTING-CHECKLIST.md` Session 4b.
 
 ---
 
@@ -219,6 +236,8 @@ Switching ink sources: menu bar > "Ink source" > "Web whiteboard" / "Daylight In
 - [ ] ✍️ Write in the SolOS note app. You see: the preview slides, the tablet screen is in the board slot, the pills row at the top of the tablet is not in the picture. ⏱️ 1 minute
 - [ ] ✍️ Double press the pen side button. You see: menu "Keep whiteboard" ticked. Hold it 0.7 s. You see: the board clears and returns. ⏱️ 1 minute
 - [ ] 📋 Diagnostics: copy `mirror.pen.node` (or `mirror.pen.status` when no pen node was found), the `getevent -pl devices:` line and `mirror.session.deviceModel` into LOOSE_ENDS D1 and D2. ⏱️ 2 minutes
+- [ ] 🟢 Unplug. Mac: Settings > Mirror > "Transport" > "Wi-Fi (Daylight Ink screen stream)". Tablet: Daylight Ink > Settings > "Share screen with your Mac" > "Start now". You see: the notification "Sharing screen with your Mac"; Diagnostics `mirror.wifi.tabletState: streaming`. ⏱️ 2 minutes
+- [ ] ✍️ Write in the SolOS note app without the cable. You see: the board slides in shortly after the ink appears. 📋 Write down the prompt wording (D19) and roughly how late the slide feels (D20). Tap "Stop" in the notification afterwards. ⏱️ 3 minutes
 - [ ] 🟢 Open `docs/SIGNING.md` and do its checklist (certificate, App IDs, profiles, API key, eight secrets). You see: `gh secret list` shows eight names. ⏱️ 30 minutes
 - [ ] 🟢 `gh workflow run whiteboard-camera.yml --ref claude/daylight-whiteboard-camera-tzxfjb -f notarize=true`, then `gh run watch`. You see: every job green, artifacts `release-logs`, `Daylight-signed`, `Daylight-dmg`. ⏱️ 25 minutes (coffee)
 - [ ] 🟢 `gh run download <id> -n Daylight-dmg`; quit the old Daylight; open the DMG; drag to Applications; eject; open from Applications. You see: within a few seconds the Welcome row "Install Daylight Camera" reads "Approve 'Daylight Camera' in System Settings > ..." (Daylight submits the install request itself at launch). ⏱️ 3 minutes
@@ -228,4 +247,4 @@ Switching ink sources: menu bar > "Ink source" > "Web whiteboard" / "Daylight In
 - [ ] 🟡 Quit Daylight while FaceTime is open. You see: a cream card "Daylight is not running. Open Daylight from the menu bar." Reopen Daylight: your webcam is back within 2 s. ⏱️ 1 minute
 - [ ] ⏱️ Close FaceTime and wait 60 s. You see and feel: the webcam LED goes off. Open FaceTime again: the picture is back within a second. ⏱️ 2 minutes
 - [ ] 📋 Tell the integrator whether the "Open System Settings" button landed on the right pane (LOOSE_ENDS E13). The decisions A2 (macOS 26), A3, A4, A5, A6 and A14 are already settled (2026-10-03). ⏱️ 1 minute
-- [ ] 📋 Then run `docs/TESTING-CHECKLIST.md`, one session at a time (Mac only, web, Daylight Ink, mirror, signed camera). ⏱️ 60 to 90 minutes, in pieces
+- [ ] 📋 Then run `docs/TESTING-CHECKLIST.md`, one session at a time (Mac only, web, Daylight Ink, mirror with the adb source rows 4.19 to 4.21, mirror over Wi-Fi in Session 4b, signed camera). ⏱️ 90 to 120 minutes, in pieces

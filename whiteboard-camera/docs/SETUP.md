@@ -94,13 +94,13 @@ The row under the picker shows the path and version Daylight found, or what went
 - No installed adb: "No installed adb found. Daylight looked in your PATH, in Homebrew (/opt/homebrew/bin, /usr/local/bin) and in the Android Studio SDK (ANDROID_HOME, ~/Library/Android/sdk)." (row 42); `brew install android-platform-tools` fixes it
 - An old one: "The adb at <path> is version <version>. Daylight needs platform-tools 35 or newer: update it, or choose another adb source." (row 43)
 
-A new adb source applies the next time Daylight starts (quit from the menu bar and open it again). Diagnostics shows the one in use as `mirror.adb.source`, `mirror.adb.path` and `mirror.adb.version`, next to `mirror.adb.mode`. Whatever the source, Daylight never runs `adb kill-server` and shares or avoids another adb server by the same rule (row 24).
+When mirror mode starts with a source that fails, the menu bar shows the same sentence as a red line and Diagnostics reads `mirror.status: error: The screen mirror could not start: <the sentence>`. A new adb source applies the next time Daylight starts (quit from the menu bar and open it again). Diagnostics shows the one in use as `mirror.adb.source`, `mirror.adb.path` and `mirror.adb.version`, next to `mirror.adb.mode`. Whatever the source, Daylight never runs `adb kill-server` and shares or avoids another adb server by the same rule (row 24).
 
 If the menu says "Another adb is running (Android Studio?). Daylight is using its own copy; a tablet already claimed by the other adb will not be visible." (row 24), quit the other adb or accept that the tablet is invisible until you do.
 
 ### 2.4 Mirror over Wi-Fi without USB debugging (Daylight Ink screen stream)
 
-The second mirror transport: Daylight Ink captures the tablet screen itself and sends it to the Mac over the Wi-Fi connection it already uses for ink and the pills. No developer options, no cable. It needs Daylight Ink installed and allowed once (section 2.2).
+The second mirror transport: Daylight Ink captures the tablet screen itself and sends it to the Mac over the Wi-Fi connection it already uses for ink and the pills. No developer options, no cable, no adb. It needs Daylight Ink installed and allowed once (section 2.2). It is a different thing from "Mirror over Wi-Fi after a USB session" in section 2.3, which keeps the USB (adb) transport and needs USB debugging.
 
 1. On the Mac: Settings > Mirror > "Transport" > "Wi-Fi (Daylight Ink screen stream)". Then menu bar > "Ink source" > "Mirror the tablet".
 2. On the tablet: open Daylight Ink > Settings. Under "Share this screen with the Mac over Wi-Fi (no cable, no USB debugging)" tap "Share screen with your Mac".

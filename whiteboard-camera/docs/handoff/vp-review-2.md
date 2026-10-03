@@ -126,3 +126,5 @@ Round-1 audit: kit-01, kit-02, kit-03, kit-05, kit-06, app-05/14, app-09, app-10
 | 37146946169 | fafc581 (ink, server, self-test, pipeline) | golden, kit-linux, web, android green; mac failed to build on the mirror owner's f9c0102 (`Sources/Mirror/`), fixed by its owner in 54b5088 |
 | 37148222326 | b8a98de (web) | golden, kit-linux, web, android green; mac built and every test in this review's areas passed; one failure in the mirror owner's new `WifiMirrorSourceTests.testFixtureStreamDecodesIntoTheSourceWithTheUSBCropRule` (LOOSE_ENDS I8), so `make mac-smoke` did not run |
 | 37149014837 | 200667a (round-2 docs, on top of the mirror owner's edc0009) | every job green: golden, kit-linux, web, android, mac (`make mac-test` and `make mac-smoke`, including the new self-test bundle checks under `CI=true`) |
+| 37149475227 | 7542b4d (this report's previous commit) | every job green |
+| 37151145122 (push) and 37151813557 (workflow_dispatch) | 58d140e (branch tip after the other VPs' commits, containing every round-2 change) | two consecutive runs, every job green both times: golden, kit-linux, web, android, mac, mac-26 |

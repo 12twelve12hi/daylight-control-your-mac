@@ -350,7 +350,7 @@ What changed for the owner:
 - Governor (SPEC D54 to D56): an explicit request that brings the board up releases Hold: Camera; engage or Hold: Auto during the pre-warning cancels it; snap-back applies only to a board a stroke brought up.
 - Tests: 12 hosted-test timing assumptions became condition waits (the e524f5b flake class, a mid-animation pixel probe, Playwright fixed waits); the self-test and the loopback test use a PING/PONG ordering barrier; the self-test asserts the bundled web build, adb architectures, scrcpy-server and APK under `CI=true`; SPEC C3's extension rules are finally exercised by tests.
 
-CI: run 37149014837 on 200667a is green in every job (golden, kit-linux, web, android, mac with `make mac-test` and `make mac-smoke`); the earlier red runs of the round and the final confirmation runs are listed at the end of `docs/handoff/vp-review-2.md`.
+CI: runs 37151145122 (push) and 37151813557 (workflow_dispatch) on 58d140e, the branch tip containing every round-2 change, are both green in every job; run 37149014837 on 200667a was the first green run of the round, every job (golden, kit-linux, web, android, mac with `make mac-test` and `make mac-smoke`); the earlier red runs of the round and the final confirmation runs are listed at the end of `docs/handoff/vp-review-2.md`.
 
 Lessons:
 

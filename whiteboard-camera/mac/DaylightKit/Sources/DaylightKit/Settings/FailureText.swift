@@ -3,7 +3,7 @@ import Foundation
 /// Owner-facing failure text (SPEC section 13.3): one case per row, in row order. `sentence` is the "Owner sees (exact)"
 /// column and `logLine` the "Log line" column; every `<...>` placeholder is replaced by the next argument in order.
 /// A placeholder without an argument stays in the text, except row 12 whose single argument (the System Settings path)
-/// defaults to the macOS 15 and 26 wording.
+/// defaults to the macOS 26 and 15 wording.
 public enum FailureText {
     public enum Case: String, CaseIterable {
         case notInApplications              // 1
@@ -84,7 +84,7 @@ public enum FailureText {
         }
     }
 
-    /// The System Settings path for macOS 15 and 26 (row 12); 13 and 14 use `approvalPathLegacy`.
+    /// The System Settings path for macOS 26 and 15 (row 12); 13 and 14 use `approvalPathLegacy`.
     public static let approvalPathModern = "System Settings > General > Login Items & Extensions > Camera Extensions"
     public static let approvalPathLegacy = "System Settings > Privacy & Security > Security"
 

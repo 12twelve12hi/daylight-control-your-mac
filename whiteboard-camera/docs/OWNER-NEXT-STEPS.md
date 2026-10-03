@@ -31,7 +31,7 @@ Done looks like: `gh auth status` prints your GitHub login and `gh run list --li
 
 1. Install Homebrew if the Mac does not have it (brew.sh shows the one-line installer), then `brew install gh`.
 2. `gh auth login` in Terminal, choose GitHub.com, HTTPS, log in through the browser.
-3. `cd` into a clone of the repository (`git clone https://github.com/12twelve12hi/daylight-control-your-mac.git`, then `cd daylight-control-your-mac`). The build branch is `claude/daylight-whiteboard-camera-tzxfjb`: `git checkout claude/daylight-whiteboard-camera-tzxfjb`.
+3. `cd` into a clone of the repository (`git clone https://github.com/12twelve12hi/daylight-control-your-mac.git`, then `cd daylight-control-your-mac`). The build branch is `claude/daylight-whiteboard-camera-tzxfjb`: `git checkout claude/daylight-whiteboard-camera-tzxfjb`. The same code is also published standalone at https://github.com/a12k-a2b/whiteboard-camera once it has been pushed there (the repository exists but is not populated yet); CI runs in the monorepo today, so keep using the monorepo commands on this page.
 4. `gh run list --workflow whiteboard-camera --branch claude/daylight-whiteboard-camera-tzxfjb --limit 3` lists the latest runs. A green one is what you download in step 1.
 
 If it fails: `gh` says "not logged in" (run `gh auth login` again); `gh run list` says the workflow does not exist (you are in the wrong folder; the workflow file is `.github/workflows/whiteboard-camera.yml` at the monorepo root).
@@ -46,10 +46,10 @@ This build cannot install the virtual camera (that needs signing, step 5). It sh
 
 Done looks like: a camera icon in the menu bar, a "Welcome to Daylight" window whose first row reads "This is an unsigned test build. The virtual camera cannot be installed on this Mac. Use Daylight > Preview window to see the output.", and, once you have clicked "Allow camera access", the preview window showing your webcam.
 
-1. Find the run id of the latest green run from step 0, then `gh run download <run id> -n Daylight-unsigned` (or in the browser: Actions > whiteboard-camera > the run > Artifacts > `Daylight-unsigned`). You get `Daylight-unsigned.zip`.
+1. Find the run id of the latest green run from step 0, then `gh run download <run id> -n Daylight-unsigned` (or in the browser: Actions > whiteboard-camera > the run > Artifacts > `Daylight-unsigned`). You get `Daylight-unsigned.zip`. Download from the monorepo's runs (`12twelve12hi/daylight-control-your-mac`), where CI runs today; the standalone repository `a12k-a2b/whiteboard-camera` will carry the same code once pushed, but has no runs yet.
 2. Double-click the zip. Drag `Daylight.app` into `/Applications` (not required for the unsigned build, but it is where the signed one must live, so start the habit).
 3. Open it. macOS refuses an unsigned app on the first double-click. Either right-click `Daylight.app` > Open, or go to System Settings > Privacy & Security, scroll down to the message about Daylight and click Open Anyway, or in Terminal `xattr -dr com.apple.quarantine /Applications/Daylight.app` (recursive, so the bundled adb loses the flag too) and open it normally.
-4. The preview window opens by itself on unsigned builds, cream and empty at first: the first launch does not ask for camera access on its own. In the Welcome window click "Allow camera access", then Allow in the macOS prompt; the preview shows your webcam within a second. macOS 15 may also ask whether Daylight may find devices on the local network: Allow (it is how the tablet finds the Mac).
+4. The preview window opens by itself on unsigned builds, cream and empty at first: the first launch does not ask for camera access on its own. In the Welcome window click "Allow camera access", then Allow in the macOS prompt; the preview shows your webcam within a second. macOS 26 and 15 may also ask whether Daylight may find devices on the local network: Allow (it is how the tablet finds the Mac).
 5. The menu bar icon is a camera. Closing the Welcome window with its red button only hides it until the next launch; "Done" finishes it (enabled on an unsigned build as soon as the camera row is not blocked), and menu bar > "Setup again" reopens it any time.
 
 If it fails: no menu bar icon at all (open Console.app, search `com.twelve.daylight`, or run `/Applications/Daylight.app/Contents/MacOS/Daylight` from Terminal and read the output); the preview shows a cream "No camera found" card (plug in a webcam or open the lid; failure row 4); the Welcome window says "Camera access is off for Daylight." (System Settings > Privacy & Security > Camera > Daylight on; row 3).
@@ -72,7 +72,7 @@ Done looks like: the chip at the bottom of the tablet page reads "Camera"; touch
 
 If it fails: the page does not load (both devices on the same Wi-Fi? Office and school networks often isolate clients: use USB in step 3, or Tailscale, see `docs/SETUP.md` Networking); the chip stays at "Looking for your Mac" (the Mac shows row 18 after 60 s: "Nobody has connected yet. Same Wi-Fi? Office networks often block this: use USB or Tailscale."); the chip reads "Mac found, socket refused. Tap to retry" (tap it; if it persists, menu bar > "Diagnostics..." and read the listener line); the menu says "Port 7788 is in use. Daylight is using 7789." (type the address with 7789; row 16).
 
-Optional one-time step for better ink over Wi-Fi: the page's "?" button opens a card with a `chrome://flags/#unsafely-treat-insecure-origin-as-secure` line and the origin to paste; this is LOOSE_ENDS A5 and your decision.
+Optional one-time step for better ink over Wi-Fi: the page's "?" button opens a card with a `chrome://flags/#unsafely-treat-insecure-origin-as-secure` line and the origin to paste; it stays optional and offered, never required (LOOSE_ENDS A5, confirmed 2026-10-03).
 
 ---
 
@@ -141,11 +141,11 @@ Done looks like: `systemextensionsctl list` in Terminal shows `com.twelve.daylig
 1. Quit the unsigned Daylight (menu bar > "Quit Daylight"). Open `Daylight.dmg`, drag Daylight to Applications (replace the old one). Eject the DMG.
 2. Open Daylight from `/Applications` (never from Downloads or the DMG itself: row 1 "Move Daylight to your Applications folder, then open it from there."). The first launch of a notarized app checks with Apple online; be on the internet.
 3. Daylight asks macOS to install the extension by itself at launch, so there is no Install button to click on a fresh launch: the Welcome row "Install Daylight Camera" reads "Installing..." for a moment, macOS shows its own dialog about the camera extension (with an Open System Settings button of its own), and the row changes to "Approve 'Daylight Camera' in System Settings > General > Login Items & Extensions > Camera Extensions, then click Check again." (The row's own "Install" button appears only when nothing is pending, for example after you removed the extension.)
-4. Click "Open System Settings". On macOS 15 and macOS 26 the pane is General > Login Items & Extensions > Camera Extensions (if the button lands elsewhere, type "Camera Extensions" in the System Settings search field; on macOS 13 and 14 the switch is under Privacy & Security > Security). Switch Daylight Camera on, enter your password.
+4. Click "Open System Settings". On macOS 26 and macOS 15 the pane is General > Login Items & Extensions > Camera Extensions (if the button lands elsewhere, type "Camera Extensions" in the System Settings search field; on macOS 13 and 14 the switch is under Privacy & Security > Security). Switch Daylight Camera on, enter your password.
 5. Back in Daylight click "Check again". Within 2 s the row turns green. If macOS says a restart is needed, the row reads "Restart your Mac once to finish installing Daylight Camera." (row 12b): restart once.
 6. Finish the Welcome window: tick "Launch Daylight at login", click "Done".
 
-Tell the integrator which macOS the M5 Max runs (LOOSE_ENDS A2) and whether the "Open System Settings" button landed on the right pane (LOOSE_ENDS E13).
+Tell the integrator whether the "Open System Settings" button landed on the right pane (LOOSE_ENDS E13); the wording above assumes macOS 26 on the M5 Max (LOOSE_ENDS A2, settled 2026-10-03).
 
 If it fails: the row says "Daylight Camera is installed but not found yet. Retrying..." and after 30 s "Open Zoom or FaceTime once, or restart your Mac." (row 13: open FaceTime once); "macOS refused the extension's signature. This build is not notarized." (row 9: you installed a plain-push build; use the tag build); "The camera extension is missing an entitlement (build signing problem)." (row 6: the app profile was made without System Extension ticked; fix the App ID, regenerate the profile, re-set the secret, re-run); "Your Mac's security policy blocks system extensions (MDM or SIP setting)." (row 11: a managed Mac).
 
@@ -227,5 +227,5 @@ Switching ink sources: menu bar > "Ink source" > "Web whiteboard" / "Daylight In
 - [ ] 🟢 FaceTime > Video > "Daylight Camera". You see: your webcam. Touch the pen: the call slides to Studio Split. You feel: this is the whole product. ⏱️ 2 minutes
 - [ ] 🟡 Quit Daylight while FaceTime is open. You see: a cream card "Daylight is not running. Open Daylight from the menu bar." Reopen Daylight: your webcam is back within 2 s. ⏱️ 1 minute
 - [ ] ⏱️ Close FaceTime and wait 60 s. You see and feel: the webcam LED goes off. Open FaceTime again: the picture is back within a second. ⏱️ 2 minutes
-- [ ] 📋 Tell the integrator: which macOS runs on the M5 Max (LOOSE_ENDS A2), and the five decisions A3, A4, A5, A6, A14 (one line each). ⏱️ 5 minutes
+- [ ] 📋 Tell the integrator whether the "Open System Settings" button landed on the right pane (LOOSE_ENDS E13). The decisions A2 (macOS 26), A3, A4, A5, A6 and A14 are already settled (2026-10-03). ⏱️ 1 minute
 - [ ] 📋 Then run `docs/TESTING-CHECKLIST.md`, one session at a time (Mac only, web, Daylight Ink, mirror, signed camera). ⏱️ 60 to 90 minutes, in pieces

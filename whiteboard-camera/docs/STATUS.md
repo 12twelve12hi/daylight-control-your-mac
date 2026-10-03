@@ -4,7 +4,7 @@ What is done, what is not, every UNVERIFIED fact with its fallback, what the own
 
 Writing rules: no em-dashes; LivePaper is a transflective LCD; the backlight is DC dimming; VRR is 45 to 90 Hz.
 
-Last CI run on the final integration commit: see the "CI" section (run id, commit, every job green). Section 7 is the review round that followed: what was found, confirmed, fixed, and deliberately left as it was.
+Last CI run on the final integration commit: see the "CI" section (run id, commit, every job green). Section 7 is the review round that followed: what was found, confirmed, fixed, and deliberately left as it was. Section 8 records the owner decisions applied on 2026-10-03.
 
 ---
 
@@ -139,7 +139,7 @@ Everything here shipped without a device, a signed build or a compiler for the c
 ## 4. What the owner must do to test
 
 1. Signing (nothing camera-related can be seen in Zoom before this): LOOSE_ENDS A1, about 30 minutes on any Mac with Keychain Access. Create the Developer ID Application certificate, the two App IDs (`com.twelve.daylight` with System Extension and App Groups, `com.twelve.daylight.camera` with App Groups), the two Developer ID profiles, and an App Store Connect API Team Key; add the eight secrets with `gh secret set` (`DAYLIGHT_TEAM_ID`, `DAYLIGHT_DEVELOPER_ID_P12_BASE64`, `DAYLIGHT_DEVELOPER_ID_P12_PASSWORD`, `DAYLIGHT_APP_PROVISIONING_PROFILE_BASE64`, `DAYLIGHT_EXT_PROVISIONING_PROFILE_BASE64`, `ASC_API_KEY_ID`, `ASC_API_ISSUER_ID`, `ASC_API_PRIVATE_KEY_BASE64`); re-run the workflow with `notarize: true` or push the `v0.1.0` tag; download `Daylight.dmg`. The step-by-step owner checklist is `docs/SIGNING.md` (since review round 1; it also says what `scripts/mac-release.sh` asserts and which artifacts appear).
-2. Decisions still open: LOOSE_ENDS A2 (macOS 15 or 26 on the M5 Max), A3 (package name `com.twelve.daylight.ink`), A4 (three product defaults), A5 (the Chrome flag paste), A6 (redistributing `adb`), A14 (the license).
+2. Decisions: A2, A3, A4, A5 and A14 were settled by the owner on 2026-10-03 (section "Owner decisions applied" below); A6 became the engineering ticket LOOSE_ENDS H1 (bundled adb stays the default, two alternatives to build).
 3. Until the signed build exists, the unsigned `Daylight-unsigned.zip` from any green run shows the menu bar item, the preview window, the web page, the Allow panel, Studio Split in the preview, saving, hotkeys and the APK download; the device steps are in each handoff's section 2 (B for the Mac and web, E for the APK, F for mirror mode, C for the first light of the camera on the signed build).
 4. Device facts to collect on the DC-1: LOOSE_ENDS section D, each row with its log line; the checklist rows for `docs/TESTING-CHECKLIST.md` are in every handoff's owner-text section (fold at M6).
 
@@ -151,7 +151,7 @@ Workflow `whiteboard-camera` (`.github/workflows/whiteboard-camera.yml`; the sta
 
 | Job | Runner | Steps |
 |---|---|---|
-| `golden` | ubuntu-latest | `make golden-check` (`scripts/check-golden.sh`: `python3 protocol/gen_golden.py` to a temp file, diff against `protocol/golden/solstream-v1.json` and the three copies); `make scripts-check` (`scripts/scripts-check.sh`: 25 bash checks of the mac-release secrets gate, the ci-env `DEVELOPER_DIR` hand-off, the shipped license text and the kit-test crash retry) |
+| `golden` | ubuntu-latest | `make golden-check` (`scripts/check-golden.sh`: `python3 protocol/gen_golden.py` to a temp file, diff against `protocol/golden/solstream-v1.json` and the three copies); `make scripts-check` (`scripts/scripts-check.sh`: 26 bash checks of the mac-release secrets gate, the ci-env `DEVELOPER_DIR` hand-off, the shipped license text, the project's `LICENSE` and the kit-test crash retry) |
 | `web` | ubuntu-latest, Node 22 | `make web` (`npm ci`, `npm run typecheck`, `npm run build`), `make web-test` (`node --test`, `npx playwright install --with-deps chromium`, `npx playwright test`); artifacts `web-dist`, `playwright-report` on failure |
 | `android` | ubuntu-latest, Temurin 17, setup-gradle | `make android` (`./gradlew --no-daemon --stacktrace -PdaylightVersionCode=$(date -u +%y%m%d%H) -PdaylightVersionName=$(cat VERSION) :app:testDebugUnitTest :app:assembleDebug`); artifacts `daylight-ink-debug-apk`, `android-test-reports` on failure |
 | `kit-linux` | ubuntu-latest, container `swift:6.4-noble` | `scripts/kit-test.sh` (`swift test --package-path mac/DaylightKit --parallel`; when swift-package itself exits by a crash signal the whole suite runs again from an empty `.build`, up to three runs, never after a test failure) |
@@ -313,3 +313,17 @@ Lessons:
 - A test that waits a fixed time for work queued behind other work on a serial queue is a race on a shared runner; wait for the condition, then drain the queue with `sync {}` before asserting that something did not happen.
 - The hosted tests run the Debug build: a per-pixel Swift loop that is instant in Release can hold a queue for most of a second there. Fill buffers with `memset_pattern4` or vImage.
 - A red job must print its assertion message in the job log; the artifact store is not reachable from every environment that reads the logs.
+
+---
+
+## 8. Owner decisions applied (2026-10-03)
+
+The owner settled the open decisions of LOOSE_ENDS section A; each is recorded in its row there and in SPEC section 2 (Owner-confirmed).
+
+- A2: the M5 Max most likely runs macOS 26, so every approval-pane text names it first: "macOS 26 and 15" use System Settings > General > Login Items & Extensions > Camera Extensions; macOS 13 and 14 keep Privacy & Security > Security (SPEC D51). The row 12 sentence itself has no version in it and is unchanged, as are its exact-sentence tests. A macos-26 CI leg is backlog H2.
+- A3: the Android package `com.twelve.daylight.ink` is confirmed (D15).
+- A4: the three product defaults stay: eraser does not engage, side button long press Clear and double press Pin, a disconnect leaves the governor alone (D10, D36, D37).
+- A5: the Chrome flag paste stays optional and offered (D52).
+- A6: the bundled adb stays the default; downloading platform-tools on first use and reusing an installed adb are the engineering ticket LOOSE_ENDS H1, with the legal note kept in A6 and `THIRD_PARTY_NOTICES.md`.
+- A14: Apache-2.0. `LICENSE` is the standard text; the scrcpy copy moved to `LICENSES/Apache-2.0.txt` (G15 closed); `make scripts-check` now runs 26 checks, one of them asserting `LICENSE`.
+- The public standalone repository is https://github.com/a12k-a2b/whiteboard-camera (created by the owner, not yet populated); README and OWNER-NEXT-STEPS say so, and CI keeps running in the monorepo.

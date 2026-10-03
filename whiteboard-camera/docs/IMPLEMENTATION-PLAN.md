@@ -36,7 +36,7 @@ Every agent reads, in this order, before writing a line: `SPEC.md`, `docs/PROTOC
 | P0.5 | APK embedded (SPEC D43) | mac job `needs: [golden, web, kit-linux, android]`; `actions/download-artifact@v8` with `name: daylight-ink-debug-apk`, `path: whiteboard-camera/android/app/build/outputs/apk/debug` (standalone workflow: without the prefix); `scripts/embed-apk.sh <dir> mac/Daylight/Resources/DaylightInk.apk` copies the first `*.apk` found or warns and exits 0; `.gitignore` adds `mac/Daylight/Resources/DaylightInk.apk`; `project.yml` adds `{ path: Daylight/Resources/DaylightInk.apk, optional: true, buildPhase: resources }` (XcodeGen `optional: true` tolerates a missing file); `Makefile`: `embed-apk`. | `ls -R Daylight.app` in the log lists `Contents/Resources/DaylightInk.apk` |
 | P0.6 | Tag trigger | both workflows: `on.push.tags: ['v*']` next to `branches:`. GitHub ignores `paths:` for tag pushes, which is the desired behaviour. | a later `v0.1.0` tag starts the workflow (verified at M6) |
 | P0.7 | Handoff directory | `docs/handoff/README.md` explaining the rule: each component owns exactly one file `docs/handoff/<letter>-<name>.md` for text the integrator folds into SETUP, SIGNING, COMPARE, TESTING-CHECKLIST, PERFORMANCE and LOOSE_ENDS, plus any contract-change request. | files exist |
-| P0.8 | `LICENSE` and `THIRD_PARTY_NOTICES.md` | `THIRD_PARTY_NOTICES.md` with the scrcpy-server entry (Apache-2.0, Genymobile) and the adb entry (Google platform-tools 37.0.0, `NOTICE-platform-tools.txt` shipped in `Vendor/`). `LICENSE` waits for the owner's choice (LOOSE_ENDS A14); the integrator writes a placeholder paragraph in README "License: to be chosen by the owner" until then. | files exist |
+| P0.8 | `LICENSE` and `THIRD_PARTY_NOTICES.md` | `THIRD_PARTY_NOTICES.md` with the scrcpy-server entry (Apache-2.0, Genymobile) and the adb entry (Google platform-tools 37.0.0, `NOTICE-platform-tools.txt` shipped in `Vendor/`). `LICENSE` waits for the owner's choice (LOOSE_ENDS A14; added on 2026-10-03 as Apache-2.0); the integrator writes a placeholder paragraph in README "License: to be chosen by the owner" until then. | files exist |
 | P0.9 | Golden check still green | nothing changes in `protocol/`; confirm `make golden-check` passes after the pre-flight. | `golden` job |
 
 The pre-flight does not add features. It makes every acceptance criterion in sections 4 to 6 checkable in CI.
@@ -357,7 +357,7 @@ The preview window is the end-to-end proof on an unsigned build: webcam (or `Fak
 
 ## 13. Open gaps after this review (also in LOOSE_ENDS)
 
-- LICENSE for the public repo (owner choice, A14).
+- LICENSE for the public repo (owner choice, A14): settled on 2026-10-03, Apache-2.0 (`LICENSE`).
 - Hosted XCTest bundle behaviour on the headless runner (B13), decided by the pre-flight run.
 - Tag-triggered notarization path (B12), fixed by P0.6.
 - `Vendor/` binaries not yet fetched in CI (B14) and the APK not yet embedded (B15), fixed by P0.4 and P0.5.

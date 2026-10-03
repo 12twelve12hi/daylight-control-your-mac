@@ -133,7 +133,7 @@ Prerequisites: `Daylight.dmg` from a `v*` tag or a notarize run (`docs/SIGNING.m
 | # | | Step | You see, or the log line | ⏱️ | Paste into |
 |---|---|---|---|---|---|
 | 5.1 | 🟡 | Open the app from the mounted DMG or Downloads first | "Move Daylight to your Applications folder, then open it from there." (row 1 or 7) | 30 s | note |
-| 5.2 | 🟢 | Drag to Applications, eject, open from Applications; Welcome row "Install Daylight Camera" (the request is submitted at launch, no Install click) | "Approve 'Daylight Camera' in System Settings > General > Login Items & Extensions > Camera Extensions, then click Check again." (row 12); log `requestNeedsUserApproval` | 1 min | A2 (which macOS), E13 |
+| 5.2 | 🟢 | Drag to Applications, eject, open from Applications; Welcome row "Install Daylight Camera" (the request is submitted at launch, no Install click) | "Approve 'Daylight Camera' in System Settings > General > Login Items & Extensions > Camera Extensions, then click Check again." (row 12); log `requestNeedsUserApproval` | 1 min | E13 |
 | 5.3 | 🟢 | "Open System Settings" | lands on Camera Extensions (or where?); switch Daylight Camera on, password | 1 min | E13 |
 | 5.4 | 🟢 | "Check again" | the row turns green within 2 s; log `sink connected: device=<id> sink=<id> capacity=1 directions=[a, b]` | 30 s | E2 (`directions=`) |
 | 5.5 | 🟣 | Terminal `systemextensionsctl list` | `com.twelve.daylight.camera` with `[activated enabled]` | 30 s | note |
@@ -155,7 +155,7 @@ Prerequisites: `Daylight.dmg` from a `v*` tag or a notarize run (`docs/SIGNING.m
 ## Where the results go
 
 - Facts with a row id: edit that row's table cell in `docs/LOOSE_ENDS.md` (sections D, E, G, C), replacing the collection method with the observed value and the date.
-- Decisions: `docs/LOOSE_ENDS.md` A2 (macOS version), A3 (package name), A4 (three defaults), A5 (the Chrome flag), A6 (adb redistribution), A14 (license); one line each.
+- Decisions: A2 (macOS 26 on the M5 Max), A3 (package name), A4 (three defaults), A5 (the Chrome flag stays optional), A14 (Apache-2.0) were applied on 2026-10-03 (`docs/STATUS.md` "Owner decisions applied"); the adb source choice of A6 is the engineering ticket H1 in `docs/LOOSE_ENDS.md`. A new decision goes in a new row of section A.
 - Numbers: `docs/PERFORMANCE.md` section "Owner's Mac" and `docs/COMPARE.md` section 2.
 - Anything that surprised you: a new row under LOOSE_ENDS section G with the Diagnostics report ("Copy diagnostics") and the `log stream` excerpt.
 - Checked rows that match the expectation: nothing to write; the tick is the record. Keep this file's boxes ticked in your working copy or a printout.

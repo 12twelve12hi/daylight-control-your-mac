@@ -139,7 +139,7 @@ The unsigned build shows the composed camera picture in its preview window (menu
 
 ## First light in FaceTime (signed build)
 
-Drag Daylight to Applications and open it from there. The Welcome window asks you to approve the camera extension: click "Open System Settings", switch on Daylight Camera under General > Login Items & Extensions > Camera Extensions (on macOS 13 and 14: Privacy & Security > Security), enter your password, return to Daylight and click "Check again". Open FaceTime and choose Video > Daylight Camera: your webcam appears. If FaceTime shows a cream card reading "Daylight is not running. Open Daylight from the menu bar.", Daylight is not running or not yet connected; open it from the menu bar. If Zoom shows a black picture after an update, quit and reopen Zoom.
+Drag Daylight to Applications and open it from there. The Welcome window asks you to approve the camera extension: click "Open System Settings", switch on Daylight Camera under General > Login Items & Extensions > Camera Extensions (macOS 26 and 15; on macOS 13 and 14: Privacy & Security > Security), enter your password, return to Daylight and click "Check again". Open FaceTime and choose Video > Daylight Camera: your webcam appears. If FaceTime shows a cream card reading "Daylight is not running. Open Daylight from the menu bar.", Daylight is not running or not yet connected; open it from the menu bar. If Zoom shows a black picture after an update, quit and reopen Zoom.
 
 ## 📋 Checklist rows for the first signed run (about 8 minutes)
 

@@ -106,7 +106,7 @@ final class ExtensionInstaller: NSObject, OSSystemExtensionRequestDelegate {
         return modern ? [modernApprovalPaneURL, legacyApprovalPaneURL] : [legacyApprovalPaneURL, modernApprovalPaneURL]
     }
 
-    /// macOS 15 and 26 show Camera Extensions under General > Login Items & Extensions; 13 and 14 under Privacy & Security.
+    /// macOS 26 and 15 show Camera Extensions under General > Login Items & Extensions; 13 and 14 under Privacy & Security.
     static func isModernApprovalPath(version: OperatingSystemVersion = ProcessInfo.processInfo.operatingSystemVersion) -> Bool {
         return version.majorVersion >= 15
     }

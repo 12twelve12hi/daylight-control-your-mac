@@ -15,8 +15,9 @@ The Mac host is a GCD pipeline with one job: hand IOSurface-backed BGRA 1920x108
 ## 1. Directory layout
 
 ```
-whiteboard-camera/                      root of the future standalone repo 12twelve12hi/whiteboard-camera
+whiteboard-camera/                      root of the standalone repo a12k-a2b/whiteboard-camera
   README.md  SPEC.md  LICENSE  THIRD_PARTY_NOTICES.md  VERSION  Makefile
+  LICENSES/Apache-2.0.txt               scrcpy's Apache-2.0 text, shipped as Vendor/LICENSE-Apache-2.0.txt
   .github/workflows/ci.yml              standalone workflow (thin; every step is make <target>)
   docs/
     ARCHITECTURE.md  PROTOCOL.md  SETUP.md  SIGNING.md  LOOSE_ENDS.md  COMPARE.md  TESTING-CHECKLIST.md  PERFORMANCE.md
@@ -636,7 +637,7 @@ SPEC B1 verbatim; exits non-zero on any failed probe; prints the perf log, `lipo
 | M4 Native app + pills (days 9 to 12) | APK protocol + JVM tests, discovery, connection, wet/dry ink, toolbar, chip, onboarding, settings, `OverlayService`; `UsbOnboarding.installInk`; APK embedding and `/daylight-ink.apk` | APK artifact; wireless install from the web card; auto-connect over Wi-Fi; pills over a note app (pills only, no mirror yet); `docs/COMPARE.md` started |
 | M5 Mirror (days 12 to 16) | `AdbClient`, `AdbServerPolicy`, `DeviceTracker`, `ScrcpySession`, `H264Decoder`, `MirrorSource`, `CropInsets` + `MirrorCropView`, `StylusWatcher`, side button, `WifiMirror`, failure rows 21 to 28b and 32 | owner mirrors the SolOS note app; pen contact engages; double press pins; long press clears; pills visible on the tablet and absent from the camera; rotation keeps the crop |
 | M6 Hardening and docs (days 16 to 18) | adversarial review of every lock and queue hop; a 10-minute `FakeCapture` soak in `PipelineSmokeTests` asserting no pool growth; `frameReuse` and `deadlineIdle` measured on the M5 Max and enabled only if they help; docs (SETUP, SIGNING, LOOSE_ENDS, COMPARE, TESTING-CHECKLIST, PERFORMANCE with measured numbers); tag `v0.1.0` | the owner's testing checklist fully run; numbers in PERFORMANCE.md are measured |
-| M7 Repo split | `git subtree split --prefix=whiteboard-camera` to `12twelve12hi/whiteboard-camera`, secrets re-added, `ci.yml` green standalone | standalone CI green |
+| M7 Repo split | `git subtree split --prefix=whiteboard-camera` to `a12k-a2b/whiteboard-camera`, secrets re-added, `ci.yml` green standalone | standalone CI green |
 
 ---
 

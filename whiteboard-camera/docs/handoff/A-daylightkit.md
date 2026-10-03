@@ -90,7 +90,8 @@ The kit has no device-facing surface; these are the owner-visible behaviours tha
 
 ## 3. Device facts and CI facts
 
-- CI: actions run 37108531802 (kit-linux) compiled every new file on the first try with Swift 6.4 on x86_64 Linux; the only failures were four tolerance assertions comparing widths derived from a `Float` baseWidth at 1e-9 (fixed to 1e-6 in commit b59e898). The following run proves the kit on both platforms; its id is in the structured result of this component.
+- CI: actions run 37109217458 (commit 28be76f) is the proving run: `kit-linux` green (Swift 6.4, x86_64 Linux, 170 tests in about 8 s) and the mac job's `make kit-test` step green (Xcode 16.4, Apple Swift 6.1.2). Earlier runs on the way: 37108531802 compiled every new file on the first try on Linux and failed only four 1e-9 tolerance assertions on widths derived from a `Float` baseWidth (fixed to 1e-6); 37108706001 caught Foundation escaping the slash in the schema name; 37108897755 showed the Xcode 16.4 type checker rejecting `0x80 | 126` inside an untyped `[UInt8]` literal that Swift 6.4 accepted; 37109127237 showed Swift 6.4 timing out on a one-line `map` building 4096 points (explicit loops fix both).
+- Toolchain facts for every Swift author in this repo: spell combined byte literals as plain hex inside array literals; build large fixture arrays with loops, not closures; `JSONEncoder` escapes `/` unless `.withoutEscapingSlashes` is set; `JSONSerialization` returns `NSNumber` on Darwin and `Int` or `Double` on Linux.
 - `CodingKeyRepresentable` on `HotkeyAction` makes `Settings.hotkeys` encode as a JSON object keyed by action name (`{"whiteboardOnly": {"keyCode": 13, "modifiers": 6400}}`); it needs macOS 12.3 or later, fine for the 14.0 target, and works on Linux.
 - `ProcessInfo.processInfo.systemUptime` exists in swift-corelibs-foundation; `UtilTests.testClocks` asserts monotonicity and that the value is an uptime, not an epoch.
 

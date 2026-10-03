@@ -95,6 +95,83 @@ final class MirrorControllerTests: XCTestCase {
         bundled.stop()
     }
 
+    /// A downloader in a temporary folder with the shipped version, and a way to "finish" its download: a fake adb
+    /// script (empty `devices -l`) plus the manifest `locateInstalled` checks.
+    private func makeDownloader() -> (AdbDownloader, () throws -> URL) {
+        let directory = vendor.deletingLastPathComponent().appendingPathComponent("platform-tools", isDirectory: true)
+        let pins = AdbPins(version: AdbPins.platformToolsVersion, sha256: String(repeating: "a", count: 64), url: URL(fileURLWithPath: "/nonexistent.zip"))
+        let downloader = AdbDownloader(directory: directory, pins: pins)
+        let install = { () throws -> URL in
+            let fm = FileManager.default
+            try fm.createDirectory(at: directory, withIntermediateDirectories: true)
+            let script = "#!/bin/sh\nif [ \"$1\" = version ]; then echo 'Android Debug Bridge version 1.0.41'; fi\nexit 0\n"
+            try script.write(to: downloader.executable, atomically: true, encoding: .utf8)
+            try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: downloader.executable.path)
+            let sha = AdbSHA256.hex(of: downloader.executable) ?? ""
+            let manifest = AdbDownloadManifest(version: pins.version, zipSHA256: pins.sha256, adbSHA256: sha)
+            try JSONEncoder().encode(manifest).write(to: downloader.manifestURL)
+            return downloader.executable
+        }
+        return (downloader, install)
+    }
+
+    /// LOOSE_ENDS J2: a new adb source applies while mirror mode runs, without a relaunch. Download without accepted
+    /// terms fails (row 39); accepting the terms with the download in place stops, forgets the failed resolution and
+    /// starts again with the downloaded adb. Before J2 the controller kept `adbUnavailable` and the error until a relaunch,
+    /// so the `.noDevice` wait timed out.
+    func testANewAdbSourceAppliesWithoutARelaunch() throws {
+        var settings = Settings.defaults
+        settings.adbServerMode = .shared
+        settings.adbSource = .download
+        settings.adbTermsAcceptedVersion = nil
+        let controller = MirrorController(settings: settings, vendorDirectory: vendor, pipeline: FakePipelineControl(), queue: DispatchQueue(label: "mirror-control-j2"))
+        controller.trackerTuning = (pollInterval: 0.05, useTrackSocket: false)
+        let (downloader, install) = makeDownloader()
+        controller.adbDownloader = downloader
+        controller.start()
+        waitForStatus(controller) { $0 == .error(.scrcpyServerFailed, FailureText.sentence(.adbTermsDeclined)) }
+        XCTAssertEqual(controller.diagnostics["adb.executable"], "none")
+
+        let adbURL = try install()
+        settings.adbTermsAcceptedVersion = AdbPins.platformToolsVersion
+        controller.updateSettings(settings)
+        waitForStatus(controller) { $0 == .noDevice }
+        XCTAssertEqual(controller.diagnostics["adb.executable"], adbURL.path, "the downloaded adb is in use")
+        XCTAssertEqual(controller.diagnostics["adb.mode"], "shared 5037")
+
+        // Back to Bundled (missing in the test vendor folder): applies at once as well.
+        settings.adbSource = .bundled
+        controller.updateSettings(settings)
+        waitForStatus(controller) { if case .error(.scrcpyServerFailed, let detail) = $0 { return detail.contains("bundled adb missing") } else { return false } }
+        XCTAssertEqual(controller.diagnostics["adb.executable"], "none")
+        controller.stop()
+        waitForStatus(controller) { $0 == .idle }
+    }
+
+    /// LOOSE_ENDS J2: the Settings tab stores the accepted terms before its download finishes. The controller then
+    /// reports "not downloaded yet" and picks the download up when it lands, with no further settings change. Before J2
+    /// nothing looked again, so the `.noDevice` wait timed out.
+    func testAFinishedDownloadAppliesWithoutASettingsChange() throws {
+        var settings = Settings.defaults
+        settings.adbServerMode = .shared
+        settings.adbSource = .download
+        settings.adbTermsAcceptedVersion = AdbPins.platformToolsVersion
+        let controller = MirrorController(settings: settings, vendorDirectory: vendor, pipeline: FakePipelineControl(), queue: DispatchQueue(label: "mirror-control-j2-poll"))
+        controller.trackerTuning = (pollInterval: 0.05, useTrackSocket: false)
+        controller.adbDownloadPollInterval = 0.1
+        let (downloader, install) = makeDownloader()
+        controller.adbDownloader = downloader
+        controller.start()
+        let notYet = AdbSourceError.notDownloaded(version: AdbPins.platformToolsVersion).sentence
+        waitForStatus(controller) { $0 == .error(.scrcpyServerFailed, notYet) }
+        let adbURL = try install()
+        waitForStatus(controller) { $0 == .noDevice }
+        XCTAssertEqual(controller.diagnostics["adb.executable"], adbURL.path)
+        XCTAssertEqual(MirrorController.adbDownloadPollInterval, 2)
+        controller.stop()
+        waitForStatus(controller) { $0 == .idle }
+    }
+
     func testReadyDeviceStartsTheSessionAndThePenPathPostsGovernorEvents() {
         let adb = FakeAdb()
         adb.respond(containing: ["devices"], with: FakeAdb.ok("JP0001   device usb:1-1 product:daylight model:Daylight_DC_1 device:dc1 transport_id:1\n"))

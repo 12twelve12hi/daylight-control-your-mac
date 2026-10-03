@@ -94,7 +94,7 @@ The row under the picker shows the path and version Daylight found, or what went
 - No installed adb: "No installed adb found. Daylight looked in your PATH, in Homebrew (/opt/homebrew/bin, /usr/local/bin) and in the Android Studio SDK (ANDROID_HOME, ~/Library/Android/sdk)." (row 42); `brew install android-platform-tools` fixes it
 - An old one: "The adb at <path> is version <version>. Daylight needs platform-tools 35 or newer: update it, or choose another adb source." (row 43)
 
-When mirror mode starts with a source that fails, the menu bar shows the same sentence as a red line and Diagnostics reads `mirror.status: error: The screen mirror could not start: <the sentence>`. A new adb source applies the next time Daylight starts (quit from the menu bar and open it again). Diagnostics shows the one in use as `mirror.adb.source`, `mirror.adb.path` and `mirror.adb.version`, next to `mirror.adb.mode`. Whatever the source, Daylight never runs `adb kill-server` and shares or avoids another adb server by the same rule (row 24).
+When mirror mode starts with a source that fails, the menu bar shows the same sentence as a red line and Diagnostics reads `mirror.status: error: The screen mirror could not start: <the sentence>`. A new adb source applies at once: a running mirror stops and starts again with it, and after a download Daylight picks up the new adb within a few seconds. Diagnostics shows the one in use as `mirror.adb.source`, `mirror.adb.path` and `mirror.adb.version`, next to `mirror.adb.mode`. Whatever the source, Daylight never runs `adb kill-server` and shares or avoids another adb server by the same rule (row 24).
 
 If the menu says "Another adb is running (Android Studio?). Daylight is using its own copy; a tablet already claimed by the other adb will not be visible." (row 24), quit the other adb or accept that the tablet is invisible until you do.
 
@@ -186,7 +186,7 @@ Every key of SPEC section 11, by tab, in plain words. Values outside the range a
 | "Crop (portrait, tablet pixels; the top strip hides the pills)" with the Top and Bottom steppers and the live crop view | `mirrorCropInsetsPortrait`, `mirrorCropInsetsLandscape` | top 96 portrait, top 72 landscape, 0 elsewhere | what part of the tablet screen fills the board slot; the top inset is 0 when the pills are off |
 | (hidden) | `pillStripHeight` | 96 | told to the APK through `/api/info` so the pills sit inside the cropped strip |
 | (hidden) | `mirrorDeviceSerial` | none | which tablet when several are plugged in; the first DC-1-looking one otherwise |
-| "adb source" | `adbSource` | "Bundled (default)" | or "Download on first use" or "Use installed adb" (section 2.3, adb source); applies at the next launch |
+| "adb source" | `adbSource` | "Bundled (default)" | or "Download on first use" or "Use installed adb" (section 2.3, adb source); applies at once |
 | (hidden) | `adbTermsAcceptedVersion` | none | the platform-tools version whose Android SDK License you accepted for the download |
 | (hidden) | `adbServerMode`, `adbPrivatePort` | auto, 27180 | share the Mac's adb server on 5037 when its version matches, else a private port (row 24) |
 

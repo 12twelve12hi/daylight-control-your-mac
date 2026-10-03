@@ -116,7 +116,7 @@ struct AdbSourceSection: View {
             if effective == .download {
                 Link("Android SDK License", destination: AdbPins.termsURL).font(.footnote)
             }
-            Text("A new adb source applies the next time Daylight starts.").font(.footnote).foregroundColor(.secondary)
+            Text("A new adb source applies at once: a running mirror restarts with it.").font(.footnote).foregroundColor(.secondary)
         }
         .onAppear { model.refresh(store.settings) }
         .alert(isPresented: $model.showTerms) {

@@ -17,6 +17,9 @@ final class MirrorController: MirrorControl {
     static let wifiRetryInterval: Double = 30
     /// `refreshDevices()` runs `adb devices -l` at most once per this interval while the tracker is not running.
     static let devicesRefreshInterval: Double = 5
+    /// While Download on first use reports "not downloaded yet", the controller checks for the finished download this
+    /// often (a file check, no network), so the download the Settings tab starts applies without a relaunch (J2).
+    static let adbDownloadPollInterval: Double = 2
 
     let queue: DispatchQueue
     let mirrorQueue = DispatchQueue(label: "com.twelve.daylight.mirror", qos: .userInteractive)
@@ -43,6 +46,10 @@ final class MirrorController: MirrorControl {
     private var lastDevicesRefresh: Double = -.infinity
     /// Set once the bundled adb could not be located, so a 1 Hz caller of `refreshDevices()` does not log it forever.
     private var adbUnavailable = false
+    /// Bumped when the adb source settings change (LOOSE_ENDS J2): a resolution started for the old source is dropped.
+    private var adbGeneration = 0
+    /// The generation a download poll is scheduled for, so at most one poll runs.
+    private var adbDownloadPollGeneration: Int?
     private let statusBox = Locked<MirrorStatus>(.idle)
     private let devicesBox = Locked<[AdbDevice]>([])
     private let extraBox = Locked<[String: String]>([:])
@@ -73,6 +80,9 @@ final class MirrorController: MirrorControl {
     var sessionTuning: (attempts: Int, interval: Double) = (ScrcpyLaunch.dummyByteAttempts, ScrcpyLaunch.dummyByteRetryInterval)
     /// Device-list cadence when the track socket is unavailable (tests shorten it).
     var trackerTuning: (pollInterval: Double, useTrackSocket: Bool) = (2, true)
+    /// Where Download on first use installs adb (tests point it at a temporary folder) and the poll for it.
+    var adbDownloader = AdbDownloader()
+    var adbDownloadPollInterval = MirrorController.adbDownloadPollInterval
 
     /// The bound web server port for `adb reverse` (B sets it when the listener binds 7789 instead of 7788).
     var serverPort: UInt16
@@ -138,7 +148,7 @@ final class MirrorController: MirrorControl {
     var settings: Settings { return settingsBox.withLock { $0 } }
 
     /// Settings changes while running: crop insets and the pills rule apply at once, gesture windows on the next press,
-    /// encoder options on the next session.
+    /// encoder options on the next session, a new adb source or newly accepted download terms at once (J2).
     func updateSettings(_ newSettings: Settings) {
         let validated = newSettings.validated()
         let previous = settingsBox.withLock { s -> Settings in
@@ -152,6 +162,9 @@ final class MirrorController: MirrorControl {
             self?.stylus?.updateGestures(validated.sideButtonGestures)
             self?.serverPort = validated.port
             if previous.mirrorTransport != validated.mirrorTransport { self?.transportChanged() }
+            if previous.adbSource != validated.adbSource || previous.adbTermsAcceptedVersion != validated.adbTermsAcceptedVersion {
+                self?.adbSourceChanged(reason: "adb source is now \(validated.adbSource.rawValue)")
+            }
         }
     }
 
@@ -162,14 +175,66 @@ final class MirrorController: MirrorControl {
             self.log("mirror start: vendor \(self.vendorDirectory.path) transport \(self.settings.mirrorTransport.rawValue)")
             self.wifiSource.setActive(self.usesWifi)
             if self.usesWifi { self.onStatusChange?(self.status) }
-            self.ensureAdb { adb in
-                guard let adb = adb, self.started else { return }
-                self.setStatus(.noDevice)
-                let tracker = DeviceTracker(adb: adb, queue: self.adbQueue, pollInterval: self.trackerTuning.pollInterval, useTrackSocket: self.trackerTuning.useTrackSocket)
-                tracker.onLog = { [weak self] line in self?.queue.async { self?.log(line) } }
-                tracker.onDevices = { [weak self] list in self?.queue.async { self?.devicesChanged(list) } }
-                self.tracker = tracker
-                tracker.start()
+            self.startTracking()
+        }
+    }
+
+    /// Control queue: locate adb, then start the device tracker (once; a second resolution finds it running).
+    private func startTracking() {
+        ensureAdb { adb in
+            guard let adb = adb, self.started, self.tracker == nil else { return }
+            self.setStatus(.noDevice)
+            let tracker = DeviceTracker(adb: adb, queue: self.adbQueue, pollInterval: self.trackerTuning.pollInterval, useTrackSocket: self.trackerTuning.useTrackSocket)
+            tracker.onLog = { [weak self] line in self?.queue.async { self?.log(line) } }
+            tracker.onDevices = { [weak self] list in self?.queue.async { self?.devicesChanged(list) } }
+            self.tracker = tracker
+            tracker.start()
+        }
+    }
+
+    /// LOOSE_ENDS J2: a new adb source (or newly accepted download terms, or a download that finished) applies at once.
+    /// The tracker, the session and the pen watcher stop, the located adb, its server decision and `adbUnavailable` are
+    /// dropped, and the mirror starts again when it is the active source. Server rule (AdbServerPolicy): Daylight never
+    /// runs `adb kill-server`, also not for a server the old adb started itself. That server keeps running, and the
+    /// policy is decided again for the new adb: every supported adb speaks protocol 41, so the new one shares it (a
+    /// different version in Auto moves to the private port, row 24, as it would at launch). Killing it could end the
+    /// session of another tool that started using it meanwhile, which is the case the policy exists for.
+    private func adbSourceChanged(reason: String) {
+        adbGeneration += 1
+        adbDownloadPollGeneration = nil
+        log("\(reason); locating adb again")
+        tracker?.stop()
+        tracker = nil
+        endSession(reason: "adb source changed")
+        wifi = nil
+        adb = nil
+        policyDecision = nil
+        adbUnavailable = false
+        lastDevicesRefresh = -.infinity
+        extraDiagnostics["adb.version"] = nil
+        if !currentDevices.isEmpty {
+            currentDevices = []
+            onDevicesChange?([])
+        }
+        guard started else { return }
+        startTracking()
+    }
+
+    /// Download on first use, not downloaded yet: check for the finished download every `adbDownloadPollInterval` until it
+    /// is there or the source settings change. The Settings tab writes the terms before its download finishes, so
+    /// without this the mirror would wait for a relaunch after the first download.
+    private func scheduleAdbDownloadPoll() {
+        let generation = adbGeneration
+        guard adbDownloadPollGeneration != generation else { return }
+        adbDownloadPollGeneration = generation
+        queue.asyncAfter(deadline: .now() + adbDownloadPollInterval) { [weak self] in
+            guard let self = self, self.adbGeneration == generation, self.adbDownloadPollGeneration == generation else { return }
+            self.adbDownloadPollGeneration = nil
+            guard self.adb == nil else { return }
+            if case .success = self.adbDownloader.locateInstalled() {
+                self.adbSourceChanged(reason: "the adb download finished")
+            } else {
+                self.scheduleAdbDownloadPoll()
             }
         }
     }
@@ -368,12 +433,16 @@ final class MirrorController: MirrorControl {
         if let injected = injectedAdb {
             client = injected
         } else {
-            switch AdbClient.locateExecutable(AdbSourceRequest(settings: settings, vendorDirectory: vendorDirectory)) {
+            let settings = self.settings
+            let request = AdbSourceRequest(source: settings.adbSource, termsAcceptedVersion: settings.adbTermsAcceptedVersion,
+                                           vendorDirectory: vendorDirectory, downloader: adbDownloader)
+            switch AdbClient.locateExecutable(request) {
             case let .success(location):
                 client = AdbClient(executable: location.url, queue: adbQueue)
             case let .failure(error):
                 log(error.logLine)
                 adbUnavailable = true
+                if case .notDownloaded = error { scheduleAdbDownloadPoll() }
                 setStatus(.error(.scrcpyServerFailed, error.sentence))
                 if let row = error.failure { onFailure?(row.0, row.1) }
                 completion(nil)
@@ -381,9 +450,15 @@ final class MirrorController: MirrorControl {
             }
         }
         let settings = self.settings
+        let generation = adbGeneration
         AdbServerPolicy.decide(bundled: client, mode: settings.adbServerMode, privatePort: settings.adbPrivatePort) { [weak self] decision in
             self?.queue.async {
                 guard let self = self else { return }
+                // The source changed while the policy was decided: resolve the new source instead (J2).
+                guard self.adbGeneration == generation else {
+                    self.ensureAdb(completion)
+                    return
+                }
                 client.serverSocket = decision.serverSocket
                 self.policyDecision = decision
                 self.adb = client

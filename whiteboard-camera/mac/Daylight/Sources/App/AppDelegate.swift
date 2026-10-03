@@ -224,6 +224,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.pipeline = pipeline
         model.pipeline = pipeline
         pipeline.latencyProbe = arguments.latencyProbe
+        // Row 3 before anything else: the idle rule may want capture at once (sink not connected), and a denied
+        // AVCaptureDeviceInput must not read as "No camera found". `startCaptureIfAuthorized` opens the gate.
+        pipeline.setCaptureAuthorized(AVCaptureDevice.authorizationStatus(for: .video) == .authorized)
         let capture = WebcamCapture(queue: pipeline.captureQueue)
         capture.preferredUniqueID = settingsStore.settings.cameraUniqueID
         capture.onLog = { [weak self] line in self?.telemetry.note("capture", line) }
@@ -255,6 +258,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         switch AVCaptureDevice.authorizationStatus(for: .video) {
         case .authorized:
             onboardingModel.inputs.camera = .granted
+            pipeline?.setCaptureAuthorized(true)
             pipeline?.start()
         case .denied, .restricted:
             onboardingModel.inputs.camera = .denied
@@ -263,7 +267,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onboardingModel.inputs.camera = .notDetermined
             if settingsStore.settings.onboardingDone { requestCameraAccess() }
         @unknown default:
+            pipeline?.setCaptureAuthorized(true)
             pipeline?.start()
+        }
+    }
+
+    /// The TCC status as the onboarding row sees it.
+    static func cameraPermission(_ status: AVAuthorizationStatus) -> CameraPermission {
+        switch status {
+        case .authorized: return .granted
+        case .denied, .restricted: return .denied
+        case .notDetermined: return .notDetermined
+        @unknown default: return .granted
         }
     }
 
@@ -273,6 +288,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard let self = self else { return }
                 self.onboardingModel.inputs.camera = granted ? .granted : .denied
                 if granted {
+                    self.pipeline?.setCaptureAuthorized(true)
                     self.pipeline?.start()
                 } else {
                     self.model.noteFailure(.cameraAccessDenied, [])
@@ -499,6 +515,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func refreshOnboardingInputs() {
         let s = settingsStore.settings
+        // The owner may have answered the system prompt without this window's button: follow the TCC status, and
+        // open the capture gate the moment access is granted.
+        let permission = AppDelegate.cameraPermission(AVCaptureDevice.authorizationStatus(for: .video))
+        if permission == .granted && onboardingModel.inputs.camera != .granted {
+            pipeline?.setCaptureAuthorized(true)
+            pipeline?.start()
+        }
+        onboardingModel.inputs.camera = permission
         onboardingModel.inputs.cameraName = WebcamCapture.camera(uniqueID: s.cameraUniqueID)?.localizedName
         onboardingModel.inputs.webURL = LocalAddresses.primaryURL(port: server?.port ?? s.port)
         onboardingModel.inputs.usbDevice = mirror?.devices.first(where: { $0.isUSB })?.serial

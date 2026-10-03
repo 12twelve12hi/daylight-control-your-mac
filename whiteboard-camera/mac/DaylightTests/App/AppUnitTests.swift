@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 import DaylightKit
 import XCTest
 @testable import Daylight
@@ -128,6 +129,13 @@ final class AppModelMenuTests: XCTestCase {
         XCTAssertEqual(AppModel.whiteboardNowEvent(.studioSplit, snapshot: GovernorOutput(state: .live, layout: .studioSplit)), .engage, "the showing layout only resets the idle timer")
         XCTAssertEqual(AppModel.whiteboardNowEvent(.studioSplit, snapshot: GovernorOutput(state: .engaging, layout: .studioSplit)), .engage)
         XCTAssertEqual(AppModel.whiteboardNowEvent(.studioSplit, snapshot: GovernorOutput(state: .returning, layout: .studioSplit)), .engage, "engage during RETURNING re-engages (SPEC D38)")
+    }
+
+    func testCameraPermissionFollowsTheTCCStatus() {
+        XCTAssertEqual(AppDelegate.cameraPermission(.authorized), .granted)
+        XCTAssertEqual(AppDelegate.cameraPermission(.denied), .denied)
+        XCTAssertEqual(AppDelegate.cameraPermission(.restricted), .denied)
+        XCTAssertEqual(AppDelegate.cameraPermission(.notDetermined), .notDetermined)
     }
 }
 

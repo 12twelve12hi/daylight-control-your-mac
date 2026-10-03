@@ -43,6 +43,8 @@ final class FramePipeline: PipelineControl {
         var mirror: MirrorFrameSource?
         var zeroCopyEligible = true
         var firstFrame: String?
+        /// Camera authorization (SPEC 13.3 row 3): false blocks capture; the app sets it from the TCC status.
+        var captureAuthorized = true
     }
     private let flags: Locked<Flags>
     private var settings: Settings
@@ -181,6 +183,21 @@ final class FramePipeline: PipelineControl {
                 self.flags.withLock { $0.captureRunning = false }
             }
             self.recomputeCapture()
+        }
+    }
+
+    /// Camera authorization (SPEC 13.3 row 3): while false the capture never starts, the sink and the preview show the
+    /// cream card, and no AVCaptureDeviceInput failure is mistaken for "No camera found".
+    func setCaptureAuthorized(_ authorized: Bool) {
+        flags.withLock { $0.captureAuthorized = authorized }
+        renderQueue.async { [weak self] in
+            guard let self = self else { return }
+            if !authorized, let card = self.creamCardBuffer() {
+                self.feeder.push(card, hostTimeNs: nil)
+                self.onPreviewFrame?(card)
+            }
+            self.recomputeCapture()
+            self.publishFlagsChange()
         }
     }
 
@@ -508,7 +525,7 @@ final class FramePipeline: PipelineControl {
 
     var wantsCapture: Bool {
         let f = flags.withLock { $0 }
-        return f.viewers > 0 || f.previewVisible || !f.sinkConnected
+        return f.captureAuthorized && (f.viewers > 0 || f.previewVisible || !f.sinkConnected)
     }
 
     private var idleStopSeconds: Double {
@@ -557,13 +574,17 @@ final class FramePipeline: PipelineControl {
             }
             onCameraPresence?(capture.hasDevice)
         } catch {
+            // Denied camera access surfaces as AVError.applicationIsNotAuthorizedToUseDevice from AVCaptureDeviceInput:
+            // that is row 3, not row 4, and says nothing about whether a camera is present.
+            let denied = (error as? AVError)?.code == .applicationIsNotAuthorizedToUseDevice
             flags.withLock { f in
                 f.captureRunning = false
-                f.cameraAttached = false
+                if !denied { f.cameraAttached = false }
             }
-            telemetry.note("capture", FailureText.logLine(.noWebcam))
-            onFailure?(.noWebcam, [])
-            onCameraPresence?(false)
+            let failure: FailureText.Case = denied ? .cameraAccessDenied : .noWebcam
+            telemetry.note("capture", FailureText.logLine(failure) + " (\(error))")
+            onFailure?(failure, [])
+            if !denied { onCameraPresence?(false) }
             if let card = creamCardBuffer() {
                 feeder.push(card, hostTimeNs: nil)
                 onPreviewFrame?(card)

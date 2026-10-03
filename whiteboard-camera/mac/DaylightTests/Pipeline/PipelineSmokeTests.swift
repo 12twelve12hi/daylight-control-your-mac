@@ -81,6 +81,22 @@ final class PipelineSmokeTests: XCTestCase {
         pipeline.shutdown()
     }
 
+    func testCaptureWaitsForCameraAuthorization() throws {
+        let sink = FakeSink()
+        let capture = FakeCapture()
+        let pipeline = try makePipeline(sink: sink, capture: capture)
+        pipeline.setCaptureAuthorized(false)
+        pipeline.start()
+        Thread.sleep(forTimeInterval: 0.3)
+        XCTAssertFalse(capture.isRunning, "row 3: nothing opens the camera before access is granted")
+        XCTAssertFalse(pipeline.stats.capturing)
+        XCTAssertGreaterThanOrEqual(sink.pushCount, 1, "the sink gets the cream card, never the extension placeholder")
+        XCTAssertFalse(sink.lastPixelBuffer === capture.buffer)
+        pipeline.setCaptureAuthorized(true)
+        XCTAssertTrue(waitUntil(1.0) { capture.isRunning }, "granting access opens the gate without a relaunch")
+        pipeline.shutdown()
+    }
+
     func testStateCadenceConstantsMatchSpecD47() {
         XCTAssertEqual(FramePipeline.stateIntervalAnimating, 0.1, accuracy: 1e-12, "10 Hz while ENGAGING, RETURNING or pre-warning")
         XCTAssertEqual(FramePipeline.stateIntervalLive, 1.0, accuracy: 1e-12, "1 Hz while LIVE")

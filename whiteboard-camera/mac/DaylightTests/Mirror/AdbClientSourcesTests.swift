@@ -299,6 +299,31 @@ final class AdbClientSourcesTests: XCTestCase {
         XCTAssertEqual(AdbClient.locateExecutable(request(.bundled, bundled: false), recordStatus: false).failureValue, .termsNotAccepted(version: "37.0.0"))
     }
 
+    /// ADB-1: Settings > Mirror before the pinned terms were accepted (a build without the bundled adb on first launch,
+    /// or terms accepted for an older pin) shows no row 39 "declined" and so keeps "Download adb", which opens the terms
+    /// prompt. Before the fix `refresh` set row 39's sentence, and with a failure shown the view draws neither
+    /// "Download adb" nor "Try again", so nothing on the page could open the prompt.
+    func testSettingsKeepsThePathToTheTermsBeforeTheyAreAccepted() {
+        let model = AdbSourceModel(bundledAvailable: false, downloader: AdbDownloader(directory: installDirectory),
+                                   vendorDirectory: root.appendingPathComponent("Vendor"))
+        let store = SettingsStore(defaults: UserDefaults(suiteName: "adb-source-\(UUID().uuidString)")!)
+        for terms in [nil, "36.0.0"] as [String?] {
+            store.settings.adbTermsAcceptedVersion = terms
+            let pending = "refresh pending"
+            model.failure = pending
+            model.refresh(store.settings)
+            let refreshed = XCTNSPredicateExpectation(predicate: NSPredicate(block: { _, _ in model.failure != pending }), object: nil)
+            wait(for: [refreshed], timeout: 10)
+            XCTAssertNil(model.failure, "terms \(terms ?? "nil"): not a Cancel, so no row 39 and Download adb stays")
+            XCTAssertNil(model.located)
+            model.choose(.download, store: store)
+            XCTAssertTrue(model.showTerms, "Download adb opens the terms prompt")
+            model.showTerms = false
+        }
+        model.declineTerms()
+        XCTAssertEqual(model.failure, FailureText.sentence(.adbTermsDeclined), "a real Cancel still shows row 39")
+    }
+
     func testInstalledThroughTheSeam() throws {
         let adb = try fakeAdb(in: "path-a", output: Self.modernOutput)
         XCTAssertEqual(try AdbClient.locateExecutable(request(.installed), recordStatus: false).get().url, adb.standardizedFileURL)

@@ -39,8 +39,14 @@ final class AdbSourceModel: ObservableObject {
                 case let .success(location): self.located = location; self.failure = nil
                 case let .failure(error):
                     self.located = nil
-                    // Not downloaded yet is the normal state before the first download, not a failure.
-                    if case .notDownloaded = error { self.failure = nil } else { self.failure = error.sentence }
+                    // Not downloaded yet is the normal state before the first download, not a failure. Terms not
+                    // accepted yet (a build without the bundled adb, or a new pin) is not a Cancel either: it keeps
+                    // "Download adb", the only control that opens the terms prompt. After a real Cancel,
+                    // `declineTerms` shows row 39 until the next refresh.
+                    switch error {
+                    case .notDownloaded, .termsNotAccepted: self.failure = nil
+                    default: self.failure = error.sentence
+                    }
                 }
             }
         }

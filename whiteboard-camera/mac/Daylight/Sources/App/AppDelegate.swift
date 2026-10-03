@@ -304,13 +304,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.pipeline = pipeline
         model.pipeline = pipeline
         pipeline.latencyProbe = arguments.latencyProbe
-        // Row 3 before anything else: the idle rule may want capture at once (sink not connected), and a denied
-        // AVCaptureDeviceInput must not read as "No camera found". `startCaptureIfAuthorized` opens the gate.
-        pipeline.setCaptureAuthorized(AVCaptureDevice.authorizationStatus(for: .video) == .authorized)
-        let capture = WebcamCapture(queue: pipeline.captureQueue)
-        capture.preferredUniqueID = settingsStore.settings.cameraUniqueID
-        capture.onLog = { [weak self] line in self?.telemetry.note("capture", line) }
-        pipeline.setCaptureSource(capture)
+        // Every callback is set before the first render-queue block (setCaptureAuthorized below) can read it. The ink
+        // router does not exist yet; these three go through `self?.router`, which wireInkPath fills in.
+        pipeline.onStateForClients = { [weak self] report in self?.inkQueue.async { self?.router?.receiveState(report) } }
+        pipeline.onSavePage = { [weak self] reason in self?.inkQueue.async { self?.router?.applyGovernorEffect(.savePage(reason: reason)) } }
+        pipeline.onClearCanvas = { [weak self] in self?.inkQueue.async { self?.router?.applyGovernorEffect(.clearCanvas) } }
         pipeline.onPreviewFrame = { [weak self] buffer in self?.preview.display(buffer) }
         pipeline.onFailure = { [weak self] failure, args in
             DispatchQueue.main.async { self?.model.noteFailure(failure, args) }
@@ -325,6 +323,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         pipeline.onStateChanged = { [weak self] from, to in
             DispatchQueue.main.async { self?.governorChanged(from: from, to: to) }
         }
+        // Row 3 before the capture source: the idle rule may want capture at once (sink not connected), and a denied
+        // AVCaptureDeviceInput must not read as "No camera found". `startCaptureIfAuthorized` opens the gate.
+        pipeline.setCaptureAuthorized(AVCaptureDevice.authorizationStatus(for: .video) == .authorized)
+        let capture = WebcamCapture(queue: pipeline.captureQueue)
+        capture.preferredUniqueID = settingsStore.settings.cameraUniqueID
+        capture.onLog = { [weak self] line in self?.telemetry.note("capture", line) }
+        pipeline.setCaptureSource(capture)
         preview.onVisibility = { [weak pipeline] visible in pipeline?.setPreviewVisible(visible) }
         sink.onStatusChange = { [weak self] status in
             DispatchQueue.main.async { self?.sinkStatusChanged(status) }
@@ -443,9 +448,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         router.onSaving = { [weak pipeline] saving in pipeline?.setSaving(saving) }
         router.onEngagingStart = { [weak pipeline] ns in pipeline?.noteInkArrival(hostTimeNs: ns) }
-        pipeline.onStateForClients = { [weak self] report in self?.inkQueue.async { self?.router?.receiveState(report) } }
-        pipeline.onSavePage = { [weak self] reason in self?.inkQueue.async { self?.router?.applyGovernorEffect(.savePage(reason: reason)) } }
-        pipeline.onClearCanvas = { [weak self] in self?.inkQueue.async { self?.router?.applyGovernorEffect(.clearCanvas) } }
         registry.onChange = { [weak self] records in
             DispatchQueue.main.async { self?.settingsContext.allowedClients = records }
         }

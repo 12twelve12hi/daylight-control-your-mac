@@ -153,6 +153,29 @@ final class WebcamChoiceTests: XCTestCase {
     }
 }
 
+/// PIPB-05: the app assigns every pipeline callback before the first render-queue block that reads one is queued
+/// (`setCaptureAuthorized`, then `setCaptureSource`, in that required order). Pinned on the source of `wirePipeline`.
+final class PipelineWiringOrderTests: XCTestCase {
+    func testCallbacksAreAssignedBeforeTheFirstRenderQueueWork() throws {
+        let mac = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let file = mac.appendingPathComponent("Daylight/Sources/App/AppDelegate.swift")
+        guard let text = try? String(contentsOf: file, encoding: .utf8) else {
+            throw XCTSkip("AppDelegate.swift not reachable from the test host at \(file.path)")
+        }
+        let start = try XCTUnwrap(text.range(of: "private func wirePipeline()"))
+        let rest = text[start.upperBound...]
+        let end = rest.range(of: "\n    private func ")?.lowerBound ?? rest.endIndex
+        let body = String(rest[..<end])
+        let authorize = try XCTUnwrap(body.range(of: "pipeline.setCaptureAuthorized("), "wirePipeline sets row 3")
+        let source = try XCTUnwrap(body.range(of: "pipeline.setCaptureSource("), "wirePipeline sets the capture source")
+        XCTAssertTrue(authorize.lowerBound < source.lowerBound, "row 3 is set before the capture source")
+        for callback in ["onStateForClients", "onSavePage", "onClearCanvas", "onPreviewFrame", "onFailure", "onCameraPresence", "onStateChanged"] {
+            let assignment = try XCTUnwrap(body.range(of: "pipeline.\(callback) = "), "wirePipeline assigns \(callback)")
+            XCTAssertTrue(assignment.lowerBound < authorize.lowerBound, "\(callback) is assigned before setCaptureAuthorized queues render work")
+        }
+    }
+}
+
 /// research-mac-pipeline 1.9: the preview never holds more than one captured buffer, however long main stalls.
 final class LatestSampleCoalescerTests: XCTestCase {
     func testOnlyTheNewestSampleReachesAStalledQueueOnce() {

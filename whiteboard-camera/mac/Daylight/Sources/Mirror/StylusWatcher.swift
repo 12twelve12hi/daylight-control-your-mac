@@ -73,16 +73,17 @@ final class StylusWatcher {
         }
     }
 
-    func stop() {
-        queue.async { [weak self] in
-            guard let self = self else { return }
+    /// `silently` skips the release transitions (the controller lifts the pen for the governor itself on a session end).
+    func stop(silently: Bool = false) {
+        // Strong capture on purpose: the controller drops the watcher right after `stop()`; the child must still die.
+        queue.async {
             self.running = false
             self.generation += 1
             if let child = self.child {
                 if child.isRunning { child.terminate() }
                 self.child = nil
             }
-            self.release()
+            self.release(forward: !silently)
             self.setStatus(.idle)
         }
     }
@@ -219,11 +220,13 @@ final class StylusWatcher {
     }
 
     /// Opens every switch (stream ended or stopped) so the governor sees the pen lift.
-    private func release() {
+    private func release(forward: Bool = true) {
         timerToken += 1
         let ts = lastEventTsUs
         let transitions = machine.reset(tsUs: ts)
-        for transition in transitions { onTransition?(transition) }
+        if forward {
+            for transition in transitions { onTransition?(transition) }
+        }
         contactStartedAt = nil
     }
 

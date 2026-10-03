@@ -48,9 +48,9 @@ final class DeviceTracker {
             s.tracking = false
             s.generation += 1
         }
-        queue.async { [weak self] in
-            self?.connection?.cancel()
-            self?.connection = nil
+        queue.async {
+            self.connection?.cancel()
+            self.connection = nil
         }
     }
 

@@ -106,9 +106,10 @@ final class ScrcpySession {
         }
     }
 
+    /// Captures `self` strongly on purpose: the controller drops its reference right after calling `stop()`, and the
+    /// child must still be terminated.
     func stop() {
-        queue.async { [weak self] in
-            guard let self = self else { return }
+        queue.async {
             self.stopped = true
             self.isRunning = false
             self.connection?.cancel()
@@ -139,9 +140,10 @@ final class ScrcpySession {
     }
 
     private func forward(portIndex: Int) {
+        // 27183 then 27184...27199 with the default port (ARCHITECTURE 6 item 3); the same 16 tries from any other base.
         let candidate = Int(config.localPort) + portIndex
-        guard portIndex < ScrcpySession.forwardPortAttempts, candidate <= Int(ScrcpyLaunch.lastLocalPort), let port = UInt16(exactly: candidate) else {
-            finish(.forwardFailed("no free local port between \(config.localPort) and \(ScrcpyLaunch.lastLocalPort)"))
+        guard portIndex <= ScrcpySession.forwardPortAttempts, let port = UInt16(exactly: candidate) else {
+            finish(.forwardFailed("no free local port between \(config.localPort) and \(Int(config.localPort) + ScrcpySession.forwardPortAttempts)"))
             return
         }
         let probe = ScrcpyLaunch(serial: config.serial, maxSize: config.maxSize, bitRate: config.bitRate, maxFps: config.maxFps, localPort: port)

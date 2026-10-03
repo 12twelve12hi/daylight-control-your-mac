@@ -223,6 +223,7 @@ final class ScrcpySessionTests: XCTestCase {
         settings.mirrorMaxFps = Settings.lowBandwidthMirror.maxFps
         let config = ScrcpySession.Config(serial: "S", settings: settings)
         XCTAssertEqual(config, ScrcpySession.Config(serial: "S", maxSize: 1200, bitRate: 4_000_000, maxFps: 24, localPort: 27183))
-        XCTAssertEqual(ScrcpySession.forwardPortAttempts, 16)
+        XCTAssertEqual(ScrcpySession.forwardPortAttempts, 16, "27183 then 27184...27199")
+        XCTAssertEqual(Int(ScrcpyLaunch.defaultLocalPort) + ScrcpySession.forwardPortAttempts, Int(ScrcpyLaunch.lastLocalPort))
     }
 }

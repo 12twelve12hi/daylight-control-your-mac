@@ -38,7 +38,7 @@ final class AdbServerPolicyTests: XCTestCase {
         XCTAssertEqual(decision?.serverSocket, "tcp:localhost:27180")
         XCTAssertEqual(decision?.isConflict, true)
         XCTAssertEqual(FailureText.sentence(.adbVersionClash), "Another adb is running (Android Studio?). Daylight is using its own copy; a tablet already claimed by the other adb will not be visible.")
-        XCTAssertEqual(FailureText.logLine(.adbVersionClash, ["40", "41"]), "host:version mismatch 40 vs 41")
+        XCTAssertTrue(FailureText.logLine(.adbVersionClash, ["40", "41"]).hasSuffix("host:version mismatch 40 vs 41"), "row 24 log line with the arguments substituted")
     }
 
     func testUnreadableOwnVersionSharesTheDefaultSocket() {

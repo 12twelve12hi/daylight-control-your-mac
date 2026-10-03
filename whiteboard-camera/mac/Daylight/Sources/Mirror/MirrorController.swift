@@ -544,7 +544,7 @@ final class MirrorController: MirrorControl {
         if session != nil || stylus != nil { log("session end (\(reason))") }
         session?.stop()
         session = nil
-        stylus?.stop()
+        stylus?.stop(silently: true)
         stylus = nil
         let oldDecoder = decoder
         decoder = nil

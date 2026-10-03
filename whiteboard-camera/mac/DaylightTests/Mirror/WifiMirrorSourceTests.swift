@@ -581,4 +581,38 @@ final class WifiMirrorSourceTests: XCTestCase {
         XCTAssertEqual(failures.withLock { $0 }.map { $0.0 }, [.wifiStreamConsentDenied])
         XCTAssertEqual(failures.withLock { $0 }.first?.1, ["A"])
     }
+
+    /// Finder W6 / P14-A1: a MIRROR_HELLO with codec 0, 1 or an unknown codec used to emit `.streamStarted` before the
+    /// demuxer rejected it, so it STOPped the working stream and took it over. Before the fix A's commands were
+    /// [.start, .stop] and the streamer was B.
+    func testRejectedHelloDoesNotTakeOverTheStream() {
+        let source = makeSource()
+        let failures = Locked<[(FailureText.Case, [String])]>([])
+        source.onFailure = { f, args in failures.withLock { $0.append((f, args)) } }
+        source.setActive(true)
+        let (a, aTransport) = makeConnection(label: "A")
+        let (b, bTransport) = makeConnection(label: "B")
+        feed(source, a, .status(WifiMirrorSourceTests.idle))
+        feed(source, a, .hello(deviceName: "DC-1", codecID: ScrcpyDemuxer.codecH264))
+        feed(source, a, .status(WifiMirrorSourceTests.status(.streaming)))
+        feed(source, b, .status(WifiMirrorSourceTests.idle))
+        drain(source)
+        XCTAssertEqual(bTransport.commands, [.start])
+        feed(source, b, .hello(deviceName: "DC-1 other", codecID: 1))
+        drain(source)
+        XCTAssertEqual(aTransport.commands, [.start], "the working stream gets no STOP")
+        XCTAssertEqual(source.diagnostics["wifi.streamer"], "A")
+        XCTAssertEqual(bTransport.commands, [.start, .stop], "the rejected stream's encoder is stopped")
+        XCTAssertEqual(source.status, .error(.wifiStreamEncoderUnavailable, "B"))
+        XCTAssertEqual(failures.withLock { $0 }.map { $0.0 }, [.wifiStreamEncoderUnavailable])
+        // B answers STOP with PAUSED: no START again (W1 does not apply to a rejected HELLO).
+        feed(source, b, .status(WifiMirrorSourceTests.status(.paused)))
+        drain(source)
+        XCTAssertEqual(bTransport.commands, [.start, .stop])
+        XCTAssertEqual(source.status, .error(.wifiStreamEncoderUnavailable, "B"))
+        // Packets of the rejected peer never reach the decoder.
+        feed(source, b, .packet(.session(width: 1600, height: 1200)))
+        drain(source)
+        XCTAssertNotEqual(source.diagnostics["wifi.streamSize"], "1600x1200")
+    }
 }

@@ -49,14 +49,24 @@ final class MirrorStreamReceiverTests: XCTestCase {
         XCTAssertEqual(r.receive(F.session, now: 0.4), [.packet(.session(width: 1200, height: 1600))])
     }
 
+    /// Finder P14-A1 / W6: a rejected HELLO used to emit `.streamStarted` first, so the app let it take over the stream.
     func testHelloWithACodecErrorIsRejected() {
         var r = R()
         let out = r.receive(.hello(deviceName: "DC-1", codecID: 1), now: 0)
-        XCTAssertEqual(Array(out.prefix(2)), [.streamStarted(deviceName: "DC-1"), .packet(.deviceMeta(name: "DC-1"))])
-        XCTAssertEqual(out.count, 3)
-        guard case .log = out[2] else { return XCTFail("expected a log, got \(out)") }
+        XCTAssertEqual(out.first, .helloRejected(deviceName: "DC-1", codecID: 1))
+        XCTAssertFalse(out.contains(.streamStarted(deviceName: "DC-1")), "a rejected HELLO starts no stream")
+        XCTAssertEqual(out.count, 2)
+        guard case .log = out[1] else { return XCTFail("expected a log, got \(out)") }
         XCTAssertFalse(r.hasHello)
         XCTAssertEqual(r.receive(F.session, now: 0.1).count, 1, "packet before a valid HELLO: one log")
+    }
+
+    func testRejectedHelloAfterAStreamEndsThatStream() {
+        var r = started()
+        let out = r.receive(.hello(deviceName: "DC-1", codecID: 0), now: 1)
+        XCTAssertEqual(out.first, .helloRejected(deviceName: "DC-1", codecID: 0))
+        XCTAssertFalse(r.hasHello)
+        XCTAssertEqual(packets(r.receive(F.frame(5, key: true), now: 1.1)), [], "no packets until a valid HELLO")
     }
 
     // MARK: Malformed packets (size field mismatch, session with payload)
@@ -89,6 +99,7 @@ final class MirrorStreamReceiverTests: XCTestCase {
         var r = started()
         let out = r.receive(frame: F.sizeMismatch, now: 10)
         XCTAssertEqual(sends(out), [.requestKeyFrame])
+        XCTAssertTrue(out.contains(.discontinuity), "the decode side waits for a key frame")
         XCTAssertEqual(packets(out), [], "dropped")
         // The demuxer is usable right after the reset: the next valid packet comes through.
         XCTAssertEqual(r.receive(frame: MirrorStream.encode(F.frame(5, key: true), timestampUs: 0), now: 10.1), [.packet(.frame(ptsUs: 5, keyFrame: true, annexB: F.idr))])
@@ -105,7 +116,9 @@ final class MirrorStreamReceiverTests: XCTestCase {
     func testKeyFrameRequestsAreRateLimitedToOncePerSecond() {
         var r = started()
         XCTAssertEqual(sends(r.receive(frame: F.sizeMismatch, now: 10.0)), [.requestKeyFrame])
-        XCTAssertEqual(sends(r.receive(frame: F.sessionWithPayload, now: 10.5)), [], "0.5 s later: no second request")
+        let second = r.receive(frame: F.sessionWithPayload, now: 10.5)
+        XCTAssertEqual(sends(second), [], "0.5 s later: no second request")
+        XCTAssertTrue(second.contains(.discontinuity), "every reset is a discontinuity, even without a new request")
         XCTAssertEqual(sends(r.receive(frame: F.sizeMismatch, now: 10.999)), [])
         XCTAssertEqual(sends(r.receive(frame: F.sizeMismatch, now: 11.0)), [.requestKeyFrame], "1 s after the last request")
         XCTAssertEqual(sends(r.receive(frame: F.sizeMismatch, now: 11.5)), [])
@@ -194,6 +207,22 @@ final class MirrorStreamReceiverTests: XCTestCase {
         XCTAssertEqual(r.tick(now: 2.0), [.stalled, .send(.requestKeyFrame)])
         XCTAssertEqual(sends(r.receive(frame: F.sizeMismatch, now: 2.5)), [], "within 1 s of the stall request")
         XCTAssertEqual(sends(r.receive(frame: F.sizeMismatch, now: 3.0)), [.requestKeyFrame])
+    }
+
+    /// Finder P14-A2(b): a malformed non-packet message (here a 15-byte MIRROR_STATUS, then an unknown state) was
+    /// logged on every frame; PROTOCOL 9 says once per connection.
+    func testMalformedStatusIsLoggedOncePerReceiver() {
+        var r = R()
+        var short = MirrorStream.encode(.status(F.streaming), timestampUs: 0)
+        short.removeLast()
+        short[4] = UInt8(MirrorStream.statusLength - 1)
+        let first = r.receive(frame: short, now: 0)
+        XCTAssertEqual(first.count, 1)
+        guard case .log = first[0] else { return XCTFail("expected one log, got \(first)") }
+        XCTAssertEqual(r.receive(frame: short, now: 1), [], "the same error again: silent")
+        var unknown = MirrorStream.encode(.status(F.streaming), timestampUs: 0)
+        unknown[SolStream.headerLength] = 9
+        XCTAssertEqual(r.receive(frame: unknown, now: 2), [], "any later decode error: silent")
     }
 
     func testControlFromAClientIsLoggedOnce() {

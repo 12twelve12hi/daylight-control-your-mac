@@ -102,6 +102,8 @@ final class WifiMirrorSource: MirrorFrameSource {
         var startedWith: MirrorStream.Control?
         var lastState: MirrorStream.State?
         var stalled = false
+        /// Its latest MIRROR_HELLO was rejected (codec 0, 1 or unknown): never the start target until a valid HELLO.
+        var helloRejected = false
         init(_ connection: InkConnection) { self.connection = connection }
         var id: UUID { return connection.id }
         var label: String { return connection.label }
@@ -439,6 +441,12 @@ final class WifiMirrorSource: MirrorFrameSource {
                 stalled(peer)
             case let .log(text):
                 log("mirror stream \(peer.label): \(text)")
+            case let .helloRejected(name, codecID):
+                helloRejected(peer, deviceName: name, codecID: codecID)
+            case .discontinuity:
+                // The demuxer was reset (PROTOCOL 14.5): frames until the requested key frame may miss references.
+                guard active, streamerID == peer.id else { continue }
+                mirrorQueue.async { [weak self] in self?.decoder?.awaitKeyFrame() }
             case .streamStarted:
                 break
             }
@@ -460,6 +468,7 @@ final class WifiMirrorSource: MirrorFrameSource {
         }
         streamerID = peer.id
         peer.stalled = false
+        peer.helloRejected = false
         sessionSize = nil
         log("mirror stream: MIRROR_HELLO from \(peer.label) (\(deviceName))")
         diagBox.withLock { $0.deviceName = deviceName }
@@ -467,6 +476,28 @@ final class WifiMirrorSource: MirrorFrameSource {
         let label = peer.label
         mirrorQueue.async { [weak self] in self?.resetDecoder(label: label) }
         setStatus(.connecting(serial: peer.label))
+    }
+
+    /// A MIRROR_HELLO the receiver rejected (finder W6): the stream is not started and does not replace the current
+    /// one. STOP ends the useless encoder; row 35 when the Mac was starting this connection.
+    private func helloRejected(_ peer: Peer, deviceName: String, codecID: UInt32) {
+        let wasTarget = startTarget()?.id == peer.id
+        peer.helloRejected = true
+        log("mirror stream: MIRROR_HELLO from \(peer.label) (\(deviceName)) with codec id \(codecID) rejected; STOP")
+        send(.stop, to: peer)
+        if streamerID == peer.id {
+            // Its previous stream ended with this HELLO; the last frame stays.
+            streamerID = nil
+            mirrorQueue.async { [weak self] in self?.endEngage() }
+        }
+        updatePeerDiag()
+        guard active else { return }
+        if wasTarget || statusTarget()?.id == peer.id {
+            let args = [peer.label, "codec \(codecID)"]
+            setStatus(.error(.wifiStreamEncoderUnavailable, peer.label))
+            onFailure?(.wifiStreamEncoderUnavailable, args)
+        }
+        reconcile()
     }
 
     private func statusFrom(_ peer: Peer, _ s: MirrorStream.Status) {
@@ -487,7 +518,8 @@ final class WifiMirrorSource: MirrorFrameSource {
             }
         }
         if changed { log("mirror stream: \(peer.label) state \(WifiMirrorSource.describe(s.state)) flags 0x\(String(s.flags.rawValue, radix: 16))") }
-        guard active, isTarget, changed else { return }
+        // A connection whose HELLO was rejected keeps its row 35; its PAUSED (after the STOP) must not START it again.
+        guard active, isTarget, changed, !peer.helloRejected else { return }
         switch s.state {
         case .consentDenied:
             log(FailureText.logLine(.wifiStreamConsentDenied, [peer.label]))
@@ -555,9 +587,9 @@ final class WifiMirrorSource: MirrorFrameSource {
     }
 
     /// The connection START goes to: the newest capable one that can capture. A tablet that announced UNSUPPORTED
-    /// (state 8) counts as present (no row 38) but is never started.
+    /// (state 8) or whose HELLO was rejected counts as present (no row 38) but is never started.
     private func startTarget() -> Peer? {
-        return peers.values.filter { $0.capable && $0.lastState != .unsupported }.max { ($0.order ?? 0) < ($1.order ?? 0) }
+        return peers.values.filter { $0.capable && $0.lastState != .unsupported && !$0.helloRejected }.max { ($0.order ?? 0) < ($1.order ?? 0) }
     }
 
     private func sortedPeers() -> [Peer] {

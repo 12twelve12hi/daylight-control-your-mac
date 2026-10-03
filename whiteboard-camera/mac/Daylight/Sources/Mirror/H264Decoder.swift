@@ -34,6 +34,8 @@ final class H264Decoder {
     static let keyFrameRestartSeconds: Double = 12
 
     let queue: DispatchQueue
+    /// The clock of the key-frame wait (seconds, monotonic); injected by tests.
+    let clock: () -> Double
     var onFrame: ((CVPixelBuffer, UInt64) -> Void)?
     var onLog: ((String) -> Void)?
 
@@ -51,8 +53,9 @@ final class H264Decoder {
     private(set) var lastPtsUs: UInt64?
     private var loggedOutOfOrder = false
 
-    init(queue: DispatchQueue) {
+    init(queue: DispatchQueue, clock: @escaping () -> Double = { CACurrentMediaTime() }) {
         self.queue = queue
+        self.clock = clock
     }
 
     deinit {
@@ -156,10 +159,15 @@ final class H264Decoder {
     /// Decodes one access unit synchronously and publishes the frame through `onFrame`. Frames that arrive while a
     /// key frame is awaited are dropped (counted). A decode error arms the key-frame wait.
     func decode(annexB: UnsafeRawBufferPointer, ptsUs: UInt64, keyFrame: Bool) throws {
-        guard let format = formatDescription, let session = session else { throw H264DecoderError.noFormat }
+        guard let format = formatDescription, let session = session else {
+            // No usable format (no config yet, or the parameter sets were rejected): arm the row 27 wait, so a stream
+            // that never gets a decodable format is restarted after 12 s instead of staying black.
+            noteError()
+            throw H264DecoderError.noFormat
+        }
         if needsKeyFrame && !keyFrame && !AnnexB.containsIDR(annexB) {
             framesDropped += 1
-            if keyFrameWaitStart == nil { keyFrameWaitStart = CACurrentMediaTime() }
+            if keyFrameWaitStart == nil { keyFrameWaitStart = clock() }
             return
         }
         let avcc = AnnexB.toAVCC(annexB)
@@ -240,11 +248,18 @@ final class H264Decoder {
     private func noteError() {
         decodeErrors += 1
         needsKeyFrame = true
-        if keyFrameWaitStart == nil { keyFrameWaitStart = CACurrentMediaTime() }
+        if keyFrameWaitStart == nil { keyFrameWaitStart = clock() }
+    }
+
+    /// Drop non-key frames until the next key frame (the stream lost data upstream, e.g. a demuxer reset). Unlike a
+    /// decode error it does not count as an error.
+    func awaitKeyFrame() {
+        needsKeyFrame = true
     }
 
     /// Row 27: true when the decoder has waited `keyFrameRestartSeconds` for a key frame that never came.
-    func shouldRestartServer(now: Double = CACurrentMediaTime()) -> Bool {
+    func shouldRestartServer(now: Double? = nil) -> Bool {
+        let now = now ?? clock()
         guard needsKeyFrame, let start = keyFrameWaitStart else { return false }
         return now - start >= H264Decoder.keyFrameRestartSeconds
     }

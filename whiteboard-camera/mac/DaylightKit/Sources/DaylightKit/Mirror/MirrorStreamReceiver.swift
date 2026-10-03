@@ -3,12 +3,15 @@ import Foundation
 /// The PROTOCOL 14.5 rules for ONE connection as a pure state machine (time injected, seconds on any monotonic clock).
 ///
 /// - MIRROR_HELLO starts a stream: a fresh `ScrcpyDemuxer(expectsDummyByte: false)` gets its 68 bytes, and
-///   `.streamStarted` is followed by the demuxer's `.deviceMeta` and `.codec` packets.
+///   `.streamStarted` is followed by the demuxer's `.deviceMeta` and `.codec` packets. A HELLO the demuxer rejects
+///   (codec 0, 1 or unknown) starts nothing: `.helloRejected` and a `.log`, no packets.
 /// - MIRROR_PACKET feeds its 12 + n bytes to that demuxer; every emitted `ScrcpyPacket` becomes `.packet`.
 /// - MIRROR_PACKET before any MIRROR_HELLO: one `.log`, then dropped silently.
 /// - A demuxer error, a media packet whose `size` differs from n, or a session packet with n > 0: dropped, the demuxer
-///   is reset (re-primed with the last HELLO, no packets re-emitted) and `.send(.requestKeyFrame)` is emitted at most
-///   once per `keyFrameRequestMinInterval`.
+///   is reset (re-primed with the last HELLO, no packets re-emitted), `.discontinuity` tells the decode side to wait
+///   for a key frame, and `.send(.requestKeyFrame)` is emitted at most once per `keyFrameRequestMinInterval`.
+/// - Any other message that does not decode (a wrong fixed size, an unknown state): one `.log` per receiver, then
+///   dropped silently (PROTOCOL 9: log once per connection).
 /// - Stall: while the last MIRROR_STATUS said STREAMING and no MIRROR_PACKET came for `stallSeconds`,
 ///   `tick` emits `[.stalled, .send(.requestKeyFrame)]`, and again every `stallSeconds` while it lasts.
 public struct MirrorStreamReceiver {
@@ -19,6 +22,10 @@ public struct MirrorStreamReceiver {
         case stalled
         case log(String)
         case streamStarted(deviceName: String)
+        /// A MIRROR_HELLO whose codec the demuxer rejected: no stream started, the previous one (if any) is gone.
+        case helloRejected(deviceName: String, codecID: UInt32)
+        /// The demuxer was reset after a malformed packet: frames until the next key frame may reference lost data.
+        case discontinuity
     }
 
     public static let stallSeconds = 2.0
@@ -37,6 +44,7 @@ public struct MirrorStreamReceiver {
     private var lastKeyFrameRequestAt: Double?
     private var loggedPacketBeforeHello = false
     private var loggedControlFromClient = false
+    private var loggedDecodeError = false
 
     public init() {}
 
@@ -80,7 +88,11 @@ public struct MirrorStreamReceiver {
     public mutating func receive(decodeError: MirrorStream.DecodeError, opcode: UInt16?, now: Double) -> [Output] {
         if decodeError == .notMirror { return [] }
         let log = Output.log("mirror stream: frame dropped (\(decodeError))")
-        guard opcode == MirrorStream.opcodePacket else { return [log] }
+        guard opcode == MirrorStream.opcodePacket else {
+            if loggedDecodeError { return [] }
+            loggedDecodeError = true
+            return [log]
+        }
         guard hasHello else { return packetBeforeHello() }
         return [log] + resetDemuxerAndRequestKeyFrame(now: now)
     }
@@ -107,17 +119,18 @@ public struct MirrorStreamReceiver {
     private mutating func receiveHello(name: String, codecID: UInt32, message: MirrorStream.Message, now: Double) -> [Output] {
         let bytes = MirrorStream.scrcpyBytes(message) ?? []
         var fresh = ScrcpyDemuxer(expectsDummyByte: false)
-        var out: [Output] = [.streamStarted(deviceName: name)]
+        var packets: [Output] = []
         do {
-            try fresh.feed(bytes) { out.append(.packet($0)) }
+            try fresh.feed(bytes) { packets.append(.packet($0)) }
         } catch {
             hasHello = false
             demuxer = nil
             helloBytes = nil
             deviceName = nil
-            out.append(.log("mirror stream: HELLO from \(name) rejected (\(error)), codec id \(codecID)"))
-            return out
+            return [.helloRejected(deviceName: name, codecID: codecID),
+                    .log("mirror stream: HELLO from \(name) rejected (\(error)), codec id \(codecID)")]
         }
+        let out: [Output] = [.streamStarted(deviceName: name)] + packets
         demuxer = fresh
         helloBytes = bytes
         hasHello = true
@@ -154,9 +167,9 @@ public struct MirrorStreamReceiver {
         }
         demuxer = fresh
         if let last = lastKeyFrameRequestAt, now - last < MirrorStreamReceiver.keyFrameRequestMinInterval {
-            return []
+            return [.discontinuity]
         }
         lastKeyFrameRequestAt = now
-        return [.send(MirrorStream.Control.requestKeyFrame)]
+        return [.discontinuity, .send(MirrorStream.Control.requestKeyFrame)]
     }
 }

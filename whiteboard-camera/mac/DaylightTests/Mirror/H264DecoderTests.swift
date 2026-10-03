@@ -161,6 +161,46 @@ final class H264DecoderTests: XCTestCase {
         }
     }
 
+    /// Finder W4(b): a frame without a usable format (no config, or rejected parameter sets) threw `.noFormat` without
+    /// arming the key-frame wait, so `shouldRestartServer` could never become true and row 27 never fired. Before the
+    /// fix `keyFrameWaitStart` stays nil and the 12 s check is false.
+    func testDecodeWithoutAFormatArmsTheRow27Wait() {
+        let now = Locked(500.0)
+        let decoder = H264Decoder(queue: queue, clock: { now.withLock { $0 } })
+        XCTAssertThrowsError(try decoder.decode(annexB: [0, 0, 0, 1, 0x41, 0x9A], ptsUs: 0, keyFrame: false)) { error in
+            XCTAssertEqual(error as? H264DecoderError, .noFormat)
+        }
+        XCTAssertEqual(decoder.keyFrameWaitStart, 500, "the wait is armed on the injected clock")
+        XCTAssertEqual(decoder.decodeErrors, 1)
+        XCTAssertFalse(decoder.shouldRestartServer(now: 511.9))
+        XCTAssertTrue(decoder.shouldRestartServer(now: 512), "row 27: restart after 12 s without a decodable frame")
+        now.withLock { $0 = 512 }
+        XCTAssertTrue(decoder.shouldRestartServer(), "the default reads the injected clock")
+        decoder.resetKeyFrameWait()
+        XCTAssertFalse(decoder.shouldRestartServer())
+    }
+
+    /// Finder W5: after a demuxer reset the decoder must wait for a key frame. Before the fix there was no way to arm
+    /// the gate from outside, so a delta frame right after the reset was decoded against lost references.
+    func testAwaitKeyFrameDropsDeltaFramesUntilTheNextKeyFrame() throws {
+        let stream = try H264DecoderTests.fixture("testsrc-320x240-6f")
+        let sets = AnnexB.parameterSets(stream)
+        let decoder = try makeDecoder(sps: sets.sps[0], pps: sets.pps[0])
+        let units = H264DecoderTests.accessUnits(stream)
+        var frames = 0
+        decoder.onFrame = { _, _ in frames += 1 }
+        try decoder.decode(annexB: units[0].annexB, ptsUs: 0, keyFrame: true)
+        try decoder.decode(annexB: units[1].annexB, ptsUs: 10, keyFrame: false)
+        XCTAssertEqual(frames, 2)
+        XCTAssertFalse(decoder.needsKeyFrame)
+        decoder.awaitKeyFrame()
+        XCTAssertTrue(decoder.needsKeyFrame)
+        XCTAssertEqual(decoder.decodeErrors, 0, "not an error")
+        try decoder.decode(annexB: units[2].annexB, ptsUs: 20, keyFrame: false)
+        XCTAssertEqual(frames, 2, "the delta frame after the reset is dropped")
+        XCTAssertEqual(decoder.framesDropped, 1)
+    }
+
     func testSampleBufferOwnsACopyOfTheAccessUnit() throws {
         let stream = try H264DecoderTests.fixture("testsrc-320x240-6f")
         let sets = AnnexB.parameterSets(stream)

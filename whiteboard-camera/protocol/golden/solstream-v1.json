@@ -1,0 +1,399 @@
+{
+ "version": 1,
+ "generator": "gen_golden.py",
+ "timestamp_us": 1760000000123456,
+ "stroke_id": "00010203-0405-0607-0809-0a0b0c0d0e0f",
+ "page_id": "10111213-1415-1617-1819-1a1b1c1d1e1f",
+ "websocket": {
+  "sha1_abc": "a9993e364706816aba3e25717850c26c9cd0d89d",
+  "key": "dGhlIHNhbXBsZSBub25jZQ==",
+  "accept": "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=",
+  "guid": "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+ },
+ "cases": [
+  {
+   "name": "handshake",
+   "opcode": 1,
+   "direction": "c2s",
+   "fields": {
+    "canvas_width": 1200.0,
+    "canvas_height": 1600.0,
+    "dpi": 200.0,
+    "name": "web;6f1a2b3c-4d5e-4f60-8a9b-0c1d2e3f4a5b;Mike’s DC-1"
+   },
+   "hex": "da0101004400000040e2cfeeb5400600000096440000c8440000484336007765623b36663161326233632d346435652d346636302d386139622d3063316432653366346135623b4d696b65e28099732044432d31",
+   "decode_only": false,
+   "note": "name is 54 UTF-8 bytes (U+2019 apostrophe is 3 bytes)"
+  },
+  {
+   "name": "handshake_ack_ok",
+   "opcode": 2,
+   "direction": "s2c",
+   "fields": {
+    "target_width": 1920,
+    "target_height": 1080,
+    "target_fps": 30,
+    "status": 0
+   },
+   "hex": "da0102001000000040e2cfeeb540060080070000380400001e00000000000000",
+   "decode_only": false,
+   "note": ""
+  },
+  {
+   "name": "handshake_ack_pending",
+   "opcode": 2,
+   "direction": "s2c",
+   "fields": {
+    "target_width": 1920,
+    "target_height": 1080,
+    "target_fps": 30,
+    "status": 1
+   },
+   "hex": "da0102001000000040e2cfeeb540060080070000380400001e00000001000000",
+   "decode_only": false,
+   "note": ""
+  },
+  {
+   "name": "stroke_start",
+   "opcode": 16,
+   "direction": "c2s",
+   "fields": {
+    "stroke_id": "00010203-0405-0607-0809-0a0b0c0d0e0f",
+    "tool": 0,
+    "color": 4279308561,
+    "base_width": 3.2,
+    "pointer_type": 0,
+    "phase": 1,
+    "pressure": 0.73
+   },
+   "hex": "da0110001f00000040e2cfeeb5400600000102030405060708090a0b0c0d0e0f00111111ffcdcc4c40000148e13a3f",
+   "decode_only": false,
+   "note": ""
+  },
+  {
+   "name": "stroke_start_highlighter",
+   "opcode": 16,
+   "direction": "c2s",
+   "fields": {
+    "stroke_id": "00010203-0405-0607-0809-0a0b0c0d0e0f",
+    "tool": 1,
+    "color": 2161735430,
+    "base_width": 12.0,
+    "pointer_type": 0,
+    "phase": 1,
+    "pressure": 0.5
+   },
+   "hex": "da0110001f00000040e2cfeeb5400600000102030405060708090a0b0c0d0e0f010677d9800000404100010000003f",
+   "decode_only": false,
+   "note": ""
+  },
+  {
+   "name": "stroke_start_legacy25",
+   "opcode": 16,
+   "direction": "c2s",
+   "fields": {
+    "stroke_id": "00010203-0405-0607-0809-0a0b0c0d0e0f",
+    "tool": 0,
+    "color": 4279308561,
+    "base_width": 3.2,
+    "pointer_type": 0,
+    "phase": 1,
+    "pressure": 0.5
+   },
+   "hex": "da0110001900000040e2cfeeb5400600000102030405060708090a0b0c0d0e0f00111111ffcdcc4c40",
+   "decode_only": true,
+   "note": "oracle 25-byte form; decoders accept it as stylus/contact/0.5; nothing sends it"
+  },
+  {
+   "name": "stroke_chunk_3pts",
+   "opcode": 17,
+   "direction": "c2s",
+   "fields": {
+    "stroke_id": "00010203-0405-0607-0809-0a0b0c0d0e0f",
+    "points": [
+     {
+      "x": 10.5,
+      "y": -3.25,
+      "pressure": 0.73,
+      "delta_ms": 0
+     },
+     {
+      "x": 100.0,
+      "y": 200.25,
+      "pressure": 0.2,
+      "delta_ms": 8
+     },
+     {
+      "x": 1199.96875,
+      "y": 1599.0,
+      "pressure": 1.0,
+      "delta_ms": 70000
+     }
+    ]
+   },
+   "hex": "da0111003300000040e2cfeeb5400600000102030405060708090a0b0c0d0e0f03005001000098ffffffba0000800c000008190000330800ff950000e0c70000ffffff",
+   "decode_only": false,
+   "note": "delta_ms is ms since the FIRST point of the stroke; 70000 saturates to 65535"
+  },
+  {
+   "name": "stroke_commit",
+   "opcode": 18,
+   "direction": "c2s",
+   "fields": {
+    "stroke_id": "00010203-0405-0607-0809-0a0b0c0d0e0f",
+    "point_count": 3
+   },
+   "hex": "da0112001400000040e2cfeeb5400600000102030405060708090a0b0c0d0e0f03000000",
+   "decode_only": false,
+   "note": ""
+  },
+  {
+   "name": "stroke_cancel",
+   "opcode": 19,
+   "direction": "c2s",
+   "fields": {
+    "stroke_id": "00010203-0405-0607-0809-0a0b0c0d0e0f"
+   },
+   "hex": "da0113001000000040e2cfeeb5400600000102030405060708090a0b0c0d0e0f",
+   "decode_only": false,
+   "note": ""
+  },
+  {
+   "name": "undo",
+   "opcode": 20,
+   "direction": "c2s",
+   "fields": {
+    "page_id": "10111213-1415-1617-1819-1a1b1c1d1e1f",
+    "client_time_us": 1760000000123456
+   },
+   "hex": "da0114001800000040e2cfeeb5400600101112131415161718191a1b1c1d1e1f40e2cfeeb5400600",
+   "decode_only": false,
+   "note": ""
+  },
+  {
+   "name": "redo",
+   "opcode": 21,
+   "direction": "c2s",
+   "fields": {
+    "page_id": "10111213-1415-1617-1819-1a1b1c1d1e1f",
+    "client_time_us": 1760000000123456
+   },
+   "hex": "da0115001800000040e2cfeeb5400600101112131415161718191a1b1c1d1e1f40e2cfeeb5400600",
+   "decode_only": false,
+   "note": ""
+  },
+  {
+   "name": "undo_current_page",
+   "opcode": 20,
+   "direction": "c2s",
+   "fields": {
+    "page_id": "00000000-0000-0000-0000-000000000000",
+    "client_time_us": 1760000000123456
+   },
+   "hex": "da0114001800000040e2cfeeb54006000000000000000000000000000000000040e2cfeeb5400600",
+   "decode_only": false,
+   "note": "all-zero page_id means the current page"
+  },
+  {
+   "name": "erase_strokes",
+   "opcode": 32,
+   "direction": "c2s",
+   "fields": {
+    "x1": 100.0,
+    "y1": 100.0,
+    "x2": 140.0,
+    "y2": 160.0,
+    "radius": 12.0,
+    "ids": [
+     "00010203-0405-0607-0809-0a0b0c0d0e0f"
+    ]
+   },
+   "hex": "da0120002600000040e2cfeeb54006000000c8420000c84200000c4300002043000040410100000102030405060708090a0b0c0d0e0f",
+   "decode_only": false,
+   "note": ""
+  },
+  {
+   "name": "laser_point",
+   "opcode": 48,
+   "direction": "c2s",
+   "fields": {
+    "x": 600.0,
+    "y": 800.0,
+    "intensity": 1.0,
+    "decay_s": 0.5
+   },
+   "hex": "da0130001000000040e2cfeeb540060000001644000048440000803f0000003f",
+   "decode_only": false,
+   "note": ""
+  },
+  {
+   "name": "clear_canvas",
+   "opcode": 64,
+   "direction": "c2s",
+   "fields": {
+    "page_id": "10111213-1415-1617-1819-1a1b1c1d1e1f",
+    "client_time_us": 1760000000123456
+   },
+   "hex": "da0140001800000040e2cfeeb5400600101112131415161718191a1b1c1d1e1f40e2cfeeb5400600",
+   "decode_only": false,
+   "note": ""
+  },
+  {
+   "name": "clear_canvas_empty",
+   "opcode": 64,
+   "direction": "c2s",
+   "fields": {
+    "page_id": null,
+    "client_time_us": null
+   },
+   "hex": "da0140000000000040e2cfeeb5400600",
+   "decode_only": true,
+   "note": "0-byte form accepted on decode; clients send the 24-byte form"
+  },
+  {
+   "name": "page_change",
+   "opcode": 80,
+   "direction": "c2s",
+   "fields": {
+    "page_id": "10111213-1415-1617-1819-1a1b1c1d1e1f",
+    "width": 1200.0,
+    "height": 1600.0,
+    "page_index": 2
+   },
+   "hex": "da0150001c00000040e2cfeeb5400600101112131415161718191a1b1c1d1e1f000096440000c84402000000",
+   "decode_only": false,
+   "note": ""
+  },
+  {
+   "name": "auto_engage_return",
+   "opcode": 96,
+   "direction": "c2s",
+   "fields": {
+    "client_time_us": 1760000000123456
+   },
+   "hex": "da0160000800000040e2cfeeb540060040e2cfeeb5400600",
+   "decode_only": false,
+   "note": ""
+  },
+  {
+   "name": "toggle_pin_toggle",
+   "opcode": 97,
+   "direction": "c2s",
+   "fields": {
+    "value": -1,
+    "client_time_us": 1760000000123456
+   },
+   "hex": "da0161000900000040e2cfeeb5400600ff40e2cfeeb5400600",
+   "decode_only": false,
+   "note": ""
+  },
+  {
+   "name": "toggle_pin_on",
+   "opcode": 97,
+   "direction": "c2s",
+   "fields": {
+    "value": 1,
+    "client_time_us": 1760000000123456
+   },
+   "hex": "da0161000900000040e2cfeeb54006000140e2cfeeb5400600",
+   "decode_only": false,
+   "note": ""
+  },
+  {
+   "name": "toggle_pin_off",
+   "opcode": 97,
+   "direction": "c2s",
+   "fields": {
+    "value": 0,
+    "client_time_us": 1760000000123456
+   },
+   "hex": "da0161000900000040e2cfeeb54006000040e2cfeeb5400600",
+   "decode_only": false,
+   "note": ""
+  },
+  {
+   "name": "state_live_pinned",
+   "opcode": 112,
+   "direction": "s2c",
+   "fields": {
+    "governor": 2,
+    "flags": 13,
+    "mode": 0,
+    "ink_source": 1,
+    "progress": 1.0,
+    "ms_to_return": 4294967295,
+    "page_index": 0,
+    "stroke_count": 3,
+    "undo_depth": 3,
+    "redo_depth": 0
+   },
+   "hex": "da0170001400000040e2cfeeb5400600020d00010000803fffffffff0000030003000000",
+   "decode_only": false,
+   "note": "flags 0x0D = pinned | allowed | active_source"
+  },
+  {
+   "name": "state_returning_prewarn",
+   "opcode": 112,
+   "direction": "s2c",
+   "fields": {
+    "governor": 3,
+    "flags": 54,
+    "mode": 0,
+    "ink_source": 0,
+    "progress": 0.5,
+    "ms_to_return": 4200,
+    "page_index": 1,
+    "stroke_count": 12,
+    "undo_depth": 12,
+    "redo_depth": 2
+   },
+   "hex": "da0170001400000040e2cfeeb5400600033600000000003f6810000001000c000c000200",
+   "decode_only": false,
+   "note": "flags 0x36 = pre_warning | allowed | camera_attached | sink_connected"
+  },
+  {
+   "name": "state_passthrough_idle",
+   "opcode": 112,
+   "direction": "s2c",
+   "fields": {
+    "governor": 0,
+    "flags": 180,
+    "mode": 0,
+    "ink_source": 2,
+    "progress": 0.0,
+    "ms_to_return": 4294967295,
+    "page_index": 0,
+    "stroke_count": 0,
+    "undo_depth": 0,
+    "redo_depth": 0
+   },
+   "hex": "da0170001400000040e2cfeeb540060000b4000200000000ffffffff0000000000000000",
+   "decode_only": false,
+   "note": "flags 0xB4 = allowed | camera_attached | sink_connected | capture_idle (bit3 clear: this client is not the active source)"
+  },
+  {
+   "name": "ping",
+   "opcode": 254,
+   "direction": "c2s",
+   "fields": {
+    "sequence": 7,
+    "client_time_us": 1760000000123456
+   },
+   "hex": "da01fe001000000040e2cfeeb5400600070000000000000040e2cfeeb5400600",
+   "decode_only": false,
+   "note": ""
+  },
+  {
+   "name": "pong",
+   "opcode": 255,
+   "direction": "s2c",
+   "fields": {
+    "sequence": 7,
+    "client_time_us": 1760000000123456
+   },
+   "hex": "da01ff001000000040e2cfeeb5400600070000000000000040e2cfeeb5400600",
+   "decode_only": false,
+   "note": ""
+  }
+ ]
+}

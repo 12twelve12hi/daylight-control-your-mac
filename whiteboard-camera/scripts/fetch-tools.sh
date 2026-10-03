@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# make fetch-tools: pinned scrcpy-server + Google platform-tools adb (macOS zip), sha256 verified, into mac/Vendor.
+# Pins come from scrcpy 4.1 (app/deps/adb_macos.sh) and the scrcpy v4.1 release SHA256SUMS.txt; see docs/ARCHITECTURE.md 9.3.
+# Only runs in CI or on a Mac: dl.google.com is blocked from the development Linux box.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+[[ "${CI:-}" == "true" ]] && set -x
+SCRCPY_VERSION="${SCRCPY_VERSION:-4.1}"
+SCRCPY_SERVER_SHA256="deacb991ed2509715160ffdc7907e47b4160eb30d1566217e9047fd5b8850cae"
+PT_VERSION="${PT_VERSION:-37.0.0}"
+PT_SHA256="094a1395683c509fd4d48667da0d8b5ef4d42b2abfcd29f2e8149e2f989357c7"
+out="mac/Vendor"; mkdir -p "$out" build/tools
+sha256() { if command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" | cut -d' ' -f1; else sha256sum "$1" | cut -d' ' -f1; fi; }
+check() { local got; got="$(sha256 "$1")"; [[ "$got" == "$2" ]] || { echo "fetch-tools: sha256 mismatch for $1: got $got want $2" >&2; exit 1; }; echo "fetch-tools: sha256 ok $1"; }
+if [[ ! -f "$out/scrcpy-server-v${SCRCPY_VERSION}" ]]; then
+  curl -fsSL --retry 3 -o "build/tools/scrcpy-server-v${SCRCPY_VERSION}" "https://github.com/Genymobile/scrcpy/releases/download/v${SCRCPY_VERSION}/scrcpy-server-v${SCRCPY_VERSION}"
+  check "build/tools/scrcpy-server-v${SCRCPY_VERSION}" "$SCRCPY_SERVER_SHA256"
+  cp "build/tools/scrcpy-server-v${SCRCPY_VERSION}" "$out/"
+fi
+if [[ ! -f "$out/adb" ]]; then
+  curl -fsSL --retry 3 -o build/tools/platform-tools.zip "https://dl.google.com/android/repository/platform-tools_r${PT_VERSION}-darwin.zip"
+  check build/tools/platform-tools.zip "$PT_SHA256"
+  unzip -l build/tools/platform-tools.zip | tee build/tools/platform-tools-listing.txt | grep -E 'platform-tools/(adb|NOTICE.txt)$' || echo "fetch-tools: WARNING adb or NOTICE.txt not at the expected path (LOOSE_ENDS B2)"
+  (cd build/tools && unzip -o -q platform-tools.zip platform-tools/adb platform-tools/NOTICE.txt)
+  cp build/tools/platform-tools/adb "$out/adb"; chmod +x "$out/adb"
+  [[ -f build/tools/platform-tools/NOTICE.txt ]] && cp build/tools/platform-tools/NOTICE.txt "$out/NOTICE-platform-tools.txt"
+fi
+ls -l "$out"
+command -v lipo >/dev/null 2>&1 && lipo -archs "$out/adb" || true
+command -v file >/dev/null 2>&1 && file "$out/adb" || true
+"$out/adb" --version || true

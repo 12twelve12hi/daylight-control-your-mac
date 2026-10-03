@@ -1,0 +1,21 @@
+# Generated or downloaded; nothing here is source.
+node_modules/
+dist/
+build/
+DerivedData/
+*.xcodeproj/
+*.xcworkspace/
+.swiftpm/
+.build/
+.gradle/
+.kotlin/
+local.properties
+mac/Vendor/
+mac/Daylight/Resources/web/
+mac/Daylight/Info.plist
+mac/Daylight/Daylight.entitlements
+mac/DaylightCameraExtension/Info.plist
+mac/DaylightCameraExtension/DaylightCameraExtension.entitlements
+test-results/
+playwright-report/
+.DS_Store

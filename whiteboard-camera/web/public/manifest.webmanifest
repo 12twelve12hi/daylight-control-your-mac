@@ -1,0 +1,9 @@
+{
+  "name": "Daylight Whiteboard",
+  "short_name": "Whiteboard",
+  "start_url": "./",
+  "display": "fullscreen",
+  "orientation": "portrait",
+  "background_color": "#EAE5DC",
+  "theme_color": "#EAE5DC"
+}

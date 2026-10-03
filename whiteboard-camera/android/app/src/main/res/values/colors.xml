@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- SolOS tokens. LivePaper is a transflective LCD: flat fills, hairline borders, no shadows. -->
+    <color name="ink_black">#111111</color>
+    <color name="paper_bg">#FAF8F5</color>
+    <color name="surface_cream">#EAE5DC</color>
+    <color name="border_subtle">#CDC6B8</color>
+    <color name="amber">#D97706</color>
+    <color name="amber_deep">#C87D20</color>
+    <color name="terracotta">#9C271D</color>
+    <color name="text_muted">#736F68</color>
+</resources>

@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#EAE5DC" />
+    <title>Daylight Whiteboard</title>
+    <link rel="manifest" href="./manifest.webmanifest" />
+  </head>
+  <body>
+    <div id="app">
+      <div id="toolbar">
+        <span id="title">Daylight Whiteboard</span>
+        <span id="chip" data-state="disconnected">Not connected</span>
+      </div>
+      <canvas id="ink" width="1200" height="1600" aria-label="Whiteboard canvas"></canvas>
+    </div>
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>

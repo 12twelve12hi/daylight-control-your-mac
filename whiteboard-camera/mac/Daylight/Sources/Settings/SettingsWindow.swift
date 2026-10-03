@@ -133,7 +133,16 @@ struct SettingsView: View {
 
     // MARK: Mirror
 
+    /// The Mirror tab is taller than the fixed 560 by 520 window since phase 2 (Transport, adb source and the Wi-Fi
+    /// stream rows above the 260 pt crop view), so it scrolls; without the ScrollView the Form overflows and the
+    /// window clips its first rows, among them "Transport".
     private var mirrorTab: some View {
+        ScrollView {
+            mirrorForm
+        }
+    }
+
+    private var mirrorForm: some View {
         Form {
             Picker("Transport", selection: $store.settings.mirrorTransport) {
                 Text("USB (adb)").tag(MirrorTransport.usb)

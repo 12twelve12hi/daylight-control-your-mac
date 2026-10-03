@@ -419,6 +419,71 @@ final class MirrorControllerTests: XCTestCase {
         controller.stop()
     }
 
+    // MARK: Transport switches and the pen watcher (hardening round 3)
+
+    private func switchTransport(_ controller: MirrorController, to transport: MirrorTransport) {
+        var settings = controller.settings
+        settings.mirrorTransport = transport
+        controller.updateSettings(settings)
+        controller.queue.sync {}   // transportChanged ran
+        controller.queue.sync {}   // and every hop it queued behind itself
+    }
+
+    /// USB-A1/B2: with adb unresolved there is no tracker, and a transport switch set "no device" over the adb error
+    /// (the status was the only place a missing bundled adb was named), and nothing located adb again. Before the fix
+    /// each case ended on `.noDevice`.
+    func testATransportSwitchWithoutAdbKeepsTheCause() {
+        let declined = FailureText.sentence(.adbTermsDeclined)
+        let missing = vendor.appendingPathComponent(AdbClient.vendorExecutableName).path
+        let bundledMissing = "bundled adb missing at \(missing) (run make fetch-tools)"
+        let cases: [(AdbSource, MirrorTransport, String)] = [
+            (.download, .usb, declined),
+            (.download, .wifiStream, declined),
+            (.bundled, .usb, bundledMissing),
+        ]
+        for (index, (source, first, expected)) in cases.enumerated() {
+            var settings = Settings.defaults
+            settings.adbServerMode = .shared
+            settings.adbSource = source
+            settings.adbTermsAcceptedVersion = nil
+            settings.mirrorTransport = first
+            let controller = MirrorController(settings: settings, vendorDirectory: vendor, pipeline: FakePipelineControl(), queue: DispatchQueue(label: "mirror-control-a1-\(index)"))
+            controller.bundledAvailable = true
+            let resolved = expectation(description: "adb resolution failed, case \(index)")
+            resolved.assertForOverFulfill = false
+            controller.onLog = { line in if line.contains("status: error") { resolved.fulfill() } }
+            controller.start()
+            wait(for: [resolved], timeout: 8)
+            if first == .usb {
+                switchTransport(controller, to: .wifiStream)
+            }
+            switchTransport(controller, to: .usb)
+            XCTAssertEqual(controller.status, .error(.scrcpyServerFailed, expected), "case \(index): the cause stays in the status")
+            XCTAssertEqual(controller.diagnostics["adb.executable"], "none", "case \(index)")
+            controller.stop()
+            controller.queue.sync {}
+        }
+    }
+
+    /// USB-A2/B3: the USB slot kept the last USB frame across a transport switch, so after Wi-Fi and back the old
+    /// picture was shown and saved as this session's. Before the fix both reads returned the published buffer.
+    func testATransportSwitchDropsTheUSBFrame() {
+        let adb = FakeAdb()
+        adb.respond(containing: ["version"], with: FakeAdb.ok("Android Debug Bridge version 1.0.41\n"))
+        let controller = makeController(adb: adb, pipeline: FakePipelineControl())
+        controller.start()
+        waitForStatus(controller) { $0 == .noDevice }
+        guard let usb = controller.source as? MirrorSource else { return XCTFail("the USB source is a MirrorSource") }
+        usb.publish(FrameDiffEngageHostedTests.makeBuffer(), ptsUs: 1)
+        XCTAssertNotNil(controller.latestFrameForSave())
+        switchTransport(controller, to: .wifiStream)
+        XCTAssertNil(controller.latestFrameForSave(), "the Wi-Fi slot holds nothing yet")
+        switchTransport(controller, to: .usb)
+        XCTAssertNil(controller.latestFrameForSave(), "the USB frame from before the switch is not saved")
+        XCTAssertNil(controller.activeSource.latest(), "nor shown")
+        controller.stop()
+    }
+
     func testSourceContractAndDiagnosticsFromAnotherThread() {
         let controller = makeController(adb: FakeAdb(), pipeline: FakePipelineControl())
         XCTAssertNil(controller.source.latest())

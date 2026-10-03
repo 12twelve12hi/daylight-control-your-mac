@@ -331,12 +331,26 @@ final class MirrorController: MirrorControl {
     /// pen watcher only; the Wi-Fi stream starts or stops; the status shown follows the transport.
     private func transportChanged() {
         log("mirror transport: \(settings.mirrorTransport.rawValue)")
+        // The USB slot must not be shown or saved for the other transport, nor come back after a later switch to USB
+        // (USB-A2/B3). The Wi-Fi source keeps its own slot.
+        mirrorSource.clear()
         guard started else {
             onStatusChange?(status)
             return
         }
         endSession(reason: "transport changed")
         wifiSource.setActive(usesWifi)
+        // No tracker: adb did not resolve (or is still resolving). "No device" here would replace the cause in the
+        // status, and nothing else would locate adb again (USB-A1/B2). Locate it again instead; a resolution still in
+        // flight finishes on its own.
+        guard tracker != nil else {
+            onStatusChange?(usesWifi ? wifiSource.status : currentStatus)
+            if adb != nil || adbUnavailable {
+                adbUnavailable = false
+                startTracking()
+            }
+            return
+        }
         if usesWifi {
             onStatusChange?(wifiSource.status)
         } else {

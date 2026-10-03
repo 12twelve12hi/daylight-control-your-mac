@@ -159,6 +159,27 @@ final class OnboardingWindowTests: XCTestCase {
     }
 }
 
+/// APPA-04: one Daylight at a time. The /Applications copy replaces a misplaced one; any other second copy defers to
+/// the running one. (Whether LaunchServices starts a second copy from another path is UNVERIFIED on a Mac.)
+final class AppDelegateInstanceTests: XCTestCase {
+    func testSecondCopyDecision() {
+        typealias Copy = AppDelegate.RunningCopy
+        let installed = "/Applications/Daylight.app"
+        let translocated = "/private/var/folders/x/AppTranslocation/ABC/d/Daylight.app"
+        let downloads = "/Users/mike/Downloads/Daylight.app"
+        let me = Copy(pid: 10, bundlePath: installed)
+        XCTAssertEqual(AppDelegate.instanceDecision(selfPID: 10, selfPath: installed, running: []), .proceed)
+        XCTAssertEqual(AppDelegate.instanceDecision(selfPID: 10, selfPath: installed, running: [me]), .proceed, "only this process")
+        XCTAssertEqual(AppDelegate.instanceDecision(selfPID: 10, selfPath: installed, running: [me, Copy(pid: 7, bundlePath: translocated)]), .terminateOthers([7]))
+        XCTAssertEqual(AppDelegate.instanceDecision(selfPID: 10, selfPath: installed, running: [Copy(pid: 7, bundlePath: downloads), me, Copy(pid: 8, bundlePath: translocated)]), .terminateOthers([7, 8]))
+        XCTAssertEqual(AppDelegate.instanceDecision(selfPID: 10, selfPath: translocated, running: [Copy(pid: 7, bundlePath: installed), Copy(pid: 10, bundlePath: translocated)]), .activateOtherAndQuit(7), "a misplaced copy defers")
+        XCTAssertEqual(AppDelegate.instanceDecision(selfPID: 10, selfPath: installed, running: [me, Copy(pid: 7, bundlePath: installed)]), .activateOtherAndQuit(7), "same path twice")
+        XCTAssertEqual(AppDelegate.instanceDecision(selfPID: 10, selfPath: installed, running: [me, Copy(pid: 7, bundlePath: nil)]), .activateOtherAndQuit(7), "an unknown path is never quit")
+        XCTAssertEqual(AppDelegate.instanceDecision(selfPID: 10, selfPath: installed, running: [me, Copy(pid: 7, bundlePath: translocated), Copy(pid: 8, bundlePath: "/Applications/Other/Daylight.app")]), .activateOtherAndQuit(8), "defer to the well-placed copy")
+        XCTAssertTrue(AppDelegate.isUnderTest, "the hosted test run skips the guard")
+    }
+}
+
 /// SPEC 7: the menu's "Whiteboard now" engages without drawing; only the hotkeys toggle.
 final class AppModelMenuTests: XCTestCase {
     func testWhiteboardNowFromTheMenuNeverReturnsToTheCamera() {

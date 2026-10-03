@@ -67,6 +67,83 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: Launch
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // `--self-test` exits in main.swift before this object exists; the hosted test bundle never looks at, quits or
+        // defers to another copy.
+        if AppDelegate.isUnderTest || arguments.selfTest {
+            launch()
+            return
+        }
+        settleOtherInstances { [weak self] in self?.launch() }
+    }
+
+    // MARK: Single instance
+
+    /// What a launch does when another process with our bundle id is running (the Downloads or translocated copy
+    /// still up when the owner opens the /Applications one, SPEC 13.1 step 0). Two copies would feed one sink and
+    /// fight over the port and the hotkeys.
+    enum InstanceDecision: Equatable {
+        case proceed
+        /// Bring that copy forward and quit this one.
+        case activateOtherAndQuit(pid_t)
+        /// This copy is in /Applications and every other one is misplaced: quit them, then carry on.
+        case terminateOthers([pid_t])
+    }
+
+    struct RunningCopy: Equatable {
+        let pid: pid_t
+        let bundlePath: String?
+    }
+
+    static let otherInstanceQuitTimeout: Double = 6
+
+    /// Pure: `running` is every app with our bundle id (this process included), `selfPID` and `selfPath` are ours.
+    static func instanceDecision(selfPID: pid_t, selfPath: String, running: [RunningCopy]) -> InstanceDecision {
+        let others = running.filter { $0.pid != selfPID }
+        guard !others.isEmpty else { return .proceed }
+        let misplaced: (RunningCopy) -> Bool = { copy in
+            guard let path = copy.bundlePath, path != selfPath else { return false }
+            return OnboardingSteps.locationProblem(bundlePath: path)
+        }
+        if !OnboardingSteps.locationProblem(bundlePath: selfPath) && others.allSatisfy(misplaced) {
+            return .terminateOthers(others.map { $0.pid })
+        }
+        let target = others.first(where: { !misplaced($0) }) ?? others[0]
+        return .activateOtherAndQuit(target.pid)
+    }
+
+    private func settleOtherInstances(then proceed: @escaping () -> Void) {
+        guard let bundleID = Bundle.main.bundleIdentifier else { proceed(); return }
+        let apps = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
+        let running = apps.map { RunningCopy(pid: $0.processIdentifier, bundlePath: $0.bundleURL?.path) }
+        let decision = AppDelegate.instanceDecision(selfPID: ProcessInfo.processInfo.processIdentifier, selfPath: Bundle.main.bundlePath, running: running)
+        switch decision {
+        case .proceed:
+            proceed()
+        case let .activateOtherAndQuit(pid):
+            telemetry.note("app", "Daylight is already running (pid \(pid)); activating it and quitting this copy")
+            _ = apps.first(where: { $0.processIdentifier == pid })?.activate(options: [])
+            NSApp.terminate(nil)
+        case let .terminateOthers(pids):
+            let others = apps.filter { pids.contains($0.processIdentifier) }
+            telemetry.note("app", "quitting the misplaced copy (pids \(pids)) before starting from \(Bundle.main.bundlePath)")
+            for other in others { _ = other.terminate() }
+            waitForExit(others, deadline: Date().addingTimeInterval(AppDelegate.otherInstanceQuitTimeout), then: proceed)
+        }
+    }
+
+    /// Polls on main until the quitting copies are gone (they save and free the port and the hotkeys first), or the
+    /// deadline passes; then the launch goes on either way.
+    private func waitForExit(_ apps: [NSRunningApplication], deadline: Date, then proceed: @escaping () -> Void) {
+        if apps.allSatisfy({ $0.isTerminated }) || Date() >= deadline {
+            proceed()
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            self?.waitForExit(apps, deadline: deadline, then: proceed)
+        }
+    }
+
+    private func launch() {
         telemetry.note("app", "Daylight \(model.version) (\(model.build)) signed=\(signed) path=\(Bundle.main.bundlePath)")
         if OnboardingSteps.locationProblem(bundlePath: Bundle.main.bundlePath) {
             telemetry.note("app", FailureText.logLine(.notInApplications, [Bundle.main.bundlePath]))

@@ -9,8 +9,19 @@ import Foundation
 final class AppModel: ObservableObject {
     struct PendingClient: Equatable {
         let connectionID: UUID
+        /// The tablet the prompt asks about; Allow is remembered by this id even after the socket closed.
+        let clientID: String
+        let role: String
         let label: String
         let address: String
+
+        init(_ s: InkRouter.ClientSnapshot) {
+            connectionID = s.connectionID
+            clientID = s.clientID
+            role = s.role
+            label = s.label
+            address = s.address
+        }
     }
 
     struct ClientLine: Equatable {
@@ -107,12 +118,12 @@ final class AppModel: ObservableObject {
 
     func setClients(_ snapshots: [InkRouter.ClientSnapshot]) {
         clients = snapshots.map { ClientLine(label: $0.label, role: $0.role, address: $0.address, allowed: $0.allowed, active: $0.active, pending: $0.pending) }
-        pending = snapshots.filter { $0.pending }.map { PendingClient(connectionID: $0.connectionID, label: $0.label, address: $0.address) }
+        pending = snapshots.filter { $0.pending }.map { PendingClient($0) }
         if !clients.isEmpty { nobodyConnectedYet = false }
     }
 
     func setPendingAllow(_ c: InkRouter.ClientSnapshot) {
-        let item = PendingClient(connectionID: c.connectionID, label: c.label, address: c.address)
+        let item = PendingClient(c)
         if !pending.contains(item) { pending.append(item) }
         onAllowRequested?(item)
     }
@@ -260,7 +271,7 @@ final class AppModel: ObservableObject {
 
     func allow(_ item: PendingClient) {
         pending.removeAll { $0 == item }
-        router?.queue.async { [weak self] in self?.router?.allow(connectionID: item.connectionID) }
+        router?.queue.async { [weak self] in self?.router?.allow(connectionID: item.connectionID, clientID: item.clientID, label: item.label, role: item.role, address: item.address) }
     }
 
     func deny(_ item: PendingClient) {

@@ -26,6 +26,8 @@ final class InkRouter {
     /// A value copy of a connection's state for the main thread (the router mutates connections on ink.queue only).
     struct ClientSnapshot: Equatable {
         let connectionID: UUID
+        /// The tablet the prompt is about: an Allow is remembered by this id even when the socket already closed.
+        let clientID: String
         let label: String
         let role: String
         let address: String
@@ -69,7 +71,7 @@ final class InkRouter {
     }
 
     static func snapshot(_ c: InkConnection) -> ClientSnapshot {
-        return ClientSnapshot(connectionID: c.id, label: c.label, role: c.role?.rawValue ?? "", address: c.remote, allowed: c.allowed, active: c.isActiveSource, pending: c.pending && !c.isClosed, isLoopback: c.isLoopback)
+        return ClientSnapshot(connectionID: c.id, clientID: c.clientID ?? "", label: c.label, role: c.role?.rawValue ?? "", address: c.remote, allowed: c.allowed, active: c.isActiveSource, pending: c.pending && !c.isClosed, isLoopback: c.isLoopback)
     }
 
     /// Handshaken clients as values, oldest first.
@@ -115,6 +117,10 @@ final class InkRouter {
             c.close(code: 1002, reason: "not a SolStream peer")
             return
         } catch let CodecError.limitExceeded(opcode, value, max) {
+            if opcode == SolStream.Opcode.handshake.rawValue && max == SolStream.maxNameLength && c.identity == nil {
+                rejectHandshake(c, reason: "name_len \(value) outside 1...\(max)")
+                return
+            }
             if opcode == SolStream.Opcode.handshake.rawValue || opcode == SolStream.Opcode.strokeChunk.rawValue || opcode == SolStream.Opcode.eraseStrokes.rawValue {
                 onLog?("client \(c.label): opcode 0x\(String(opcode, radix: 16)) limit \(value) > \(max); dropped")
                 return
@@ -122,12 +128,20 @@ final class InkRouter {
             c.close(code: 1009, reason: "payload too large")
             return
         } catch CodecError.lengthMismatch {
+            if c.identity == nil && InkRouter.headerOpcode(bytes) == SolStream.Opcode.handshake.rawValue {
+                rejectHandshake(c, reason: "payload_len mismatch")
+                return
+            }
             if !c.lengthMismatchLogged {
                 c.lengthMismatchLogged = true
                 onLog?("client \(c.label): payload_len mismatch; message dropped")
             }
             return
         } catch {
+            if c.identity == nil && InkRouter.headerOpcode(bytes) == SolStream.Opcode.handshake.rawValue {
+                rejectHandshake(c, reason: "\(error)")
+                return
+            }
             onLog?("client \(c.label): malformed message dropped (\(error))")
             return
         }
@@ -167,9 +181,34 @@ final class InkRouter {
                 }
                 return
             }
-            guard c.isActiveSource || c.role == .test else { return }   // non-active source: dropped silently
+            // Non-active source: dropped silently. A stroke this connection opened while it was active may still
+            // finish (CHUNK, COMMIT, CANCEL), so a client demoted mid-stroke never leaves a governor contact open.
+            guard c.isActiveSource || c.role == .test || InkRouter.continuesOpenStroke(message, of: c) else { return }
             handleInk(message, from: c, hostTimeNs: hostTimeNs, now: now)
         }
+    }
+
+    private static func continuesOpenStroke(_ message: Message, of c: InkConnection) -> Bool {
+        switch message {
+        case let .strokeChunk(id, _), let .strokeCommit(id, _), let .strokeCancel(id):
+            return c.openStrokeIDs.contains(id)
+        default:
+            return false
+        }
+    }
+
+    /// The opcode field of a SolStream header (bytes 2...3, little-endian), or nil when the message is shorter.
+    static func headerOpcode(_ bytes: [UInt8]) -> UInt16? {
+        guard bytes.count >= 4 else { return nil }
+        return UInt16(bytes[2]) | (UInt16(bytes[3]) << 8)
+    }
+
+    /// PROTOCOL 6.1 and 9: a first HANDSHAKE that does not decode is no handshake. ACK 3 and close 1002, the same
+    /// answer as an unparsable name, so the client sees a protocol error instead of waiting for the idle close.
+    private func rejectHandshake(_ c: InkConnection, reason: String) {
+        c.send(.handshakeAck(width: SolStream.targetWidth, height: SolStream.targetHeight, fps: SolStream.targetFPS, status: .unsupported))
+        c.close(code: 1002, reason: "unsupported handshake")
+        onLog?("client \(c.remote): handshake rejected (\(reason))")
     }
 
     private func handleControl(_ message: Message, from c: InkConnection) {
@@ -259,6 +298,12 @@ final class InkRouter {
             onLog?("client \(c.remote): handshake rejected (name '\(name)', canvas \(width)x\(height))")
             return
         }
+        // Role `test` is active in every ink source, so only the Mac's own loopback self-test may claim it: never a
+        // network client, and never a browser page whose Origin is not this server (WebServer marks it non-loopback).
+        if identity.role == .test && !c.isLoopback {
+            rejectHandshake(c, reason: "role test from \(c.remote) is not a loopback client")
+            return
+        }
         c.identity = identity
         c.scale = (Double(SolStream.canvasWidth) / Double(width), Double(SolStream.canvasHeight) / Double(height))
         if Int(width) != SolStream.canvasWidth || Int(height) != SolStream.canvasHeight {
@@ -293,16 +338,31 @@ final class InkRouter {
         onLog?("client \(c.label) (\(c.role?.rawValue ?? "?")) allowed from \(c.remote)\(c.isLoopback ? " over USB" : "")")
     }
 
-    /// The owner clicked Allow (main thread hop lands here on ink.queue).
-    func allow(connectionID: UUID) {
-        guard let c = connections[connectionID], let identity = c.identity else { return }
-        registry.allow(id: identity.clientID, label: identity.label, role: identity.role.rawValue, address: c.remote)
-        for other in connections.values where other.pending && other.clientID == identity.clientID {
+    /// The owner clicked Allow (main thread hop lands here on ink.queue). The answer is about the tablet, not the
+    /// socket (PROTOCOL 8: "ClientRegistry remembers the id forever"): when the pending socket closed before the
+    /// click, the registry is still written from the prompt's own clientId, label, role and address, and any other
+    /// pending connection of that clientId is granted.
+    func allow(connectionID: UUID, clientID: String = "", label: String = "", role: String = "", address: String = "") {
+        let id: String
+        if let c = connections[connectionID], let identity = c.identity {
+            id = identity.clientID
+            registry.allow(id: id, label: identity.label, role: identity.role.rawValue, address: c.remote)
+        } else if !clientID.isEmpty {
+            id = clientID
+            registry.allow(id: id, label: label, role: role, address: address)
+        } else {
+            return
+        }
+        for other in connections.values where other.pending && other.clientID == id {
             grant(other)
         }
-        if c.pending { grant(c) }
         onClientsChanged?(clientSnapshots)
         broadcastState()
+    }
+
+    /// Allow for the connection a snapshot describes, remembered by its clientId even if that socket is gone.
+    func allow(_ snapshot: ClientSnapshot) {
+        allow(connectionID: snapshot.connectionID, clientID: snapshot.clientID, label: snapshot.label, role: snapshot.role, address: snapshot.address)
     }
 
     /// The owner clicked Not now: ACK 2 and close 1008; nothing is written and the next dial prompts again.

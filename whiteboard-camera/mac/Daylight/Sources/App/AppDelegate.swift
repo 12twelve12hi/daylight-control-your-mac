@@ -30,6 +30,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var hotkeys: Hotkeys?
     private var menuBar: MenuBar?
     private var allowPanel: AllowClientPanel?
+    private var allowPanelItem: AppModel.PendingClient?
     private var onboarding: OnboardingWindowController?
     private var settingsWindow: SettingsWindowController?
     private var diagnostics: DiagnosticsWindowController?
@@ -427,6 +428,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         router.onClientsChanged = { [weak self] snapshots in
             DispatchQueue.main.async {
                 self?.model.setClients(snapshots)
+                self?.syncAllowPanel()
                 self?.onboardingModel.inputs.clientsAllowed = snapshots.filter { $0.allowed }.count
                 self?.onboardingModel.inputs.clientsPending = snapshots.filter { $0.pending }.count
             }
@@ -592,7 +594,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.onAllow = { [weak self] in self?.model.allow(item) }
         panel.onNotNow = { [weak self] in self?.model.deny(item) }
         panel.onDismissed = { [weak self] in self?.telemetry.note("app", "allow panel dismissed; the menu item stays") }
+        allowPanelItem = item
         panel.show(label: item.label, address: item.address)
+    }
+
+    /// The panel's connection left the pending list (socket closed, or allowed elsewhere): show the redial of the same
+    /// tablet if one is pending, otherwise take the stale prompt down.
+    private func syncAllowPanel() {
+        guard let shown = allowPanelItem, let panel = allowPanel, panel.isVisible else { return }
+        if model.pending.contains(where: { $0.connectionID == shown.connectionID }) { return }
+        if let redial = model.pending.first(where: { $0.clientID == shown.clientID }) {
+            showAllowPanel(for: redial)
+        } else {
+            panel.dismiss()
+            allowPanelItem = nil
+        }
     }
 
     private func showOnboarding(force: Bool) {

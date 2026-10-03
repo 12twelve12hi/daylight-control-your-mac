@@ -444,4 +444,85 @@ final class InkRouterTests: XCTestCase {
         XCTAssertFalse(pendingState.flagSet.contains(.clientAllowed), "STATE keeps flowing to a pending client without bit2")
         XCTAssertTrue(pendingState.flagSet.contains(.sinkConnected))
     }
+
+    func testClientDemotedMidStrokeStillFinishesItsStroke() {
+        let id = UUID(uuidString: "00010203-0405-0607-0809-0a0b0c0d0e0f")!
+        let (a, _) = connect(address: "127.0.0.1", name: "web;A;Tablet A")
+        router.handle(bytes(SelfTest.Golden.strokeStart), from: a, hostTimeNs: 2)
+        router.handle(bytes(SelfTest.Golden.strokeChunk3), from: a, hostTimeNs: 3)
+        let (b, _) = connect(address: "127.0.0.1", name: "web;B;Tablet B")
+        XCTAssertFalse(a.isActiveSource, "B took bit3 while A's pen was down")
+        XCTAssertTrue(b.isActiveSource)
+        router.handle(bytes(SelfTest.Golden.strokeCommit), from: a, hostTimeNs: 4)
+        XCTAssertEqual(pipeline.events.last, .lift(strokeID: id), "the contact A opened while active is released")
+        XCTAssertTrue(router.store.activeStrokeIDs.isEmpty)
+        XCTAssertEqual(router.store.committedCount, 1, "the stroke finishes whole")
+        XCTAssertTrue(a.openStrokeIDs.isEmpty)
+        // A new stroke from the demoted client is still dropped (PROTOCOL 8).
+        let eventsBefore = pipeline.events.count
+        drawSecondStroke(a)
+        XCTAssertEqual(router.store.committedCount, 1)
+        XCTAssertEqual(pipeline.events.count, eventsBefore)
+    }
+
+    func testAllowAfterThePendingSocketClosedStillRemembersTheTablet() {
+        var prompted: [InkRouter.ClientSnapshot] = []
+        router.pendingAllow = { prompted.append($0) }
+        let (connection, transport) = connect(address: "192.168.1.40", name: "web;X;Tab")
+        XCTAssertEqual(transport.acks, [.pendingApproval])
+        XCTAssertEqual(prompted.count, 1)
+        XCTAssertEqual(prompted.first?.clientID, "X")
+        router.clientClosed(connection)
+        router.allow(prompted[0])
+        ioQueue.sync {}
+        XCTAssertEqual(registry.lookup(id: "X")?.allowed, true, "the owner's Allow is kept although the socket is gone")
+        XCTAssertEqual(registry.lookup(id: "X")?.lastAddress, "192.168.1.40")
+        XCTAssertEqual(registry.lookup(id: "X")?.label, "Tab")
+        let (_, again) = connect(address: "192.168.1.40", name: "web;X;Tab")
+        XCTAssertEqual(again.acks, [.ok], "the next dial needs no prompt")
+    }
+
+    func testAllowForAClosedSocketGrantsTheRedialStillPending() {
+        var prompted: [InkRouter.ClientSnapshot] = []
+        router.pendingAllow = { prompted.append($0) }
+        let (first, _) = connect(address: "192.168.1.40", name: "web;X;Tab")
+        let (_, second) = connect(address: "192.168.1.40", name: "web;X;Tab")
+        XCTAssertEqual(second.acks, [.pendingApproval])
+        router.clientClosed(first)
+        router.allow(prompted[0])
+        XCTAssertEqual(second.acks, [.pendingApproval, .ok], "the panel's answer covers the redial of the same clientId")
+    }
+
+    func testMalformedFirstHandshakeIsRejectedWithAck3AndClose1002() {
+        var golden = bytes(SelfTest.Golden.handshake)
+        golden[28] = 0   // name_len (payload offset 12) patched to 0, payload_len unchanged
+        golden[29] = 0
+        let transport = FakeTransport(address: "127.0.0.1")
+        let connection = InkConnection(transport: transport)
+        router.clientOpened(connection)
+        router.handle(golden, from: connection, hostTimeNs: 1)
+        XCTAssertEqual(transport.acks, [.unsupported])
+        XCTAssertEqual(transport.closeCode, 1002)
+        XCTAssertNil(connection.identity)
+        // A HANDSHAKE payload shorter than 14 bytes (badPayload) gets the same answer.
+        let shortTransport = FakeTransport(address: "127.0.0.1")
+        let short = InkConnection(transport: shortTransport)
+        router.clientOpened(short)
+        router.handle(bytes("da0101000a00000040e2cfeeb540060000000000000000000000"), from: short, hostTimeNs: 1)
+        XCTAssertEqual(shortTransport.acks, [.unsupported])
+        XCTAssertEqual(shortTransport.closeCode, 1002)
+        // After a good handshake the same bytes are a second handshake: dropped, the socket stays.
+        let (handshaken, okTransport) = connect(address: "127.0.0.1")
+        router.handle(golden, from: handshaken, hostTimeNs: 2)
+        XCTAssertEqual(okTransport.acks, [.ok])
+        XCTAssertNil(okTransport.closeCode)
+    }
+
+    func testRoleTestIsRefusedFromANetworkClient() {
+        let (connection, transport) = connect(address: "192.168.1.40", name: "test;T;Self-test")
+        XCTAssertEqual(transport.acks, [.unsupported])
+        XCTAssertEqual(transport.closeCode, 1002)
+        XCTAssertNil(connection.identity)
+        XCTAssertNil(registry.lookup(id: "T"))
+    }
 }

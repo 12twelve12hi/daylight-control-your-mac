@@ -12,7 +12,8 @@ struct CameraOption: Identifiable, Equatable {
 /// What the Settings window needs from the rest of the app, as closures (Settings/ never references App/).
 final class SettingsContext: ObservableObject {
     @Published var allowedClients: [ClientRegistry.Record] = []
-    @Published var hotkeyConflicts: Set<HotkeyAction> = []
+    /// Per action, the reason its chord did not register ("Already used by another app", "Already used by Clear").
+    @Published var hotkeyConflicts: [HotkeyAction: String] = [:]
     @Published var diagnosticsText = ""
     @Published var mirrorAvailable = false
     var cameras: () -> [CameraOption] = { [] }
@@ -81,7 +82,7 @@ struct SettingsView: View {
                     Text(title(action)).frame(width: 160, alignment: .leading)
                     HotkeyRecorder(binding: Binding(
                         get: { store.settings.hotkeys[action] ?? Settings.defaultHotkeys[action]! },
-                        set: { store.settings.hotkeys[action] = $0 }), conflict: context.hotkeyConflicts.contains(action))
+                        set: { store.settings.hotkeys[action] = $0 }), conflict: context.hotkeyConflicts[action])
                 }
             }
             Button("Reset to defaults") { store.settings.hotkeys = Settings.defaultHotkeys }

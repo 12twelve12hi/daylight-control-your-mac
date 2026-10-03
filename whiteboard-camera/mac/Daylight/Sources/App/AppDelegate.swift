@@ -389,9 +389,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let hotkeys = Hotkeys(settings: settingsStore.settings)
         hotkeys.onAction = { [weak self] action in self?.model.hotkey(action) }
         hotkeys.registerAll()
-        settingsContext.hotkeyConflicts = hotkeys.conflicts
-        for action in hotkeys.conflicts {
-            telemetry.note("hotkeys", "\(Hotkeys.title(action)): already used by another app")
+        settingsContext.hotkeyConflicts = hotkeys.conflictTexts
+        for (action, text) in hotkeys.conflictTexts {
+            telemetry.note("hotkeys", "\(Hotkeys.title(action)): \(text)")
         }
         self.hotkeys = hotkeys
     }
@@ -432,7 +432,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     telemetry.note("hotkeys", "\(Hotkeys.title(action)): \(error)")
                 }
             }
-            settingsContext.hotkeyConflicts = hotkeys.conflicts
+            settingsContext.hotkeyConflicts = hotkeys.conflictTexts
         }
         if settings.inkSource != previous.inkSource {
             model.applyInkSource(settings.inkSource)

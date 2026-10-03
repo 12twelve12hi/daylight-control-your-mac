@@ -44,6 +44,16 @@ final class HotkeysTests: XCTestCase {
         XCTAssertTrue(hotkeys.conflicts.isEmpty)
     }
 
+    func testDuplicateChordIsReportedAsAnotherDaylightAction() {
+        var bindings = Settings.defaults.hotkeys
+        XCTAssertNil(Hotkeys.duplicate(of: .clear, binding: bindings[.clear]!, in: bindings), "the defaults are distinct")
+        bindings[.clear] = bindings[.keep]
+        XCTAssertEqual(Hotkeys.duplicate(of: .clear, binding: bindings[.clear]!, in: bindings), .keep)
+        XCTAssertEqual(Hotkeys.conflictText(.duplicate(.clear, .keep)), "Already used by Keep whiteboard")
+        XCTAssertEqual(Hotkeys.conflictText(.alreadyUsed(.clear)), "Already used by another app")
+        XCTAssertEqual(Hotkeys.exclusiveOption, 1, "kEventHotKeyExclusive: without it no cross-app conflict is ever reported")
+    }
+
     func testRecorderModifierMapping() {
         XCTAssertEqual(HotkeyRecorder.carbonModifiers([.command, .option, .control]), HotkeyBinding.defaultModifiers)
         XCTAssertEqual(HotkeyRecorder.carbonModifiers([.shift]), 1 << 9)

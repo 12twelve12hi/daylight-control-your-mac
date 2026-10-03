@@ -6,7 +6,8 @@ import SwiftUI
 /// Click, then press a chord: records the key code and the Carbon modifier mask of SPEC 14.
 struct HotkeyRecorder: NSViewRepresentable {
     @Binding var binding: HotkeyBinding
-    var conflict: Bool
+    /// "Already used by another app" or "Already used by <action>"; nil when the chord registered.
+    var conflict: String?
 
     func makeNSView(context: Context) -> RecorderView {
         let view = RecorderView()
@@ -15,7 +16,7 @@ struct HotkeyRecorder: NSViewRepresentable {
     }
 
     func updateNSView(_ view: RecorderView, context: Context) {
-        view.text = (conflict ? "Already used by another app: " : "") + describe(binding)
+        view.text = (conflict.map { $0 + ": " } ?? "") + describe(binding)
         view.needsDisplay = true
     }
 

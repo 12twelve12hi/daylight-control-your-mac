@@ -106,6 +106,9 @@ A is pure Swift, so there are no Apple API facts here. Judgement calls the owner
 3. Clear and save effects are gated by the governor's own ink heuristic; the saver's `StrokeStore.isDirty` check is the second gate. Confirm on the Mac that a Clear on a board with ink always writes exactly one file pair.
 4. The dot rule asks the rasterizer to fill a disc for one-point strokes; whether CoreGraphics also draws a round cap for a zero-length segment is unverified, so the disc is explicit.
 5. The JSON `page.index` is 1-based to match `page-01`; the STATE `page_index` and `PAGE_CHANGE` stay 0-based. If the owner prefers 0-based in the file, change one `+ 1` in `StrokeStore.document`.
+6. Review round 1 (kit-01): ink during RETURNING re-engages only while auto-engage is armed (`autoEngage && hold != camera`); under Hold: Camera or with auto-engage off the stroke is tracked and recorded but the return completes. Pin, engage, the layout hotkeys and `hold(split | whiteboard)` re-engage regardless (D38). The same arm guard applies to `eraserContact(down)` (item 1).
+7. Review round 1 (kit-02): the ENGAGING snap-back needs an engage the stroke itself caused: `!pinned && hold == auto` joins the 80 ms and position 0.15 guards, so a board a pin, a hold or a hotkey brought up never snaps back on a stray cancel, and no `pinChanged` is emitted from a snap-back.
+8. Review round 1 (kit-03): `sourceChanged`, `clientGone` and `allClientsGone` set `lastActivity = now` when they emptied a non-empty contact set of an ENGAGING or LIVE board (the pen on the glass had frozen the timer; the disconnect must not fire the return at once); a drop that removes nothing leaves the timer alone, and no state changes.
 
 ---
 

@@ -141,7 +141,7 @@ Guards used below: STYLUS = `pointer == stylus && phase == contact && pressure >
 | PASSTHROUGH | motion, lift, cancel, activity, returnNow | | PASSTHROUGH | bookkeeping only (lift and cancel remove the id) |
 | PASSTHROUGH | tick | | PASSTHROUGH | nothing; no timer runs in PASSTHROUGH |
 | ENGAGING | tick | SETTLED | LIVE | `spring.snap(1)`; stateChanged |
-| ENGAGING | cancel(id) | `now - engageStart < 0.080 && position < 0.15 && activeContacts \ {id} is empty` | PASSTHROUGH | snap-back: `spring.snap(0)`; stop clock; stateChanged; no save |
+| ENGAGING | cancel(id) | `now - engageStart < 0.080 && position < 0.15 && activeContacts \ {id} is empty && !pinned && hold == auto` | PASSTHROUGH | snap-back: `spring.snap(0)`; stop clock; stateChanged; no save (a board a pin, a hold or a hotkey brought up never snaps back on a stray cancel) |
 | ENGAGING | cancel(id) | otherwise | ENGAGING | remove id; `lastActivity = now` |
 | ENGAGING | contact (STYLUS), motion, activity | | ENGAGING | track id; `lastActivity = now` |
 | ENGAGING | lift | | ENGAGING | remove id; `lastActivity = now` |
@@ -163,16 +163,17 @@ Guards used below: STYLUS = `pointer == stylus && phase == contact && pressure >
 | LIVE | layoutHotkey(L) | L != preferredLayout | LIVE | `preferredLayout = L` (layout switches; no slide) |
 | LIVE | hold(split or whiteboard) | | LIVE | `hold = m`; `preferredLayout` follows m; idle timer disabled; pre-warning cancelled if on; holdChanged |
 | LIVE | hold(auto) | | LIVE | `hold = auto`; `lastActivity = now`; `pinned` unchanged; holdChanged |
-| RETURNING | contact (STYLUS), motion(active id), penContact(down) | | ENGAGING | ink wins: `spring.retarget(1)` from the current position and velocity (no discontinuity); generation += 1; `lastActivity = now`; stateChanged |
+| RETURNING | contact (STYLUS), motion(active id), penContact(down), eraserContact(down) | `autoEngage && hold != camera` (auto-engage armed) | ENGAGING | ink wins: `spring.retarget(1)` from the current position and velocity (no discontinuity); generation += 1; `lastActivity = now`; stateChanged (eraserContact per D36) |
+| RETURNING | contact (STYLUS), motion(active id), penContact(down), eraserContact(down) | hold == camera, or auto-engage off | RETURNING | bookkeeping only: id tracked, ink recorded in the stroke store; the owner asked for the camera, so the return completes |
 | RETURNING | pin(1), or pin(-1) when `!pinned` | | ENGAGING | keep it: `pinned = true`; pinChanged; `spring.retarget(1)`; generation += 1; stateChanged |
 | RETURNING | pin(0), or pin(-1) when pinned | | RETURNING | `pinned = false` |
 | RETURNING | engage, layoutHotkey(L), hold(split or whiteboard) | | ENGAGING | set `preferredLayout` / `hold`; `spring.retarget(1)`; stateChanged |
 | RETURNING | tick | SETTLED at 0 | PASSTHROUGH | `spring.snap(0)`; `activeContacts` cleared; `pinned = false`; pre-warning cleared; `savePage(.returned)` if dirty; stop clock; stateChanged |
 | RETURNING | clear | | RETURNING | `savePage(.cleared)` if dirty; `clearCanvas`; no transition |
 | RETURNING | returnNow, hold(camera), lift, cancel | | RETURNING | bookkeeping only |
-| any | sourceChanged | | same | `activeContacts` cleared (ids from the old source will never end); nothing else; the board stays where it is |
-| any | clientGone(ids) | | same | ids removed from `activeContacts` (the ink router commits those strokes as they stand); no transition |
-| any | allClientsGone | | same | `activeContacts` cleared; the idle timer carries on (a Wi-Fi blip must not yank the board away mid-sentence) |
+| any | sourceChanged | | same | `activeContacts` cleared (ids from the old source will never end); if that removed the last contact of an ENGAGING or LIVE board, `lastActivity = now` (a fresh idle period: a pen that was on the glass froze the timer, and the drop must not fire a return at once); a drop that removes nothing leaves the timer alone; the board stays where it is |
+| any | clientGone(ids) | | same | ids removed from `activeContacts` (the ink router commits those strokes as they stand); the same `lastActivity` rule; no transition |
+| any | allClientsGone | | same | `activeContacts` cleared; the same `lastActivity` rule; otherwise the idle timer carries on (a Wi-Fi blip must not yank the board away mid-sentence) |
 | any (not PASSTHROUGH) | hold(camera) | | RETURNING | as returnNow, plus `hold = camera` |
 
 Timers: the governor owns none. The pipeline calls `tick(now)` at 30 Hz while `state != PASSTHROUGH || hold != auto`; nothing can expire in PASSTHROUGH. `nextDeadline(now:)` exists for the optional `deadlineIdle` flag (D34). Pre-warning breath weight at time t since `preWarningStart`: `0.5 * (1 - cos(2 * pi * t / 2))` (0.5 Hz); the tablet chip uses the same formula from STATE.
@@ -185,7 +186,7 @@ Closed form for the critically damped case, exact at any dt: `x(t) = T + (A + B 
 
 ### 5.4 Scenario list (each is a DaylightKit test)
 
-Engage only on stylus contact with pressure > 0 (finger, palm, hover, pressure 0, mouse rejected); eraser contact engages only with `engageOnEraser`; ENGAGING settles to LIVE at 0.251 s (within one tick); progress at 0.100 s = 0.8603 within 1e-3; snap-back at cancel 60 ms with progress 0.11 -> PASSTHROUGH, cancel at 90 ms stays ENGAGING; pre-warning at exactly 85.0 s, RETURNING at 90.0 s, PASSTHROUGH 0.251 s later with exactly one `savePage(.returned)`; any ink cancels pre-warning; ink mid-return retargets with |progress(t+) - progress(t-)| < 1e-9; pin during RETURNING -> ENGAGING pinned; engage during RETURNING -> ENGAGING; pin suppresses return at 200 s, unpin returns at unpin + 90 s; pin from PASSTHROUGH engages; pen on glass (start without commit at 80 s) freezes the timer (no return at 300 s); clear unpinned -> [savePage, clearCanvas] then RETURNING; clear pinned -> [savePage, clearCanvas], stays LIVE; clear twice on a pinned board saves once; clientGone and allClientsGone never change state; sourceChanged clears contacts; hold modes disable the timer and `hold(auto)` restarts it without touching `pinned`; layout hotkey toggle semantics; `ms_to_return` values per state; STATE fields derived from output.
+Engage only on stylus contact with pressure > 0 (finger, palm, hover, pressure 0, mouse rejected); eraser contact engages only with `engageOnEraser`; ENGAGING settles to LIVE at 0.251 s (within one tick); progress at 0.100 s = 0.8603 within 1e-3; snap-back at cancel 60 ms with progress 0.11 -> PASSTHROUGH, cancel at 90 ms stays ENGAGING; pre-warning at exactly 85.0 s, RETURNING at 90.0 s, PASSTHROUGH 0.251 s later with exactly one `savePage(.returned)`; any ink cancels pre-warning; ink mid-return retargets with |progress(t+) - progress(t-)| < 1e-9; pin during RETURNING -> ENGAGING pinned; engage during RETURNING -> ENGAGING; pin suppresses return at 200 s, unpin returns at unpin + 90 s; pin from PASSTHROUGH engages; pen on glass (start without commit at 80 s) freezes the timer (no return at 300 s); clear unpinned -> [savePage, clearCanvas] then RETURNING; clear pinned -> [savePage, clearCanvas], stays LIVE; clear twice on a pinned board saves once; clientGone and allClientsGone never change state; sourceChanged clears contacts; hold modes disable the timer and `hold(auto)` restarts it without touching `pinned`; layout hotkey toggle semantics; `ms_to_return` values per state; STATE fields derived from output; ink during RETURNING under `hold(camera)` or with auto-engage off stays RETURNING (bookkeeping only); a snap-back needs an engage the stroke itself caused (`!pinned`, `hold == auto`); a clientGone that empties the contacts of a LIVE board at 110 s gives the pre-warning at 195 s and the return at 200 s.
 
 ---
 
@@ -275,7 +276,7 @@ Persisted on the Mac: camera permission (system), extension approval (system), `
 
 ### 9.3 Native (Daylight Ink)
 
-1. Over USB: the Mac's "Set up over USB" runs `adb -s SERIAL install -r <Resources/DaylightInk.apk>`, `adb -s SERIAL shell appops set com.twelve.daylight.ink SYSTEM_ALERT_WINDOW allow`, `adb -s SERIAL shell pm grant com.twelve.daylight.ink android.permission.POST_NOTIFICATIONS`, `adb -s SERIAL reverse tcp:7788 tcp:7788`, `adb -s SERIAL shell am start -n com.twelve.daylight.ink/.MainActivity --es host <Tailscale 100.x address when present, else the Wi-Fi IPv4>`. The app connects over loopback, is auto-allowed, and remembers the `--es host` value as its manual host for later wireless use.
+1. Over USB: the Mac's "Set up over USB" runs `adb -s SERIAL install -r -d <Resources/DaylightInk.apk>` (`-d` lets the embedded debug APK replace a newer sideload), `adb -s SERIAL shell appops set com.twelve.daylight.ink SYSTEM_ALERT_WINDOW allow`, `adb -s SERIAL shell pm grant com.twelve.daylight.ink android.permission.POST_NOTIFICATIONS`, `adb -s SERIAL reverse tcp:7788 tcp:<bound port>` (the tablet always dials 127.0.0.1:7788; the Mac listener may sit on 7788 to 7799, section 11 and failure row 16), `adb -s SERIAL shell am start -n com.twelve.daylight.ink/.ui.MainActivity --es host <ip>:<bound port>` with the Tailscale 100.x address when present, else the Wi-Fi IPv4 (an IPv6 host takes the `[v6]:port` form). The app connects over loopback, is auto-allowed, and remembers the `--es host` value as its manual host for later wireless use.
 2. Without USB: the web chip card's "Get the Daylight Ink app" downloads `/daylight-ink.apk`; the owner taps Install (one-time "allow from this source"), opens the app, which finds the Mac via Bonjour and waits for the Allow click.
 3. Every later day: open the app (or it is still running); it reconnects by itself: mDNS, then 127.0.0.1:7788, then the remembered host.
 
@@ -305,6 +306,7 @@ One pill, bottom centre of the toolbar in the apps, top centre overlay in mirror
 | ACK status 1 (bit2 clear) | outline, Amber dot | "Look at your Mac" |
 | denied | outline, Terracotta text | "Not allowed by the Mac" (tap retries) |
 | incompatible (ACK status 3, or the server did not echo `solstream.v1`; PROTOCOL 1 and 10) | outline, Terracotta text | "Update Daylight on your Mac" (tap retries once; no automatic re-dial) |
+| refused (web only: five failed dials while `GET /api/info` answers as Daylight; Chromium hides whether the upgrade was refused or the subprotocol not echoed, LOOSE_ENDS E18) | outline, Terracotta text | "Mac found, socket refused. Tap to retry" (tap retries at once; otherwise one quiet re-dial every 60 s) |
 | allowed but bit3 clear | outline | "Ink source is <web / Daylight Ink / mirror> on the Mac" (tap shows how to switch) |
 | governor PASSTHROUGH | SurfaceCream fill, InkBlack text | "Camera" |
 | ENGAGING or LIVE, not pinned | PaperBg fill, Amber dot | "LIVE" |
@@ -396,7 +398,7 @@ Shows: build signed or not; extension status and the two `kCMIOStreamPropertyDir
 | 2 | launch, unsigned build | "This is an unsigned test build. The virtual camera cannot be installed on this Mac. Use Daylight > Preview window to see the output." | `DaylightBuildSigned=false` | expected until signing secrets exist |
 | 3 | camera permission | "Camera access is off for Daylight." (+ Open System Settings) | `AVAuthorizationStatus = denied` | Privacy & Security > Camera |
 | 4 | no webcam | menu icon with a slash; preview shows a cream card "No camera found" | `cameras() returned 0` | plug in or Continuity Camera; retried on `wasConnectedNotification` |
-| 5 | webcam not 1080p BGRA | Diagnostics: "Camera delivers 1280x720 NV12; composing every frame" | `first frame <w>x<h> <fourcc> iosurface=<bool>` | informational; passthrough runs through the compositor |
+| 5 | webcam not 1080p BGRA | Diagnostics: "Camera delivers <w>x<h> <fourcc>; composing every frame" (for example "Camera delivers 1280x720 NV12; composing every frame") | `first frame <w>x<h> <fourcc> iosurface=<bool>` | informational; passthrough runs through the compositor |
 | 6 | extension error 2 | "The camera extension is missing an entitlement (build signing problem)." | `OSSystemExtensionError 2 missingEntitlement` | profile lacks System Extension; regenerate, re-run CI |
 | 7 | extension error 3 | as row 1 | `... 3 unsupportedParentBundleLocation` | not in /Applications |
 | 8 | extension error 4, 5, 6, 7 | "The camera extension inside this build is damaged. Download the build again." | code + `ls -R Contents/Library/SystemExtensions` | packaging bug; CI logs the bundle listing |
@@ -434,7 +436,7 @@ Shows: build signed or not; extension status and the two `kCMIOStreamPropertyDir
 
 ## 14. Hotkeys
 
-Carbon `RegisterEventHotKey` (no Accessibility permission). Defaults Ctrl+Opt+Cmd + W (Whiteboard Only toggle), D (Studio Split toggle), K (Keep/Pin toggle), C (Clear), Esc (Camera). Key codes: W 0x0D, D 0x02, K 0x28, C 0x08, Escape 0x35; modifiers cmdKey 1<<8, optionKey 1<<11, controlKey 1<<12. Semantics in section 7. Recorded in Settings; conflicts show "Already used by another app".
+Carbon `RegisterEventHotKey` (no Accessibility permission). Defaults Ctrl+Opt+Cmd + W (Whiteboard Only toggle), D (Studio Split toggle), K (Keep/Pin toggle), C (Clear), Esc (Camera). Key codes: W 0x0D, D 0x02, K 0x28, C 0x08, Escape 0x35; modifiers cmdKey 1<<8, optionKey 1<<11, controlKey 1<<12. Semantics in section 7. Recorded in Settings; chords are registered with `kEventHotKeyExclusive`; a conflict shows "Already used by another app" (another process holds the chord exclusively) or "Already used by <Daylight action>" (the same chord bound twice inside Daylight). A chord another app registered non-exclusively fires in both apps and cannot be detected, a Carbon limit.
 
 ---
 

@@ -558,7 +558,17 @@ final class FramePipeline: PipelineControl {
             cameraSlot.clear()
             telemetry.note("capture", "camera lost")
             onCameraPresence?(false)
-            renderQueue.async { [weak self] in self?.publishFlagsChange() }
+            let state = governor.withLock { $0.state }
+            renderQueue.async { [weak self] in
+                guard let self = self else { return }
+                // PASSTHROUGH: viewers would keep the last camera frame frozen; the cream card says it plainly.
+                // Composed states already draw the cream presenter area because the slot is empty.
+                if state == .passthrough, let card = self.creamCardBuffer() {
+                    self.feeder.push(card, hostTimeNs: nil)
+                    self.onPreviewFrame?(card)
+                }
+                self.publishFlagsChange()
+            }
         case .restored:
             flags.withLock { f in
                 f.cameraAttached = true

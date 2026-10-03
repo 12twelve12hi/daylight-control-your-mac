@@ -158,6 +158,24 @@ final class PipelineSmokeTests: XCTestCase {
         pipeline.shutdown()
     }
 
+    func testLostCameraInPassthroughPushesTheCreamCard() throws {
+        let sink = FakeSink()
+        let capture = FakeCapture()
+        let pipeline = try makePipeline(sink: sink, capture: capture)
+        pipeline.start()
+        XCTAssertTrue(waitUntil(2) { sink.pushCount > 3 })
+        capture.stop()   // an unplugged webcam delivers nothing more
+        Thread.sleep(forTimeInterval: 0.15)
+        sink.resetRecording()
+        capture.simulateLost()
+        XCTAssertTrue(waitUntil(1.0) { sink.pushCount >= 1 }, "viewers get one more frame instead of a frozen face")
+        let frame = sink.lastPixelBuffer!
+        XCTAssertFalse(frame === capture.buffer)
+        XCTAssertTrue(SelfTest.matches(SelfTest.pixel(frame, 100, 100), Tokens.surfaceCream), "the cream card")
+        XCTAssertFalse(pipeline.stats.cameraAttached)
+        pipeline.shutdown()
+    }
+
     func testStateCadenceConstantsMatchSpecD47() {
         XCTAssertEqual(FramePipeline.stateIntervalAnimating, 0.1, accuracy: 1e-12, "10 Hz while ENGAGING, RETURNING or pre-warning")
         XCTAssertEqual(FramePipeline.stateIntervalLive, 1.0, accuracy: 1e-12, "1 Hz while LIVE")

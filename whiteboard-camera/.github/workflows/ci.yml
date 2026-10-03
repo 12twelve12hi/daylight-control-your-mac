@@ -104,7 +104,8 @@ jobs:
     timeout-minutes: 60
     needs: [golden, web, kit-linux, android]
     env:
-      # scripts/mac-release.sh exits 1 when these say a set exists but a name is missing in its own env (a misnamed secret).
+      # scripts/mac-release.sh treats these as a partial or misnamed set when a name is missing in its own env: exit 1 on a
+      # tag or notarize run, a ::warning:: and exit 0 on an ordinary push.
       HAS_SIGNING: ${{ secrets.DAYLIGHT_DEVELOPER_ID_P12_BASE64 != '' && secrets.DAYLIGHT_DEVELOPER_ID_P12_PASSWORD != '' && secrets.DAYLIGHT_APP_PROVISIONING_PROFILE_BASE64 != '' && secrets.DAYLIGHT_TEAM_ID != '' }}
       NOTARIZE_REQUESTED: ${{ startsWith(github.ref, 'refs/tags/v') || inputs.notarize == true }}
       DO_NOTARIZE: ${{ (startsWith(github.ref, 'refs/tags/v') || inputs.notarize == true) && secrets.ASC_API_PRIVATE_KEY_BASE64 != '' && secrets.ASC_API_KEY_ID != '' && secrets.ASC_API_ISSUER_ID != '' }}

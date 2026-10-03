@@ -6,9 +6,9 @@ Owner of `scripts/`, `Makefile`, both workflows, `mac/project.yml`, `mac/Dayligh
 
 | Ticket | State | Proof |
 |---|---|---|
-| H1 adb sources | done in code, see the acceptance table below | run RUN_H1 |
-| H2 macos-26 leg | done | run RUN_H2 |
-| Keep the branch green | no red run caused by shared files during this phase | runs listed below |
+| H1 adb sources | done; acceptance met (table below) | https://github.com/12twelve12hi/daylight-control-your-mac/actions/runs/37150435613 (every job green; 19 AdbClientSourcesTests, AdbSourceSettingsTests, FailureTextTests, FailureCoverageTests passed) |
+| H2 macos-26 leg | done; green with every step | https://github.com/12twelve12hi/daylight-control-your-mac/actions/runs/37149301627 and https://github.com/12twelve12hi/daylight-control-your-mac/actions/runs/37150435613 |
+| Keep the branch green | one red run on my own files (37149873273, fixed in 9790133); one red mac job in another domain recorded (request 3) | runs listed below |
 
 ## H1: what was built
 
@@ -38,11 +38,10 @@ Owner of `scripts/`, `Makefile`, both workflows, `mac/project.yml`, `mac/Dayligh
 
 ## H2: the macos-26 leg
 
-`mac-26` job in `/.github/workflows/whiteboard-camera.yml` and `whiteboard-camera/.github/workflows/ci.yml`, identical apart from the monorepo path prefix: `runs-on: macos-26` (the actions/runner-images README lists `macos-26` as the GA Arm64 image, fetched 2026-10-03), `continue-on-error: true`, its own concurrency group `wbc-mac26-<ref>`, the same steps as the mac job up to `make mac-smoke`, artifacts `Daylight-unsigned-macos-26` and `xcodebuild-logs-macos-26`, no signing step. It uses the image's default Xcode (no `DAYLIGHT_XCODE_PATH`). macos-15 stays the required leg; make macos-26 required after a week of green legs (LOOSE_ENDS H2). A separate job instead of a matrix keeps the required check named `mac`.
+`mac-26` job in `/.github/workflows/whiteboard-camera.yml` and `whiteboard-camera/.github/workflows/ci.yml`, identical apart from the monorepo path prefix: `runs-on: macos-26` (the actions/runner-images README lists `macos-26` as the GA Arm64 image, fetched 2026-10-03), `continue-on-error: true`, its own concurrency group `wbc-mac26-<ref>`, the same steps as the mac job up to `make mac-smoke`, artifacts `Daylight-unsigned-macos-26` and `xcodebuild-logs-macos-26`, no signing step. It uses the image's default Xcode (no `DAYLIGHT_XCODE_PATH`): Xcode 26.6, Apple Swift 6.3.3, Darwin 25.6.0 arm64; `make mac-test` (with `ExtensionInstallerTests`) and `--self-test` passed there in both runs. macos-15 stays the required leg; make macos-26 required after a week of green legs (LOOSE_ENDS H2). A separate job instead of a matrix keeps the required check named `mac`.
 
 ## UNVERIFIED, with the fallback in place
 
-- URLSession `dataTask` with a `file://` URL in the hosted tests: the download tests depend on it. Fallback if the runner refuses: a `URLProtocol` stub (LOOSE_ENDS H1 (9) names it); not needed if `AdbClientSourcesTests` are green.
 - A downloaded adb launched from Application Support by a hardened, notarized app: files written by the app carry no quarantine attribute (the app sets no `LSFileQuarantineEnabled`), so Gatekeeper should not prompt. Fallback: the owner picks Bundled or Installed; checklist row 4.20 checks it on the Mac.
 - The Mirror tab is taller with the new section; the Settings window is a fixed 560 by 520 (B's file). If the tab clips, it needs a ScrollView (request 3).
 - `DAYLIGHT_BUNDLE_ADB=0` builds: the script, plist and picker logic are covered by scripts-check and unit tests, but no CI job builds that variant.
@@ -65,5 +64,11 @@ SETUP.md 2.3 gains "adb source" (the three choices, the five messages, the resta
 
 ## Runs
 
-- RUN_H2: H2 commit c119b82.
-- RUN_H1: H1 commit 82a6641.
+| Run | Commit | Result |
+|---|---|---|
+| 37149301627 | c119b82 (H2) | golden, web, android, kit-linux green; mac-26 green with every step; mac red on Mirror v2's `StylusWatcherTests` race (request 3), not this change |
+| 37149758362 | 82a6641 (H1) | golden green; the rest cancelled by the next push |
+| 37149873273 | 0dc54f8 (H1 docs) | Linux jobs green; mac and mac-26 red at `make mac-debug`: `Settings` named both SwiftUI's scene and DaylightKit's value in `AdbSourceSettingsView.swift` |
+| 37150435613 | 9790133 (fix, compile errors in the job log) | every job green: golden (scripts-check 32), web, android, kit-linux, mac (19 `AdbClientSourcesTests`, `FailureCoverageTests` 45 cases, `self-test: PASS`), mac-26 |
+
+Compile errors now reach the job log (`scripts/mac-debug.sh`), which closes LOOSE_ENDS I7 (a) and the Mirror v2 handoff's request to Platform.

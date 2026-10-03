@@ -159,6 +159,8 @@ Workflow `whiteboard-camera` (`.github/workflows/whiteboard-camera.yml`; the sta
 | `kit-linux` | ubuntu-latest, container `swift:6.4-noble` | `scripts/kit-test.sh` (`swift test --package-path mac/DaylightKit --parallel`; when swift-package itself exits by a crash signal the whole suite runs again from an empty `.build`, up to three runs, never after a test failure) |
 | `mac` (needs the four above) | macos-15, Xcode 16.4 | download `daylight-ink-debug-apk`; `brew install xcodegen`; `make fetch-tools`; `make embed-apk`; `make web`; `make mac-generate`; `make kit-test`; `make mac-debug` (`xcodebuild ... -configuration Release CODE_SIGNING_ALLOWED=NO build`, ad-hoc fallback, `Daylight-unsigned.zip`); `make mac-test` (`xcodebuild test -scheme DaylightTests`); `make mac-smoke` (`Daylight --self-test --perf-log` under a 120 s alarm); upload `Daylight-unsigned` and `xcodebuild-logs`; `make mac-release` (signs, exports, notarizes only when the secrets exist, otherwise prints what is missing and exits 0); upload `Daylight-signed` when `HAS_SIGNING` |
 
+| `mac-26` (needs the same four; non-blocking, `continue-on-error`) | macos-26, its default Xcode (26.6) | the same steps as `mac` up to `make mac-smoke`; artifacts `Daylight-unsigned-macos-26`, `xcodebuild-logs-macos-26`; no signing (LOOSE_ENDS H2) |
+
 Concurrency is per job: the Linux jobs cancel their older runs, the mac job always finishes (LOOSE_ENDS B16). Locally, `make help` lists the targets, `make doctor` says which can run here; `make golden-check`, `make web`, `make web-test` work anywhere with Python 3 and Node 22.
 
 ---
@@ -355,3 +357,12 @@ Lessons:
 - Two lenses per area paid off: the duplicates (PIPA-01/PIPB-02, PIPA-02/PIPB-01, CAMB-03/TSTA-01) were found independently, and each lens also found what the other missed.
 - A refuter that defaults to "not real" removed six findings, among them one that needed the compiler source to settle (APPA-03).
 - `scripts/mac-debug.sh` hides Swift compile errors from the job log; a compile break in another owner's files cost one cycle to locate by reading the code (I7).
+
+---
+
+## 10. Platform phase 2 (2026-10-03)
+
+- adb source (LOOSE_ENDS H1, closed): Settings > Mirror > "adb source" offers "Bundled (default)", "Download on first use" (Google's Android SDK License once, then platform-tools 37.0.0 from dl.google.com, SHA-256 checked before unpacking and before every use, kept in `~/Library/Application Support/Daylight/platform-tools`, offline afterwards) and "Use installed adb" (PATH, Homebrew, Android Studio; platform-tools 35 or newer). Diagnostics prints `mirror.adb.source`, `mirror.adb.path`, `mirror.adb.version`; failure rows 39 to 43; `make fetch-tools mac-generate mac-debug DAYLIGHT_BUNDLE_ADB=0` builds without the bundled adb. A new source applies at the next launch until Mirror v2 drops the cached adb on a settings change. Proved by run 37150435613 (every job green).
+- macOS 26 (LOOSE_ENDS H2, closed): a non-blocking `mac-26` job runs the whole mac pipeline on macos-26 and was green in runs 37149301627 and 37150435613.
+- CI: `make mac-debug` now prints Swift compile errors into the job log (LOOSE_ENDS I7 a). The one red run of the phase on shared files was the `Settings` name clash between SwiftUI and DaylightKit in the new Settings view (run 37149873273, fixed in 9790133). `StylusWatcherTests.testProbeFindsThePenNodeAndStreamsIt` raced once (run 37149301627, Mirror v2's file; request in the Platform handoff).
+- Owner checks: TESTING-CHECKLIST 4.19 to 4.21; SETUP 2.3 "adb source".

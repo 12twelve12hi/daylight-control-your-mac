@@ -150,7 +150,7 @@ final class FailureTextTests: XCTestCase {
 
     /// SPEC 13.3 rows 34 to 38: Mirror over Wi-Fi (Daylight Ink screen stream, PROTOCOL 14).
     func testWifiStreamRows34To38() {
-        XCTAssertEqual(FailureText.sentence(.wifiStreamConsentDenied), "Daylight Ink was not allowed to share the tablet screen. Tap the Daylight Ink notification on the tablet and choose Start now.")
+        XCTAssertEqual(FailureText.sentence(.wifiStreamConsentDenied), "Daylight Ink was not allowed to share the tablet screen. On the tablet open Daylight Ink > Settings > Share screen with your Mac and choose Start now.")
         XCTAssertEqual(FailureText.sentence(.wifiStreamEncoderUnavailable), "Your Daylight could not start its screen encoder. Restart Daylight Ink, or use Mirror over USB.")
         XCTAssertEqual(FailureText.sentence(.wifiStreamStalled), "The tablet's screen stream paused. Reconnecting...")
         XCTAssertEqual(FailureText.sentence(.wifiStreamFrameDiffEngage), "Mirror over Wi-Fi starts the whiteboard when the tablet screen changes. Plug in with USB debugging for pen-exact engage.")

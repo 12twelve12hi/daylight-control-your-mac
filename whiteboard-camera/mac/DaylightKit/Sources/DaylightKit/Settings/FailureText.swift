@@ -163,7 +163,7 @@ public enum FailureText {
         case .saveFailed: template = "Could not save the whiteboard: <error>"
         case .wifiMirrorFailed: template = "Plug in once to re-enable Wi-Fi mirroring."
         case .captureIdle: template = "Webcam capture is paused because no app is viewing Daylight Camera (LED off). It restarts within a second when a call starts."
-        case .wifiStreamConsentDenied: template = "Daylight Ink was not allowed to share the tablet screen. Tap the Daylight Ink notification on the tablet and choose Start now."
+        case .wifiStreamConsentDenied: template = "Daylight Ink was not allowed to share the tablet screen. On the tablet open Daylight Ink > Settings > Share screen with your Mac and choose Start now."
         case .wifiStreamEncoderUnavailable: template = "Your Daylight could not start its screen encoder. Restart Daylight Ink, or use Mirror over USB."
         case .wifiStreamStalled: template = "The tablet's screen stream paused. Reconnecting..."
         case .wifiStreamFrameDiffEngage: template = "Mirror over Wi-Fi starts the whiteboard when the tablet screen changes. Plug in with USB debugging for pen-exact engage."

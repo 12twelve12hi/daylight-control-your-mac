@@ -19,6 +19,9 @@ final class StylusWatcherTests: XCTestCase {
         let gestures = Locked<[SideButtonGesture]>([])
         let gotDouble = expectation(description: "double press")
         let penUp = expectation(description: "contact up")
+        // The gesture can fire before the sixth transition (side1Up at 11.4 s) is appended (run 37149301627), so the
+        // count is read only after all six arrived.
+        let sixTransitions = expectation(description: "six transitions")
         watcher.onStatus = { status in
             if case let .watching(path, name, pressureMax) = status {
                 XCTAssertEqual(path, "/dev/input/event3")
@@ -28,8 +31,9 @@ final class StylusWatcherTests: XCTestCase {
             }
         }
         watcher.onTransition = { transition in
-            transitions.withLock { $0.append(transition) }
+            let count = transitions.withLock { list -> Int in list.append(transition); return list.count }
             if case .contactUp = transition { penUp.fulfill() }
+            if count == 6 { sixTransitions.fulfill() }
         }
         watcher.onGesture = { gesture in
             gestures.withLock { $0.append(gesture) }
@@ -52,7 +56,7 @@ final class StylusWatcherTests: XCTestCase {
         child.emitStdout(StylusFixtures.sideButton(false, at: 11.1))
         child.emitStdout(StylusFixtures.sideButton(true, at: 11.3))
         child.emitStdout(StylusFixtures.sideButton(false, at: 11.4))
-        wait(for: [gotDouble], timeout: 5)
+        wait(for: [gotDouble, sixTransitions], timeout: 5)
         let seen = transitions.withLock { $0 }
         XCTAssertEqual(seen.count, 6, "\(seen)")
         guard case let .contactDown(sample)? = seen.first else { return XCTFail("contactDown first, got \(seen)") }

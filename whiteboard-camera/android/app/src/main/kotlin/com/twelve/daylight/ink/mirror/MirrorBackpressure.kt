@@ -1,0 +1,56 @@
+package com.twelve.daylight.ink.mirror
+
+/**
+ * PROTOCOL 14.2 backpressure, pure: before a non-key, non-config packet the tablet looks at the OkHttp
+ * `WebSocket.queueSize()`. Above [HIGH_BYTES] (1 MiB) queued the packet is dropped and counted, and the next
+ * MIRROR_STATUS carries flags bit3; once the queue has drained below [LOW_BYTES] (256 KiB) one sync frame is requested
+ * so the Mac's decoder recovers from the gap. Key frames and codec config are always sent. Thread safe: the drain
+ * thread admits packets, the main thread takes the report flag.
+ */
+class MirrorBackpressure {
+    companion object {
+        const val HIGH_BYTES: Long = 1L shl 20
+        const val LOW_BYTES: Long = 256L shl 10
+    }
+
+    /** Packets dropped since the stream object was created. */
+    @get:Synchronized
+    var dropped: Long = 0
+        private set
+    private var awaitingDrain = false
+    private var droppedSinceReport = false
+
+    /** True when the packet may be sent; false when it is dropped (and counted). */
+    @Synchronized
+    fun admit(queuedBytes: Long, keyOrConfig: Boolean): Boolean {
+        if (keyOrConfig || queuedBytes <= HIGH_BYTES) return true
+        dropped++
+        droppedSinceReport = true
+        awaitingDrain = true
+        return false
+    }
+
+    /** Call before each packet: true exactly once after drops, when the queue first reads below 256 KiB. */
+    @Synchronized
+    fun syncFrameWanted(queuedBytes: Long): Boolean {
+        if (awaitingDrain && queuedBytes < LOW_BYTES) {
+            awaitingDrain = false
+            return true
+        }
+        return false
+    }
+
+    /** MIRROR_STATUS flags bit3: packets were dropped since the previous report. Reading clears it. */
+    @Synchronized
+    fun takeReportFlag(): Boolean {
+        val f = droppedSinceReport
+        droppedSinceReport = false
+        return f
+    }
+
+    @Synchronized
+    fun reset() {
+        awaitingDrain = false
+        droppedSinceReport = false
+    }
+}

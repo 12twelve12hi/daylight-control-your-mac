@@ -15,6 +15,8 @@ import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import com.twelve.daylight.ink.Facts
+import com.twelve.daylight.ink.mirror.MirrorController
+import com.twelve.daylight.ink.mirror.MirrorState
 import com.twelve.daylight.ink.net.Identity
 import com.twelve.daylight.ink.net.InkConnection
 import com.twelve.daylight.ink.overlay.OverlayService
@@ -28,6 +30,14 @@ class SettingsActivity : Activity() {
 
     private lateinit var prefs: Prefs
     private lateinit var conn: InkConnection
+    private val mirrorStateText: TextView by lazy {
+        TextView(this).apply { textSize = 15f; setTextColor(Tokens.TEXT_MUTED) }
+    }
+    private val mirrorListener = object : MirrorController.Listener {
+        override fun onMirrorState(state: MirrorState) {
+            mirrorStateText.text = Texts.mirrorState(state.code)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -77,6 +87,12 @@ class SettingsActivity : Activity() {
         col.addView(button(Texts.SETTING_PILLS_STOP) {
             startService(Intent(this, OverlayService::class.java).setAction(OverlayService.ACTION_STOP))
         })
+        // Mirror over Wi-Fi (PROTOCOL 14): the projection is granted here once, the Mac starts the picture itself.
+        col.addView(label(Texts.MIRROR_SECTION))
+        col.addView(mirrorStateText)
+        col.addView(button(Texts.MIRROR_SHARE) { conn.mirror.shareRequested() })
+        col.addView(button(Texts.MIRROR_STOP) { conn.mirror.userStop() })
+
         col.addView(button(Texts.SETTING_SETUP_AGAIN) {
             prefs.onboardingDone = false
             startActivity(Intent(this, OnboardingActivity::class.java))
@@ -96,9 +112,13 @@ class SettingsActivity : Activity() {
     override fun onStart() {
         super.onStart()
         conn.acquire(HOLDER, Identity.ROLE_INK)
+        conn.mirror.addListener(mirrorListener)
+        conn.mirror.uiStarted()
     }
 
     override fun onStop() {
+        conn.mirror.uiStopped()
+        conn.mirror.removeListener(mirrorListener)
         conn.release(HOLDER)
         super.onStop()
     }

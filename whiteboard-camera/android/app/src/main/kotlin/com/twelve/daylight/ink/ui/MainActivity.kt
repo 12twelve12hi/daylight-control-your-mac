@@ -135,9 +135,11 @@ class MainActivity : Activity(), InkConnection.Listener, Toolbar.Actions {
         }
         conn.acquire(HOLDER, Identity.ROLE_INK)
         conn.addListener(this)
+        conn.mirror.uiStarted()
     }
 
     override fun onStop() {
+        conn.mirror.uiStopped()
         conn.removeListener(this)
         conn.release(HOLDER)
         super.onStop()

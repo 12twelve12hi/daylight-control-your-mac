@@ -2,7 +2,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <!-- research-android-ink section 9: every permission is normal except SYSTEM_ALERT_WINDOW (appop) and
-         POST_NOTIFICATIONS (runtime, Android 13). FOREGROUND_SERVICE_CONNECTED_DEVICE is for a future targetSdk 34. -->
+         POST_NOTIFICATIONS (runtime, Android 13). FOREGROUND_SERVICE_CONNECTED_DEVICE and
+         FOREGROUND_SERVICE_MEDIA_PROJECTION are what Android 14 checks for a future targetSdk 34 (developer.android.com
+         foreground service types); with targetSdk 33 they are declared ahead of time. -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
@@ -10,6 +12,7 @@
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
@@ -46,6 +49,18 @@
             android:name=".overlay.OverlayService"
             android:exported="false"
             android:foregroundServiceType="connectedDevice" />
+
+        <!-- Wi-Fi mirror transport (PROTOCOL 14): the system capture dialog, then the service that holds the projection. -->
+        <activity
+            android:name=".mirror.ConsentActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:theme="@style/Theme.DaylightInk.Consent" />
+
+        <service
+            android:name=".mirror.ScreenStreamService"
+            android:exported="false"
+            android:foregroundServiceType="mediaProjection" />
 
         <receiver
             android:name=".overlay.BootReceiver"

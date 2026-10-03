@@ -4,6 +4,7 @@ import com.twelve.daylight.ink.ink.PageGeometry
 import com.twelve.daylight.ink.protocol.Decoder
 import com.twelve.daylight.ink.protocol.Encoder
 import com.twelve.daylight.ink.protocol.HandshakeAck
+import com.twelve.daylight.ink.protocol.MirrorControl
 import com.twelve.daylight.ink.protocol.ServerMessage
 import com.twelve.daylight.ink.protocol.SolStream
 import com.twelve.daylight.ink.protocol.StateReport
@@ -27,6 +28,10 @@ interface LinkActions {
     fun phaseChanged(phase: Phase)
     fun stateChanged(state: StateReport)
     fun pong(sequence: Long, rttMs: Long)
+    /** HANDSHAKE_ACK status 0 arrived on this connection (PROTOCOL 14.3: the mirror capability is announced now). */
+    fun allowed() {}
+    /** MIRROR_CONTROL from the Mac (PROTOCOL 14.4). */
+    fun mirrorControl(control: MirrorControl) {}
 }
 
 /**
@@ -129,6 +134,7 @@ class Link(
                 lastRttMs = rtt
                 actions.pong(msg.sequence, rtt)
             }
+            is ServerMessage.Mirror -> if (phase == Phase.LIVE) actions.mirrorControl(msg.control)
             is ServerMessage.Unknown, null -> {}      // PROTOCOL 10: unknown opcodes are ignored
         }
     }
@@ -140,6 +146,7 @@ class Link(
                 currentUrl?.let { candidates.reportSuccess(it) }
                 backoff.reset()
                 setPhase(Phase.LIVE)
+                actions.allowed()
             }
             HandshakeAck.PENDING_APPROVAL -> setPhase(Phase.PENDING)
             HandshakeAck.DENIED -> setPhase(Phase.DENIED)

@@ -1,0 +1,81 @@
+package com.twelve.daylight.ink
+
+import com.twelve.daylight.ink.mirror.MirrorBackpressure
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+/** PROTOCOL 14.2 backpressure: drop above 1 MiB queued, never key or config, one sync frame once below 256 KiB. */
+class MirrorBackpressureTest {
+    private val mib = 1_048_576L
+    private val kib256 = 262_144L
+
+    @Test
+    fun thresholdsAreOneMebibyteAnd256Kibibytes() {
+        assertEquals(mib, MirrorBackpressure.HIGH_BYTES)
+        assertEquals(kib256, MirrorBackpressure.LOW_BYTES)
+    }
+
+    @Test
+    fun deltaFramesAreSentUpToAndIncludingOneMebibyteQueued() {
+        val b = MirrorBackpressure()
+        assertTrue(b.admit(0, keyOrConfig = false))
+        assertTrue(b.admit(mib, keyOrConfig = false))
+        assertEquals(0L, b.dropped)
+        assertFalse(b.takeReportFlag())
+    }
+
+    @Test
+    fun aDeltaFrameAboveOneMebibyteIsDroppedAndCounted() {
+        val b = MirrorBackpressure()
+        assertFalse(b.admit(mib + 1, keyOrConfig = false))
+        assertFalse(b.admit(5 * mib, keyOrConfig = false))
+        assertEquals(2L, b.dropped)
+    }
+
+    @Test
+    fun keyFramesAndConfigAreNeverDropped() {
+        val b = MirrorBackpressure()
+        assertTrue(b.admit(10 * mib, keyOrConfig = true))
+        assertEquals(0L, b.dropped)
+        assertFalse(b.takeReportFlag())
+        assertFalse(b.syncFrameWanted(0))
+    }
+
+    @Test
+    fun theReportFlagIsSetByADropAndClearedByReading() {
+        val b = MirrorBackpressure()
+        b.admit(mib + 1, false)
+        assertTrue(b.takeReportFlag())
+        assertFalse(b.takeReportFlag())                 // "since the previous report"
+        b.admit(mib + 1, false)
+        assertTrue(b.takeReportFlag())
+        assertEquals(2L, b.dropped)                     // the count keeps growing
+    }
+
+    @Test
+    fun oneSyncFrameIsRequestedOnceTheQueueDrainsBelow256Kibibytes() {
+        val b = MirrorBackpressure()
+        assertFalse(b.syncFrameWanted(0))               // nothing dropped: no request
+        b.admit(mib + 1, false)
+        assertFalse(b.syncFrameWanted(mib))
+        assertFalse(b.syncFrameWanted(kib256))          // not below yet
+        assertTrue(b.syncFrameWanted(kib256 - 1))
+        assertFalse(b.syncFrameWanted(0))               // once
+        b.admit(2 * mib, false)
+        b.admit(2 * mib, false)
+        assertTrue(b.syncFrameWanted(100))              // a new episode, again once
+        assertFalse(b.syncFrameWanted(100))
+    }
+
+    @Test
+    fun resetForgetsAPendingEpisodeButNotTheCount() {
+        val b = MirrorBackpressure()
+        b.admit(mib + 1, false)
+        b.reset()
+        assertFalse(b.syncFrameWanted(0))
+        assertFalse(b.takeReportFlag())
+        assertEquals(1L, b.dropped)
+    }
+}

@@ -1,5 +1,6 @@
 package com.twelve.daylight.ink
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -67,6 +68,93 @@ class SourceRulesTest {
         assertTrue(s.contains(".header(\"Sec-WebSocket-Protocol\", SolStream.SUBPROTOCOL)"))
         assertTrue(s.contains("response.header(\"Sec-WebSocket-Protocol\")"))
         assertTrue(read("net/NoDelaySocketFactory.kt").contains("tcpNoDelay = true"))
+    }
+
+    private fun assertInOrder(text: String, vararg needles: String) {
+        var at = -1
+        for (n in needles) {
+            val i = text.indexOf(n, at + 1)
+            assertTrue("'$n' missing or out of order", i > at)
+            at = i
+        }
+    }
+
+    @Test
+    fun mediaProjectionOrderFollowsTheOfficialDocs() {
+        // 1 consent, 2 startForeground with the mediaProjection type, 3 getMediaProjection, 4 callback, 5 virtual display.
+        assertTrue(read("mirror/ConsentActivity.kt").contains("mpm.createScreenCaptureIntent()"))
+        assertTrue(read("mirror/ConsentActivity.kt").contains("MediaProjectionConfig.createConfigForDefaultDisplay()"))
+        assertInOrder(read("mirror/MirrorController.kt"), "activity.startForegroundService(", "fun projectionGranted()")
+        assertInOrder(read("mirror/ScreenStreamService.kt"),
+            "startForeground(NOTIFICATION_ID, notification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)",
+            "mirror.projectionGranted()")
+        val c = read("mirror/MirrorController.kt").substringAfter("fun projectionGranted()")
+        assertInOrder(c, "mpm.getMediaProjection(pendingResultCode, data)", "p.registerCallback(projectionCallback, main)", "apply(session.consentGranted())")
+        val e = read("mirror/ScreenEncoder.kt")
+        assertEquals("one createVirtualDisplay per projection (Android 14)", 1, Regex("projection\\.createVirtualDisplay\\(").findAll(e).count())
+        assertTrue(e.contains("vd.resize(s.width, s.height, dpi)") && e.contains("vd.setSurface(surface)"))
+        assertTrue(e.contains("DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR"))
+    }
+
+    @Test
+    fun encoderFormatIsTheProtocolOne() {
+        val e = read("mirror/ScreenEncoder.kt")
+        for (needle in listOf(
+            "MediaFormat.MIMETYPE_VIDEO_AVC",
+            "setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)",
+            "setInteger(MediaFormat.KEY_BIT_RATE, params.bitrateBps)",
+            "setInteger(MediaFormat.KEY_FRAME_RATE, NOMINAL_FRAME_RATE)",
+            "const val NOMINAL_FRAME_RATE = 30",
+            "setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, params.keyIntervalSeconds)",
+            "setLong(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER, REPEAT_PREVIOUS_FRAME_AFTER_US)",
+            "const val REPEAT_PREVIOUS_FRAME_AFTER_US = 250_000L",
+            "setFloat(MediaFormat.KEY_MAX_FPS_TO_ENCODER, params.maxFps.toFloat())",
+            "MediaCodec.CONFIGURE_FLAG_ENCODE",
+            "c.createInputSurface()",
+            "(info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0",
+            "(info.flags and MediaCodec.BUFFER_FLAG_KEY_FRAME) != 0",
+            "info.presentationTimeUs",
+            "MediaCodec.PARAMETER_KEY_REQUEST_SYNC_FRAME",
+            "HandlerThread(",
+            "c.setCallback(callback, handler)",
+            "EncoderSizing.candidates(",
+        )) assertTrue("ScreenEncoder lacks $needle", e.contains(needle))
+    }
+
+    @Test
+    fun theStreamSharesTheOneSocketWithBackpressureAndOnlyAfterTheAck() {
+        val conn = read("net/InkConnection.kt")
+        assertTrue(conn.contains("override fun allowed() {\n        liveSocket = ws"))
+        assertTrue(conn.contains("override fun mirrorQueueBytes(): Long = liveSocket?.queueSize() ?: 0L"))
+        assertTrue(conn.contains("val socket = liveSocket ?: return false"))
+        assertTrue(conn.contains("socket.send(frame.toByteString(0, frame.size))"))
+        assertTrue(read("net/Link.kt").contains("is ServerMessage.Mirror -> if (phase == Phase.LIVE) actions.mirrorControl(msg.control)"))
+        val m = read("mirror/MirrorController.kt")
+        assertTrue(m.contains("backpressure.admit(queued, keyFrame || config)"))
+        assertTrue(m.contains("uplink.acquireForMirror(HOLDER)"))
+        assertTrue(conn.contains("override fun acquireForMirror(tag: String) = acquire(tag, Identity.ROLE_OVERLAY)"))
+    }
+
+    @Test
+    fun thermalAndBatterySaverAreWatched() {
+        val m = read("mirror/MirrorController.kt")
+        assertTrue(m.contains("pm.addThermalStatusListener(app.mainExecutor)"))
+        assertTrue(m.contains("PowerManager.ACTION_POWER_SAVE_MODE_CHANGED"))
+        assertTrue(m.contains("pm.isPowerSaveMode"))
+    }
+
+    @Test
+    fun mirrorTextsLiveInTextsAndNoCoroutinesAnywhere() {
+        val t = read("ui/Texts.kt")
+        assertTrue(t.contains("\"Sharing screen with your Mac\""))
+        assertTrue(t.contains("\"Your Mac wants to mirror this screen. Tap to allow.\""))
+        assertTrue(t.contains("\"Share screen with your Mac\""))
+        assertTrue(read("mirror/ScreenStreamService.kt").contains(".setContentTitle(Texts.MIRROR_NOTIFICATION_TITLE)"))
+        assertTrue(read("mirror/MirrorController.kt").contains(".setContentTitle(Texts.MIRROR_REQUEST_TITLE)"))
+        assertTrue(read("ui/SettingsActivity.kt").contains("button(Texts.MIRROR_SHARE) { conn.mirror.shareRequested() }"))
+        for (f in src.walkTopDown().filter { it.isFile && it.extension == "kt" }) {
+            assertFalse("${f.name} uses coroutines", f.readText().contains("kotlinx.coroutines"))
+        }
     }
 
     @Test

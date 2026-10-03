@@ -41,6 +41,8 @@ sealed class ServerMessage {
     data class Ack(val ack: HandshakeAck) : ServerMessage()
     data class State(val state: StateReport) : ServerMessage()
     data class Pong(val sequence: Long, val clientTimeUs: Long) : ServerMessage()
+    /** MIRROR_CONTROL (0x0071, PROTOCOL 14.4); a wrong payload size decodes to null like any malformed known opcode. */
+    data class Mirror(val control: MirrorControl) : ServerMessage()
     data class Unknown(val opcode: Int) : ServerMessage()
 }
 
@@ -86,6 +88,7 @@ object Decoder {
                 if (h.payloadLen != 16) return null
                 ServerMessage.Pong(b.long, b.long)
             }
+            SolStream.Op.MIRROR_CONTROL -> MirrorFraming.decodeControlPayload(bytes, h.payloadLen)?.let { ServerMessage.Mirror(it) }
             else -> ServerMessage.Unknown(h.opcode)
         }
     }

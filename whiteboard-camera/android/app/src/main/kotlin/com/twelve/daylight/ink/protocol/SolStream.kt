@@ -36,6 +36,10 @@ object SolStream {
         const val AUTO_ENGAGE_RETURN = 0x0060
         const val TOGGLE_PIN = 0x0061
         const val STATE = 0x0070
+        const val MIRROR_CONTROL = 0x0071      // PROTOCOL 14, server to client
+        const val MIRROR_HELLO = 0x0080        // PROTOCOL 14, client to server
+        const val MIRROR_PACKET = 0x0081
+        const val MIRROR_STATUS = 0x0082
         const val PING = 0x00FE
         const val PONG = 0x00FF
     }

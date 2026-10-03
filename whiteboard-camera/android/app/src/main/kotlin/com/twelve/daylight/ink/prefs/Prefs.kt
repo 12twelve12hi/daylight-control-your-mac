@@ -23,6 +23,10 @@ class Prefs(context: Context) {
         const val KEY_FACT_PRESSURE_RAW = "fact.pressureRaw"
         const val KEY_FACT_ACTION_BUTTON = "fact.actionButton"
         const val KEY_FACT_FRONT_BUFFER_OK = "fact.frontBufferOk"
+        const val KEY_FACT_MIRROR_ENCODERS = "fact.mirrorEncoders"
+        const val KEY_FACT_MIRROR_ENCODER = "fact.mirrorEncoder"
+        const val KEY_FACT_MIRROR_STREAM = "fact.mirrorStream"
+        const val KEY_FACT_MIRROR_THERMAL_MAX = "fact.mirrorThermalMax"
     }
 
     private val p: SharedPreferences = context.applicationContext.getSharedPreferences(FILE, Context.MODE_PRIVATE)
@@ -82,6 +86,20 @@ class Prefs(context: Context) {
     var factFrontBufferOk: String?
         get() = p.getString(KEY_FACT_FRONT_BUFFER_OK, null)
         set(v) = p.edit().putString(KEY_FACT_FRONT_BUFFER_OK, v).apply()
+
+    /** Wi-Fi mirror facts (PROTOCOL 14; handoff E device facts): encoders, the one used, measured rate, hottest status. */
+    var factMirrorEncoders: String?
+        get() = p.getString(KEY_FACT_MIRROR_ENCODERS, null)
+        set(v) = p.edit().putString(KEY_FACT_MIRROR_ENCODERS, v).apply()
+    var factMirrorEncoder: String?
+        get() = p.getString(KEY_FACT_MIRROR_ENCODER, null)
+        set(v) = p.edit().putString(KEY_FACT_MIRROR_ENCODER, v).apply()
+    var factMirrorStream: String?
+        get() = p.getString(KEY_FACT_MIRROR_STREAM, null)
+        set(v) = p.edit().putString(KEY_FACT_MIRROR_STREAM, v).apply()
+    var factMirrorThermalMax: String?
+        get() = p.getString(KEY_FACT_MIRROR_THERMAL_MAX, null)
+        set(v) = p.edit().putString(KEY_FACT_MIRROR_THERMAL_MAX, v).apply()
 
     fun forgetMac() {
         p.edit().remove(KEY_MANUAL_HOST).apply()

@@ -7,6 +7,7 @@ import com.twelve.daylight.ink.net.Link
 import com.twelve.daylight.ink.net.LinkActions
 import com.twelve.daylight.ink.net.Phase
 import com.twelve.daylight.ink.protocol.Encoder
+import com.twelve.daylight.ink.protocol.MirrorControl
 import com.twelve.daylight.ink.protocol.SolStream
 import com.twelve.daylight.ink.protocol.StateReport
 import org.junit.Assert.assertEquals
@@ -23,12 +24,16 @@ class LinkTest {
         val closes = ArrayList<Int>()
         val phases = ArrayList<Phase>()
         var states = 0
+        var allowedCount = 0
+        val controls = ArrayList<MirrorControl>()
         override fun dial(url: String, afterMs: Long) { dials.add(url to afterMs) }
         override fun send(frame: ByteArray): Boolean { sent.add(frame); return true }
         override fun close(code: Int, reason: String) { closes.add(code) }
         override fun phaseChanged(phase: Phase) { phases.add(phase) }
         override fun stateChanged(state: StateReport) { states++ }
         override fun pong(sequence: Long, rttMs: Long) {}
+        override fun allowed() { allowedCount++ }
+        override fun mirrorControl(control: MirrorControl) { controls.add(control) }
     }
 
     private val ackOk = unhex("da0102001000000040e2cfeeb540060080070000380400001e00000000000000")
@@ -36,6 +41,7 @@ class LinkTest {
     private val ackDenied = unhex("da0102001000000040e2cfeeb540060080070000380400001e00000002000000")
     private val ackUnsupported = unhex("da0102001000000040e2cfeeb540060080070000380400001e00000003000000")
     private val stateLivePinned = unhex("da0170001400000040e2cfeeb5400600020d00010000803fffffffff0000030003000000")
+    private val mirrorStart = unhex("da0171000c00000040e2cfeeb540060001004006c0cf6a001e00d007")   // golden mirror_control_start
     private fun unhex(s: String) = ByteArray(s.length / 2) { i -> s.substring(i * 2, i * 2 + 2).toInt(16).toByte() }
 
     private fun link(r: Recorder, random: Double = 0.5): Link {
@@ -205,6 +211,34 @@ class LinkTest {
         assertEquals(SolStream.Op.PING, f.opcode)
         assertEquals(2L, f.u64())
         assertEquals(5000L * 1000L, f.u64())
+    }
+
+    @Test
+    fun everyAckOkSignalsAllowedSoTheMirrorStatusFollowsIt() {
+        val r = Recorder(); val l = link(r); l.start(); open(l, r)
+        l.received(ackPending)
+        assertEquals(0, r.allowedCount)
+        l.received(ackOk)
+        assertEquals(1, r.allowedCount)
+        l.closed(failure = false)
+        open(l, r)
+        l.received(ackOk)
+        assertEquals(2, r.allowedCount)                       // once per connection (PROTOCOL 14.3)
+    }
+
+    @Test
+    fun mirrorControlReachesTheMirrorOnlyOnAnAllowedConnection() {
+        val r = Recorder(); val l = link(r); l.start(); open(l, r)
+        l.received(mirrorStart)
+        assertEquals(0, r.controls.size)                      // before ACK 0
+        l.received(ackPending)
+        l.received(mirrorStart)
+        assertEquals(0, r.controls.size)                      // pending
+        l.received(ackOk)
+        l.received(mirrorStart)
+        assertEquals(listOf(MirrorControl(MirrorControl.START, 1600, 7_000_000L, 30, 2000)), r.controls)
+        assertEquals(0, r.states)                             // a MIRROR_CONTROL is not a STATE
+        assertEquals(Phase.LIVE, l.phase)
     }
 
     @Test

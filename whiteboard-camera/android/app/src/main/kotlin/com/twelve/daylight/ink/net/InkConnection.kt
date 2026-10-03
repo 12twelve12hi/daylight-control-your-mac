@@ -6,8 +6,11 @@ import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
 import com.twelve.daylight.ink.ink.Transport
+import com.twelve.daylight.ink.mirror.MirrorController
+import com.twelve.daylight.ink.mirror.MirrorUplink
 import com.twelve.daylight.ink.prefs.Prefs
 import com.twelve.daylight.ink.protocol.Encoder
+import com.twelve.daylight.ink.protocol.MirrorControl
 import com.twelve.daylight.ink.protocol.SolStream
 import com.twelve.daylight.ink.protocol.StateReport
 import okhttp3.OkHttpClient
@@ -24,7 +27,7 @@ import java.util.concurrent.TimeUnit
  * with the same clientId (PROTOCOL 7). OkHttp 5.5.0 with [NoDelaySocketFactory], `pingInterval(10 s)`, the
  * `solstream.v1` subprotocol offered, every callback hopped to the main thread. The rules live in [Link].
  */
-class InkConnection private constructor(context: Context) : LinkActions, Transport {
+class InkConnection private constructor(context: Context) : LinkActions, Transport, MirrorUplink {
     companion object {
         const val TAG = "DaylightInk.net"
         const val APP_PING_MS = 10_000L
@@ -63,7 +66,15 @@ class InkConnection private constructor(context: Context) : LinkActions, Transpo
     private val discovery = Discovery(app)
     private val listeners = LinkedHashSet<Listener>()
     private val holders = LinkedHashMap<String, String>()     // tag -> role
-    private var ws: WebSocket? = null
+    @Volatile private var ws: WebSocket? = null
+    /**
+     * The socket after HANDSHAKE_ACK status 0, null otherwise: the only socket the mirror stream may use (anything sent
+     * before the HANDSHAKE is answered makes the Mac close 1002). Written on the main thread, read on the drain thread.
+     */
+    @Volatile private var liveSocket: WebSocket? = null
+    private var mirrorAnnounced = false
+    /** The Wi-Fi mirror transport (PROTOCOL 14) riding on this socket. */
+    val mirror: MirrorController by lazy { MirrorController(app, this) }
     private var dialRunnable: Runnable? = null
     private val pingRunnable = object : Runnable {
         override fun run() {
@@ -173,6 +184,7 @@ class InkConnection private constructor(context: Context) : LinkActions, Transpo
     }
 
     override fun close(code: Int, reason: String) {
+        liveSocket = null
         val socket = ws ?: return
         ws = null
         runCatching { socket.close(code, reason) }
@@ -186,6 +198,13 @@ class InkConnection private constructor(context: Context) : LinkActions, Transpo
             Phase.SEARCHING -> discovery.setLockWanted(true)
             else -> {}
         }
+        if (phase != Phase.LIVE) {
+            liveSocket = null
+            if (mirrorAnnounced) {
+                mirrorAnnounced = false
+                mirror.connectionLost()
+            }
+        }
         for (l in listeners.toList()) l.onPhase(phase)
     }
 
@@ -196,6 +215,37 @@ class InkConnection private constructor(context: Context) : LinkActions, Transpo
     override fun pong(sequence: Long, rttMs: Long) {
         Log.d(TAG, "pong $sequence rtt=${rttMs}ms")
     }
+
+    // ---- mirror stream (PROTOCOL 14) ----
+
+    override fun allowed() {
+        liveSocket = ws
+        mirrorAnnounced = true
+        mirror.connectionAllowed()          // MIRROR_STATUS right after every HANDSHAKE_ACK status 0
+    }
+
+    override fun mirrorControl(control: MirrorControl) = mirror.control(control)
+
+    /** Any thread. False when no allowed socket exists or OkHttp refused the frame (then the main thread reconnects). */
+    override fun sendMirror(frame: ByteArray): Boolean {
+        val socket = liveSocket ?: return false
+        val ok = socket.send(frame.toByteString(0, frame.size))
+        if (!ok) {
+            main.post {
+                if (socket === ws) {
+                    Log.w(TAG, "mirror send returned false (queue ${socket.queueSize()} bytes); reconnecting")
+                    link.sendFailed()
+                }
+            }
+        }
+        return ok
+    }
+
+    /** Any thread: OkHttp `queueSize()` of the allowed socket (PROTOCOL 14.2 backpressure). */
+    override fun mirrorQueueBytes(): Long = liveSocket?.queueSize() ?: 0L
+
+    override fun acquireForMirror(tag: String) = acquire(tag, Identity.ROLE_OVERLAY)
+    override fun releaseForMirror(tag: String) = release(tag)
 
     private fun open(url: String) {
         if (holders.isEmpty()) return

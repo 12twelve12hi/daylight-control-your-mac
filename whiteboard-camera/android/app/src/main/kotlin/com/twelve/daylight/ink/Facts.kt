@@ -30,6 +30,10 @@ object Facts {
             "pressureRange=${prefs.factPressureRaw ?: "not seen yet"}",
             "sideButton=${prefs.factActionButton ?: "not seen yet"}",
             "frontBuffer=${prefs.factFrontBufferOk ?: "not tried yet"}",
+            "mirrorEncoders=${prefs.factMirrorEncoders ?: "not checked yet"}",
+            "mirrorEncoder=${prefs.factMirrorEncoder ?: "not streamed yet"}",
+            "mirrorStream=${prefs.factMirrorStream ?: "not streamed yet"}",
+            "mirrorThermalMax=${prefs.factMirrorThermalMax ?: "not seen yet"}",
             "clientId=${prefs.clientId}",
         )
     }

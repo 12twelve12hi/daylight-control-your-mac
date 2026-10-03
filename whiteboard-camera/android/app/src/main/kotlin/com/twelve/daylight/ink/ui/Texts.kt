@@ -64,6 +64,30 @@ object Texts {
     const val SETTING_SETUP_AGAIN = "Setup again"
     const val SETTING_FACTS = "This tablet"
 
+    // Screen sharing with the Mac (Wi-Fi mirror transport, PROTOCOL 14)
+    const val MIRROR_SECTION = "Share this screen with the Mac over Wi-Fi (no cable, no USB debugging)"
+    const val MIRROR_SHARE = "Share screen with your Mac"
+    const val MIRROR_STOP = "Stop sharing"
+    const val MIRROR_NOTIFICATION_TITLE = "Sharing screen with your Mac"
+    const val MIRROR_NOTIFICATION_BODY = "Daylight Camera can show this screen. Tap Stop to end sharing."
+    const val MIRROR_NOTIFICATION_STOP = "Stop"
+    const val MIRROR_STREAM_CHANNEL = "Screen sharing"
+    const val MIRROR_REQUEST_CHANNEL = "Screen sharing requests"
+    const val MIRROR_REQUEST_TITLE = "Your Mac wants to mirror this screen. Tap to allow."
+    const val MIRROR_REQUEST_BODY = "Android asks before any screen is shared. Stop it any time from the notification."
+    fun mirrorState(code: Int): String = when (code) {
+        0 -> "Not sharing. Tap Share, then pick Mirror as the ink source on the Mac."
+        1 -> "Waiting for you to allow screen sharing"
+        2 -> "Starting the picture"
+        3 -> "Sharing with your Mac"
+        4 -> "Ready. The Mac starts the picture when it needs it"
+        5 -> "Screen sharing was not allowed. Tap Share to try again"
+        6 -> "This tablet could not start its video encoder"
+        7 -> "Sharing stopped on this tablet"
+        8 -> "This tablet cannot share its screen"
+        else -> "Unknown sharing state"
+    }
+
     // Failure rows the tablet shows itself
     const val PILLS_NEED_PERMISSION = "Allow display over other apps"           // row 29
     const val MDNS_SLOW = ONBOARDING_FIND                                        // row 30

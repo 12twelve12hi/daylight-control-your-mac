@@ -19,6 +19,7 @@ interface Manifest {
   stroke_id: string;
   page_id: string;
   cases: GoldenCase[];
+  mirror_cases: GoldenCase[];
 }
 
 const manifest = JSON.parse(readFileSync(resolve("tests/golden/solstream-v1.json"), "utf8")) as Manifest;
@@ -95,6 +96,21 @@ test("every s2c case decodes", () => {
       assert.equal(msg.pong.seq, BigInt(f(c).sequence!));
       assert.equal(msg.pong.t, ts);
     }
+  }
+});
+
+test("PROTOCOL 14 mirror family: the page decodes each server MIRROR_CONTROL to its bare opcode and ignores it", () => {
+  // The Mac sends MIRROR_CONTROL only to connections that announced MIRROR_STATUS, which the page never does; if one
+  // ever arrives, decodeServer must hand back the opcode alone (no ack, state or pong) instead of failing the frame.
+  const s2c = manifest.mirror_cases.filter((c) => c.direction === "s2c");
+  assert.deepEqual(s2c.map((c) => c.name), ["mirror_control_start", "mirror_control_stop", "mirror_control_key_frame"]);
+  const known = new Set<number>(Object.values(Opcode));
+  for (const c of manifest.mirror_cases) {
+    assert.ok(!known.has(c.opcode), `${c.name}: opcode 0x${c.opcode.toString(16)} must stay unknown to the page`);
+  }
+  for (const c of s2c) {
+    const msg = decodeServer(fromHex(c.hex).buffer as ArrayBuffer);
+    assert.deepEqual(msg, { opcode: c.opcode }, c.name);
   }
 });
 

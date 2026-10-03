@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # make mac-release: manual Developer ID signing (archive + export), optional notarization + DMG.
 # Gate (runs on any OS, tested by scripts/scripts-check.sh): with no signing secrets at all it prints what is
-# missing and exits 0; with a partial secret set (a missing or misnamed name) it exits 1 naming the gap, because a
-# green run with the wrong artifact is the worst outcome for the owner. DAYLIGHT_RELEASE_CHECK_ONLY=1 stops after
+# missing and exits 0. With a partial secret set (a missing or misnamed name) it depends on the run: a release run
+# (NOTARIZE_REQUESTED=true for a v* tag or a notarize dispatch, DO_NOTARIZE=true, or GITHUB_REF refs/tags/v*) exits 1
+# naming the gap, because a green release with the wrong artifact is the worst outcome for the owner; an ordinary push
+# prints a ::warning:: annotation naming the gap and exits 0 like the no-secrets case (the unsigned artifact is already
+# uploaded), so secrets added over several hours do not block unrelated work. DAYLIGHT_RELEASE_CHECK_ONLY=1 stops after
 # the gate. The signed flag: project.yml writes DaylightBuildSigned=false and this script flips the generated
 # mac/Daylight/Info.plist to true with plutil before the archive (a ${VAR} substitution would yield a string, which
 # the app's `as? Bool` rejects), then asserts the exported app carries true plus embedded.provisionprofile.
@@ -18,14 +21,26 @@ checklist="docs/SIGNING.md (owner checklist and what this script asserts)"
 # ---- 0. Gate: which secrets exist, and is the set complete? -------------------------------------------------
 required="DAYLIGHT_TEAM_ID DAYLIGHT_DEVELOPER_ID_P12_BASE64 DAYLIGHT_DEVELOPER_ID_P12_PASSWORD DAYLIGHT_APP_PROVISIONING_PROFILE_BASE64"
 notarize_vars="ASC_API_KEY_ID ASC_API_ISSUER_ID ASC_API_PRIVATE_KEY_BASE64"
-missing=""; any_set=false
-for v in $required DAYLIGHT_EXT_PROVISIONING_PROFILE_BASE64 $notarize_vars; do [[ -n "${!v:-}" ]] && any_set=true; done
+missing=""; any_set=false; unset_all=""
+for v in $required DAYLIGHT_EXT_PROVISIONING_PROFILE_BASE64 $notarize_vars; do
+  if [[ -n "${!v:-}" ]]; then any_set=true; else unset_all="$unset_all $v"; fi
+done
 for v in $required; do [[ -n "${!v:-}" ]] || missing="$missing $v"; done
+# A release run must never pass with the wrong artifact; an ordinary push only warns about a partial set.
+release=false
+if [[ "${NOTARIZE_REQUESTED:-false}" == "true" || "${DO_NOTARIZE:-false}" == "true" || "${GITHUB_REF:-}" == refs/tags/v* ]]; then release=true; fi
 if [[ -n "$missing" ]]; then
   if [[ "$any_set" == true || "${HAS_SIGNING:-}" == "true" ]]; then
-    echo "mac-release: ERROR: some signing secrets are set (or HAS_SIGNING=true) but these are missing or misnamed:$missing" >&2
-    echo "mac-release: a partial secret set is always a mistake; the exact names are in $checklist" >&2
-    exit 1
+    if [[ "$release" == true ]]; then
+      echo "mac-release: ERROR: some signing secrets are set (or HAS_SIGNING=true) but these are missing or misnamed:$missing" >&2
+      echo "mac-release: a partial secret set is always a mistake; the exact names are in $checklist" >&2
+      exit 1
+    fi
+    echo "::warning::mac-release: WARNING: partial signing secret set on an ordinary push, signing skipped; missing or misnamed:$missing (a v* tag or notarize run fails here until they are set)"
+    echo "mac-release: skipping the signed build (partial set, ordinary push). Missing:$missing"
+    echo "mac-release: all names not set in this step:$unset_all"
+    echo "mac-release: no Daylight-signed artifact this run; the unsigned artifact is uploaded as usual. Exact names: $checklist"
+    exit 0
   fi
   echo "mac-release: skipping the signed build. Missing:$missing"
   echo "mac-release: optional: DAYLIGHT_EXT_PROVISIONING_PROFILE_BASE64; notarization needs a v* tag or the notarize dispatch input plus ASC_API_KEY_ID, ASC_API_ISSUER_ID, ASC_API_PRIVATE_KEY_BASE64."
@@ -44,8 +59,12 @@ elif [[ "${NOTARIZE_REQUESTED:-false}" == "true" ]]; then
   echo "mac-release: ERROR: notarization was requested (tag or dispatch) but these are missing or misnamed:$asc_missing" >&2
   exit 1
 elif [[ "$asc_any" == true && -n "$asc_missing" ]]; then
-  echo "mac-release: ERROR: a partial ASC_* secret set; missing or misnamed:$asc_missing" >&2
-  exit 1
+  if [[ "$release" == true ]]; then
+    echo "mac-release: ERROR: a partial ASC_* secret set; missing or misnamed:$asc_missing" >&2
+    exit 1
+  fi
+  # Notarization is not requested on an ordinary push, so the complete DAYLIGHT_* set still signs.
+  echo "::warning::mac-release: WARNING: partial ASC_* secret set on an ordinary push, notarization not requested so signing continues; missing or misnamed:$asc_missing (a v* tag or notarize run fails here until they are set)"
 fi
 echo "mac-release: signing secrets complete; notarize=$notarize (DO_NOTARIZE=${DO_NOTARIZE:-unset}, NOTARIZE_REQUESTED=${NOTARIZE_REQUESTED:-unset})"
 if [[ "${DAYLIGHT_RELEASE_CHECK_ONLY:-}" == "1" ]]; then echo "mac-release: check-only mode, stopping before the keychain"; exit 0; fi

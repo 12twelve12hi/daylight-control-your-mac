@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # make scripts-check: bash tests for the parts of the release scripts that run before any Apple tool, so they
 # can be proved on Linux (the golden job) long before the first signed run on the owner's secrets.
-#   mac-release.sh gate: exit 0 with no secrets, exit 1 naming a missing or misnamed secret of a partial set,
-#                        exit 1 when notarization was requested without the ASC_* secrets, check-only mode.
+#   mac-release.sh gate: exit 0 with no secrets; a partial or misnamed set warns (::warning::, naming the gap) and
+#                        exits 0 on an ordinary push but exits 1 on a v* tag, a notarize dispatch or DO_NOTARIZE=true;
+#                        exit 1 when notarization was requested without the ASC_* secrets; the complete DAYLIGHT_* set
+#                        proceeds to the signed build; check-only mode.
 #   ci-env.sh:           DAYLIGHT_XCODE_PATH writes DEVELOPER_DIR to $GITHUB_ENV (an export alone never reaches
 #                        the later steps of a job), and a wrong path leaves it untouched.
 #   fetch-tools.sh:      the committed Apache-2.0 text exists and is the license (shipped as Vendor/LICENSE-Apache-2.0.txt).
@@ -27,6 +29,13 @@ expect() { # $1 case name, $2 expected rc, $3 regex the output must match
     echo "FAIL  $1: expected exit $2 matching /$3/, got exit $rc:"; sed 's/^/        /' <<<"$out"; fails=$((fails + 1))
   fi
 }
+expect_no() { # $1 case name, $2 regex the output must not match
+  if ! grep -Eq -- "$2" <<<"$out"; then
+    echo "ok    $1"; passes=$((passes + 1))
+  else
+    echo "FAIL  $1: output matches /$2/:"; sed 's/^/        /' <<<"$out"; fails=$((fails + 1))
+  fi
+}
 four="DAYLIGHT_TEAM_ID=ABCDE12345 DAYLIGHT_DEVELOPER_ID_P12_BASE64=cDEy DAYLIGHT_DEVELOPER_ID_P12_PASSWORD=pw DAYLIGHT_APP_PROVISIONING_PROFILE_BASE64=cHJvZmlsZQ=="
 asc="ASC_API_KEY_ID=KEY ASC_API_ISSUER_ID=ISSUER ASC_API_PRIVATE_KEY_BASE64=cDg="
 
@@ -34,12 +43,34 @@ run_release
 expect "no secrets: skip with exit 0" 0 "skipping the signed build"
 expect "no secrets: the message points at an existing file" 0 "docs/SIGNING.md"
 [[ -f docs/SIGNING.md ]] && { echo "ok    docs/SIGNING.md exists"; passes=$((passes + 1)); } || { echo "FAIL  docs/SIGNING.md is missing"; fails=$((fails + 1)); }
+# A partial set: an ordinary push warns and exits 0 (the owner adds secrets over hours); a release run fails.
+partial="DAYLIGHT_TEAM_ID=ABCDE12345 DAYLIGHT_DEVELOPER_ID_P12_PASSWORD=pw ASC_API_KEY_ID=KEY ASC_API_ISSUER_ID=ISSUER"
+gap="DAYLIGHT_DEVELOPER_ID_P12_BASE64 DAYLIGHT_APP_PROVISIONING_PROFILE_BASE64"
+run_release $partial DAYLIGHT_RELEASE_CHECK_ONLY=1
+expect "partial set on a plain push: exit 0 with a ::warning:: naming the gap" 0 "^::warning::mac-release: WARNING: .*missing or misnamed: $gap \\("
+expect "partial set on a plain push: the signing skipped line" 0 "^mac-release: skipping the signed build \\(partial set, ordinary push\\)\\. Missing: $gap$"
+expect_no "partial set on a plain push: no signed build" "signing secrets complete|ERROR"
+run_release $partial NOTARIZE_REQUESTED=true GITHUB_REF=refs/tags/v1.0.0 DAYLIGHT_RELEASE_CHECK_ONLY=1
+expect "partial set on a v* tag: exit 1 naming the gap" 1 "^mac-release: ERROR: some signing secrets are set .*missing or misnamed: $gap$"
+expect_no "partial set on a v* tag: no warning downgrade" "::warning::"
+run_release $partial GITHUB_REF=refs/tags/v1.0.0 DAYLIGHT_RELEASE_CHECK_ONLY=1
+expect "partial set with only GITHUB_REF a v* tag: exit 1" 1 "missing or misnamed: $gap$"
+run_release $partial NOTARIZE_REQUESTED=true GITHUB_EVENT_NAME=workflow_dispatch GITHUB_REF=refs/heads/main DAYLIGHT_RELEASE_CHECK_ONLY=1
+expect "partial set with a notarize dispatch: exit 1 naming the gap" 1 "^mac-release: ERROR: some signing secrets are set .*missing or misnamed: $gap$"
+run_release $partial DO_NOTARIZE=true DAYLIGHT_RELEASE_CHECK_ONLY=1
+expect "partial set with DO_NOTARIZE=true: exit 1" 1 "missing or misnamed: $gap$"
 run_release DAYLIGHT_TEAM_ID=ABCDE12345 DAYLIGHT_DEVELOPER_ID_P12_BASE64=cDEy DAYLIGHT_APP_PROVISIONING_PROFILE_BASE64=cHJvZmlsZQ==
-expect "three of four signing secrets: exit 1 naming the password" 1 "missing or misnamed: DAYLIGHT_DEVELOPER_ID_P12_PASSWORD$"
+expect "three of four signing secrets on a plain push: warn naming the password, exit 0" 0 "^::warning::.*missing or misnamed: DAYLIGHT_DEVELOPER_ID_P12_PASSWORD \\("
+run_release DAYLIGHT_TEAM_ID=ABCDE12345 DAYLIGHT_DEVELOPER_ID_P12_BASE64=cDEy DAYLIGHT_APP_PROVISIONING_PROFILE_BASE64=cHJvZmlsZQ== NOTARIZE_REQUESTED=true
+expect "three of four signing secrets on a tag: exit 1 naming the password" 1 "missing or misnamed: DAYLIGHT_DEVELOPER_ID_P12_PASSWORD$"
 run_release HAS_SIGNING=true
-expect "HAS_SIGNING=true with an empty step env: exit 1" 1 "missing or misnamed:.*DAYLIGHT_TEAM_ID"
+expect "HAS_SIGNING=true with an empty step env (misnamed) on a plain push: warn, exit 0" 0 "^::warning::.*missing or misnamed:.*DAYLIGHT_TEAM_ID"
+run_release HAS_SIGNING=true NOTARIZE_REQUESTED=true
+expect "HAS_SIGNING=true with an empty step env on a tag: exit 1" 1 "missing or misnamed:.*DAYLIGHT_TEAM_ID"
 run_release ASC_API_KEY_ID=KEY
-expect "only an ASC secret: exit 1 (partial set)" 1 "missing or misnamed:.*DAYLIGHT_DEVELOPER_ID_P12_BASE64"
+expect "only an ASC secret on a plain push: warn, exit 0" 0 "^::warning::.*missing or misnamed:.*DAYLIGHT_DEVELOPER_ID_P12_BASE64"
+run_release ASC_API_KEY_ID=KEY DO_NOTARIZE=true
+expect "only an ASC secret with DO_NOTARIZE=true: exit 1 (partial set)" 1 "missing or misnamed:.*DAYLIGHT_DEVELOPER_ID_P12_BASE64"
 run_release $four DAYLIGHT_RELEASE_CHECK_ONLY=1
 expect "four signing secrets, check-only: exit 0, notarize=false" 0 "notarize=false \\("
 expect "four signing secrets, check-only: stops before the keychain" 0 "check-only mode"
@@ -48,7 +79,10 @@ expect "notarization requested by tag or dispatch without ASC secrets: exit 1" 1
 run_release $four DO_NOTARIZE=true ASC_API_KEY_ID=KEY ASC_API_PRIVATE_KEY_BASE64=cDg= DAYLIGHT_RELEASE_CHECK_ONLY=1
 expect "DO_NOTARIZE=true with the issuer missing: exit 1 naming it" 1 "DO_NOTARIZE=true but these are missing or misnamed: ASC_API_ISSUER_ID$"
 run_release $four ASC_API_KEY_ID=KEY DAYLIGHT_RELEASE_CHECK_ONLY=1
-expect "partial ASC set on a plain push: exit 1" 1 "partial ASC_\\* secret set"
+expect "partial ASC set on a plain push: warn naming the gap" 0 "^::warning::.*partial ASC_\\* secret set.*missing or misnamed: ASC_API_ISSUER_ID ASC_API_PRIVATE_KEY_BASE64 \\("
+expect "partial ASC set on a plain push: the complete DAYLIGHT_* set still signs" 0 "signing secrets complete; notarize=false"
+run_release $four ASC_API_KEY_ID=KEY GITHUB_REF=refs/tags/v1.0.0 DAYLIGHT_RELEASE_CHECK_ONLY=1
+expect "partial ASC set with GITHUB_REF a v* tag: exit 1" 1 "partial ASC_\\* secret set"
 run_release $four $asc DO_NOTARIZE=true DAYLIGHT_RELEASE_CHECK_ONLY=1
 expect "all eight secrets with DO_NOTARIZE=true, check-only: exit 0, notarize=true" 0 "notarize=true \\(DO_NOTARIZE=true"
 run_release $four $asc DAYLIGHT_RELEASE_CHECK_ONLY=1

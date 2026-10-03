@@ -42,6 +42,10 @@ final class Compositor {
     private let canvasPipeline: MTLRenderPipelineState
     private let solidPipeline: MTLRenderPipelineState
     private var textureCache: CVMetalTextureCache?
+    /// CVMetalTextureCache.h: `CVMetalTextureCacheFlush` "must be made periodically"; once per second of frames, on
+    /// the render queue (never from the Metal completion thread, which may run while a texture is being created).
+    static let textureCacheFlushInterval = 30
+    private var framesSinceFlush = 0
     private var ciContext: CIContext?
     private var conversionPool: OutputPool?
     private let conversionLogged = Locked<Bool>(false)
@@ -97,6 +101,11 @@ final class Compositor {
     /// completion thread. The caller keeps `target` alive until then (it does: it pushes and releases it there).
     func render(_ inputs: Inputs, into target: CVPixelBuffer, completion: @escaping (CFTimeInterval) -> Void) {
         guard let cache = textureCache else { completion(0); return }
+        framesSinceFlush += 1
+        if framesSinceFlush >= Compositor.textureCacheFlushInterval {
+            framesSinceFlush = 0
+            CVMetalTextureCacheFlush(cache, 0)
+        }
         guard let targetCV = makeTexture(cache: cache, pixelBuffer: target), let targetTexture = CVMetalTextureGetTexture(targetCV) else {
             completion(0)
             return

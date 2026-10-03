@@ -788,10 +788,11 @@ final class WifiMirrorSource: MirrorFrameSource {
                 break
             }
         }
+        let askKeyFrame = wantsKeyFrame
         inkQueue.async { [weak self] in
             guard let self = self, self.active, generation == self.streamGeneration else { return }
             self.setStatus(.error(.decoderError, "\(error)"))
-            if wantsKeyFrame { self.requestKeyFrame(generation: generation) }
+            if askKeyFrame { self.requestKeyFrame(generation: generation) }
         }
     }
 

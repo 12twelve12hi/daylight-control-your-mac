@@ -76,7 +76,8 @@ struct AdbLocation: Equatable {
     var version: String?
 }
 
-/// Why a source produced no adb. `failure` is the SPEC 13.3 row; `adbError` keeps the existing `AdbError` contract of
+/// Why a source produced no adb. `failure` is the SPEC 13.3 row (nil for the bundled cases and for not downloaded yet,
+/// which raise no row of their own); `adbError` keeps the existing `AdbError` contract of
 /// the seam (a missing bundled adb is still `.executableMissing`, so row 25's wording is unchanged).
 enum AdbSourceError: Error, Equatable {
     case bundledMissing(path: String)
@@ -93,7 +94,10 @@ enum AdbSourceError: Error, Equatable {
         switch self {
         case .bundledMissing, .bundledNotExecutable: return nil
         case let .termsNotAccepted(version): return (.adbTermsDeclined, [version])
-        case .notDownloaded: return (.adbDownloadFailed, ["adb has not been downloaded yet (Settings > Mirror > Download adb)"])
+        // Not downloaded yet is the state between accepting the terms and the download landing (or after a quit during
+        // it), not row 40: no banner. MirrorController's download poll applies the adb when it lands, and a download
+        // that really fails raises row 40 from `AdbDownloader.ensure` with its own reason.
+        case .notDownloaded: return nil
         case let .downloadFailed(reason, _): return (.adbDownloadFailed, [reason])
         case let .checksumMismatch(got, want): return (.adbChecksumMismatch, [got, want])
         case .installedMissing: return (.adbInstalledMissing, [])
@@ -107,6 +111,7 @@ enum AdbSourceError: Error, Equatable {
         switch self {
         case let .bundledMissing(path): return "bundled adb missing at \(path) (run make fetch-tools)"
         case let .bundledNotExecutable(detail): return detail
+        case .notDownloaded: return "adb has not been downloaded yet (Settings > Mirror > Download adb)"
         default:
             guard let row = failure else { return "\(self)" }
             // Row 41's sentence has no placeholders; its two arguments belong to the log line only.
@@ -118,6 +123,7 @@ enum AdbSourceError: Error, Equatable {
         switch self {
         case let .downloadFailed(reason, url): return FailureText.logLine(.adbDownloadFailed, [url, reason])
         case let .installedMissing(searched): return FailureText.logLine(.adbInstalledMissing, [searched.joined(separator: ", ")])
+        case let .notDownloaded(version): return "adb download: platform-tools \(version) not downloaded yet"
         default:
             guard let row = failure else { return sentence }
             return FailureText.logLine(row.0, row.1)

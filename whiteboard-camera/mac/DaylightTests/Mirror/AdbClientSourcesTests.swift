@@ -234,6 +234,23 @@ final class AdbClientSourcesTests: XCTestCase {
         XCTAssertEqual(AdbSourceError.termsNotAccepted(version: "37.0.0").sentence, FailureText.sentence(.adbTermsDeclined))
     }
 
+    /// ADB-2: "not downloaded yet" (terms accepted, download still running or interrupted) is not row 40 "Could not
+    /// download adb ... Check the internet connection": it raises no row, has its own status sentence, and its log line
+    /// has no leftover placeholder. Before the fix `failure` was row 40 and the log line ended in a literal "<error>".
+    func testNotDownloadedYetIsNotADownloadFailure() {
+        let error = AdbSourceError.notDownloaded(version: "37.0.0")
+        XCTAssertNil(error.failure, "no banner while the download has not landed yet")
+        XCTAssertEqual(error.sentence, "adb has not been downloaded yet (Settings > Mirror > Download adb)")
+        XCTAssertEqual(error.logLine, "adb download: platform-tools 37.0.0 not downloaded yet")
+        XCTAssertFalse(error.logLine.contains("<"), error.logLine)
+        XCTAssertFalse(error.logLine.contains("failure."), "not logged as a SPEC 13.3 row: \(error.logLine)")
+        XCTAssertEqual(error.adbError, .launchFailed(error.sentence))
+        // A real download failure keeps row 40 with its reason.
+        let failed = AdbSourceError.downloadFailed(reason: "the request timed out", url: "https://example.invalid/pt.zip")
+        XCTAssertEqual(failed.failure?.0, .adbDownloadFailed)
+        XCTAssertFalse(failed.logLine.contains("<"), failed.logLine)
+    }
+
     func testABuildWithoutBundledAdbResolvesBundledAsDownload() throws {
         try fakeAdb(in: "Vendor", output: Self.modernOutput)
         XCTAssertEqual(AdbClient.locateExecutable(request(.bundled, bundled: false), recordStatus: false).failureValue, .termsNotAccepted(version: "37.0.0"))

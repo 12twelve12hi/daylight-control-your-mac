@@ -258,6 +258,66 @@ final class InkRouterTests: XCTestCase {
         XCTAssertEqual(files?.count, 1)
     }
 
+    private let clearBytes = "da0140001800000040e2cfeeb5400600101112131415161718191a1b1c1d1e1f40e2cfeeb5400600"
+
+    /// A second stroke with its own id and points, so the second board differs from the golden one.
+    private func drawSecondStroke(_ connection: InkConnection) {
+        let id = UUID(uuidString: "20212223-2425-2627-2829-2a2b2c2d2e2f")!
+        let start = StrokeStart(id: id, tool: .pen, colorARGB: 0xFF11_1111, baseWidth: 3.2, pointer: .stylus, phase: .contact, pressure: 0.6)
+        router.handle(Codec.encode(.strokeStart(start), timestampUs: 20), from: connection, hostTimeNs: 20)
+        let points = [SolStream.Point(x: 100, y: 100, pressure: 0.6, deltaMs: 0), SolStream.Point(x: 300, y: 120, pressure: 0.6, deltaMs: 8), SolStream.Point(x: 500, y: 140, pressure: 0.6, deltaMs: 16)]
+        router.handle(Codec.encode(.strokeChunk(id: id, points: points), timestampUs: 21), from: connection, hostTimeNs: 21)
+        router.handle(Codec.encode(.strokeCommit(id: id, pointCount: 3), timestampUs: 22), from: connection, hostTimeNs: 22)
+    }
+
+    /// Runs `trigger` and returns the URLs of the save it caused (the write and the queued forget have both run).
+    private func waitForSave(_ trigger: () -> Void) -> [String] {
+        let saved = expectation(description: "saved")
+        var urls: [URL] = []
+        router.onSaveResult = { result in
+            if case let .success(written) = result { urls = written } else { XCTFail("save failed: \(result)") }
+            saved.fulfill()
+        }
+        trigger()
+        wait(for: [saved], timeout: 5)
+        inkQueue.sync {}
+        ioQueue.sync {}
+        router.onSaveResult = nil
+        return urls.map { $0.lastPathComponent }.sorted()
+    }
+
+    private func pngCount() -> Int {
+        return ((try? FileManager.default.subpathsOfDirectory(atPath: saveRoot.path)) ?? []).filter { $0.hasSuffix(".png") }.count
+    }
+
+    func testDrawClearDrawClearWritesTwoDistinctPairs() throws {
+        let (connection, _) = connect(address: "127.0.0.1")
+        drawGoldenStroke(connection)
+        let first = waitForSave { router.handle(bytes(clearBytes), from: connection, hostTimeNs: 9) }
+        XCTAssertEqual(first, ["page-01.json", "page-01.png"])
+        XCTAssertEqual(router.store.committedCount, 0)
+        drawSecondStroke(connection)
+        let second = waitForSave { router.handle(bytes(clearBytes), from: connection, hostTimeNs: 30) }
+        XCTAssertEqual(second, ["page-01-2.json", "page-01-2.png"], "Clear keeps the page index; the second board takes the SPEC 12 collision suffix instead of overwriting the first")
+        XCTAssertEqual(pngCount(), 2)
+        let directory = saver.sessionDirectory(sessionStart: router.sessionStart!)
+        let firstDoc = try JSONDecoder().decode(PageDocument.self, from: Data(contentsOf: directory.appendingPathComponent("page-01.json")))
+        let secondDoc = try JSONDecoder().decode(PageDocument.self, from: Data(contentsOf: directory.appendingPathComponent("page-01-2.json")))
+        XCTAssertEqual(firstDoc.strokes.map { $0.id }, ["00010203-0405-0607-0809-0a0b0c0d0e0f"], "the first board survived the second Clear")
+        XCTAssertEqual(secondDoc.strokes.map { $0.id }, ["20212223-2425-2627-2829-2a2b2c2d2e2f"])
+    }
+
+    func testAutosaveThenClearKeepsOnePairPerBoard() throws {
+        let (connection, _) = connect(address: "127.0.0.1")
+        drawGoldenStroke(connection)
+        XCTAssertEqual(waitForSave { router.savePage(reason: .autosave) }, ["page-01.json", "page-01.png"])
+        XCTAssertEqual(waitForSave { router.handle(bytes(clearBytes), from: connection, hostTimeNs: 9) }, ["page-01.json", "page-01.png"], "the Clear rewrites the autosaved pair (SPEC B7: one pair per page)")
+        XCTAssertEqual(pngCount(), 1)
+        drawSecondStroke(connection)
+        XCTAssertEqual(waitForSave { router.savePage(reason: .autosave) }, ["page-01-2.json", "page-01-2.png"], "the next board never lands on the cleared board's files")
+        XCTAssertEqual(pngCount(), 2)
+    }
+
     func testPageChangeSavesAndStartsAFreshPage() {
         let (connection, transport) = connect(address: "127.0.0.1")
         drawGoldenStroke(connection)

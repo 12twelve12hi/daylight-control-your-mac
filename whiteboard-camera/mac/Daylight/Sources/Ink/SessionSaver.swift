@@ -11,6 +11,10 @@ enum SessionSaverError: Error {
 /// Writes `page-NN.png` and `page-NN.json` into `<root>/Daylight Camera/<yyyy-MM-dd>/<HH-mm-ss>/` (SPEC 12) on
 /// io.queue. The first write of a page picks a unique name (`-2`, `-3` on collision); later writes of the same page
 /// (autosave) overwrite the same two files until `forgetPage` (Clear, New page) breaks the binding.
+///
+/// The binding is created inside the queued write, so `forgetPage` and `forgetAllPages` are queued on the same serial
+/// queue: a Clear that saves and then forgets (in that program order on ink.queue) runs the write first and the forget
+/// second, and the next board drawn on the same page id gets a fresh pair (`page-01-2`) instead of overwriting.
 final class SessionSaver {
     let root: URL
     let queue: DispatchQueue
@@ -96,17 +100,25 @@ final class SessionSaver {
         return pair
     }
 
-    /// Breaks the file binding of a page (after Clear or New page the next save picks a fresh name).
+    /// Breaks the file binding of a page (after Clear or New page the next save picks a fresh name). Ordered with the
+    /// writes: the forget runs on `queue` after every save enqueued before it.
     func forgetPage(_ key: UUID) {
-        lock.lock()
-        pageURLs[key] = nil
-        lock.unlock()
+        queue.async { [weak self] in
+            guard let self = self else { return }
+            self.lock.lock()
+            self.pageURLs[key] = nil
+            self.lock.unlock()
+        }
     }
 
+    /// Breaks every binding (a new session starts); ordered with the writes like `forgetPage`.
     func forgetAllPages() {
-        lock.lock()
-        pageURLs.removeAll()
-        lock.unlock()
+        queue.async { [weak self] in
+            guard let self = self else { return }
+            self.lock.lock()
+            self.pageURLs.removeAll()
+            self.lock.unlock()
+        }
     }
 
     /// Mirror mode: the last decoded frame, cropped by `uv`, as `mirror-<HH-mm-ss>.png` (SPEC 12, D39).

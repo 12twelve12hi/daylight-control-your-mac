@@ -451,7 +451,7 @@ Media packet (n >= 1): bytes 0 to 7 `pts_flags` (u64 BE: bit 62 config, bit 61 k
 
 Size limit: the SolStream payload cap (1 MiB, section 1) bounds n to 1,048,564. The tablet drops a larger access unit, requests a sync frame (`MediaCodec.PARAMETER_KEY_REQUEST_SYNC_FRAME`) and logs it; at the bit rates below a key frame is a few hundred KiB. Order: one MIRROR_HELLO, one session packet, one config packet, then key and delta frames, all on one socket in order.
 
-Backpressure (tablet): before sending a non-key, non-config packet the tablet checks the OkHttp `WebSocket.queueSize()`; above 1 MiB queued it drops the packet, counts it, sets MIRROR_STATUS flags bit3 for the next report and requests a sync frame once the queue drains below 256 KiB (OkHttp closes a socket whose queue exceeds 16 MiB; this rule keeps the ink, pills and PING traffic flowing).
+Backpressure (tablet): before sending a non-key, non-config packet the tablet checks the OkHttp `WebSocket.queueSize()`; above 1 MiB queued it drops the packet, counts it, sets MIRROR_STATUS flags bit3 for the next report and requests a sync frame once the queue drains below 256 KiB (OkHttp closes a socket whose queue exceeds 16 MiB; this rule keeps the ink, pills and PING traffic flowing). After any dropped access unit (this rule or the size limit above) the tablet also drops every later non-key, non-config packet until it sends a key frame, because a delta frame predicts from the frame before it.
 
 ### 14.3 MIRROR_STATUS (0x0082), client to server, 16 bytes, `<BBHHHII`
 

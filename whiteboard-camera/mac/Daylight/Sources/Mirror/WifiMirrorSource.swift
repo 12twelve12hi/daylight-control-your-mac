@@ -21,6 +21,8 @@ final class WifiMirrorSource: MirrorFrameSource {
     static let tickInterval: Double = 0.5
     /// Moving-average weight of the decode latency (submit to output callback).
     static let latencyWeight: Double = 0.1
+    /// Quit waits at most this long for RELEASE to reach the network stack (LOOSE_ENDS J3).
+    static let releaseFlushTimeout: Double = 0.3
 
     enum EngageSource: String {
         case pen = "pen (USB getevent)"
@@ -153,6 +155,8 @@ final class WifiMirrorSource: MirrorFrameSource {
     private var noCapableSince: Double?
     private var noTabletReported = false
     private var droppedLogged: Set<UUID> = []
+    /// The connections `release(timeout:)` closed and waits for; `forget` signals once the last one is gone.
+    private var releaseFlush: (done: DispatchSemaphore, ids: Set<UUID>)?
     private var timer: DispatchSourceTimer?
     private var sessionSize: (w: Int, h: Int)?
 
@@ -281,20 +285,39 @@ final class WifiMirrorSource: MirrorFrameSource {
     }
 
     /// RELEASE to every capable connection (quit): the tablet stops the encoder and releases the projection.
-    func release() {
+    ///
+    /// LOOSE_ENDS J3: quit stops the server right after this, and the process may exit before a queued frame left.
+    /// So each capable connection is closed right behind its RELEASE (code 1001, as the server's own stop would), and
+    /// the caller waits at most `timeout` until the server reports every one of them closed (`forget`). The server
+    /// closes a connection only after its final message was processed by the network stack, and a connection sends in
+    /// order, so that report means RELEASE was handed to the socket. Returns true when it was, false on the timeout
+    /// (or when called on ink.queue, where `forget` runs and so nothing can be awaited).
+    @discardableResult
+    func release(timeout: Double = WifiMirrorSource.releaseFlushTimeout) -> Bool {
+        let done = DispatchSemaphore(value: 0)
+        var awaited = 0
         let body = { [weak self] in
             guard let self = self else { return }
-            for peer in self.sortedPeers() where peer.capable {
+            let capable = self.sortedPeers().filter { $0.capable }
+            self.streamerID = nil
+            guard !capable.isEmpty else { return }
+            awaited = capable.count
+            self.releaseFlush = (done, Set(capable.map { $0.id }))
+            for peer in capable {
                 self.send(.release, to: peer)
                 peer.startedWith = nil
+                peer.connection.close(code: 1001, reason: "Daylight quit")
             }
-            self.streamerID = nil
         }
         if DispatchQueue.getSpecific(key: queueKey) == true {
             body()
-        } else {
-            inkQueue.sync(execute: body)
+            return awaited == 0
         }
+        inkQueue.sync(execute: body)
+        guard awaited > 0 else { return true }
+        let flushed = done.wait(timeout: .now() + timeout) == .success
+        log(flushed ? "mirror stream: RELEASE flushed to \(awaited) connection(s)" : "mirror stream: RELEASE not confirmed within \(Int(timeout * 1000)) ms")
+        return flushed
     }
 
     /// Per instance, so `release()` knows whether it already runs on ink.queue.
@@ -358,6 +381,11 @@ final class WifiMirrorSource: MirrorFrameSource {
     /// last frame, status idle, START goes to the next capable connection.
     func forget(_ c: InkConnection) {
         droppedLogged.remove(c.id)
+        if let flush = releaseFlush, flush.ids.contains(c.id) {
+            let rest = flush.ids.subtracting([c.id])
+            releaseFlush = rest.isEmpty ? nil : (flush.done, rest)
+            if rest.isEmpty { flush.done.signal() }
+        }
         guard let peer = peers.removeValue(forKey: c.id) else { return }
         if streamerID == peer.id {
             streamerID = nil

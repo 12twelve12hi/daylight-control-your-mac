@@ -22,7 +22,12 @@ final class RecordingInkTransport: InkTransport {
         lock.unlock()
     }
 
-    func closeTransport() {}
+    /// Called on each `closeTransport()` (the real server tears the socket down after the final message was processed).
+    var onCloseTransport: (() -> Void)?
+
+    func closeTransport() {
+        onCloseTransport?()
+    }
 
     var sent: [[UInt8]] {
         lock.lock()
@@ -283,6 +288,49 @@ final class WifiMirrorSourceTests: XCTestCase {
         XCTAssertEqual(transport.commands, [.start, .stop, .start, .stop], "STOP when the ink source leaves Mirror")
         controller.releaseWifiStream()
         XCTAssertEqual(transport.commands.last, .release, "RELEASE on quit")
+    }
+
+    /// LOOSE_ENDS J3: quit sends RELEASE, closes the connection right behind it and waits until the server reports it
+    /// closed (which it does only after the final message was processed), at most the bound. Before J3 `release()`
+    /// only queued the frame: no close frame, `closeTransport` was never called, so the order and flushed checks fail.
+    func testReleaseOnQuitWaitsUntilTheServerClosedTheConnection() {
+        let source = makeSource()
+        let (c, transport) = makeConnection()
+        feed(source, c, .status(WifiMirrorSourceTests.idle))
+        drain(source)
+        let forgotten = Locked(false)
+        let ink = self.ink
+        transport.onCloseTransport = {
+            // Like WebServer: the close completes on the network queue, then the app hands it to ink.queue.
+            DispatchQueue.global().asyncAfter(deadline: .now() + 0.05) {
+                ink.async {
+                    source.forget(c)
+                    forgotten.withLock { $0 = true }
+                }
+            }
+        }
+        XCTAssertTrue(source.release(timeout: 10), "the server reported the connection closed")
+        XCTAssertTrue(forgotten.withLock { $0 }, "release returned only after forget")
+        XCTAssertEqual(transport.commands.last, .release)
+        let opcodes = transport.sent.map { $0[0] & 0x0F }
+        XCTAssertEqual(Array(opcodes.suffix(2)), [WebSocketFrame.opcodeBinary, WebSocketFrame.opcodeClose], "RELEASE, then the close frame behind it")
+        XCTAssertTrue(c.isClosed)
+        XCTAssertTrue(source.release(), "nothing left to release returns at once")
+        XCTAssertEqual(WifiMirrorSource.releaseFlushTimeout, 0.3)
+    }
+
+    /// LOOSE_ENDS J3: a server that never reports the close holds quit for the bound only.
+    func testReleaseOnQuitIsBounded() {
+        let source = makeSource()
+        let (c, transport) = makeConnection()
+        feed(source, c, .status(WifiMirrorSourceTests.idle))
+        drain(source)
+        let start = Date()
+        XCTAssertFalse(source.release(timeout: 0.2), "never confirmed")
+        let waited = Date().timeIntervalSince(start)
+        XCTAssertGreaterThanOrEqual(waited, 0.19)
+        XCTAssertLessThan(waited, 5, "bounded; the upper limit only guards against an unbounded wait on a loaded runner")
+        XCTAssertEqual(transport.commands.last, .release)
     }
 
     // MARK: PROTOCOL 14.5 rules

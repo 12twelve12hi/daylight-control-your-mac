@@ -318,7 +318,8 @@ final class MirrorController: MirrorControl {
         return usesWifi ? wifiSource.latestForSave() : mirrorSource.latestForSave()
     }
 
-    /// Quit: RELEASE to the tablet streaming over Wi-Fi so it gives the screen capture back.
+    /// Quit: RELEASE to the tablet streaming over Wi-Fi so it gives the screen capture back. Blocks the caller at most
+    /// `WifiMirrorSource.releaseFlushTimeout` (0.3 s) until the frame reached the socket (LOOSE_ENDS J3).
     func releaseWifiStream() {
         wifiSource.release()
     }

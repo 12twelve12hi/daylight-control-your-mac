@@ -155,7 +155,7 @@ Batching: web sends one chunk per `requestAnimationFrame` per active stroke; And
 
 | Offset | Size | Field | Value |
 |---|---|---|---|
-| 0 | 16 | stroke_id | UUID; the stroke is removed from the canvas (dirty rectangle redrawn); may trigger the governor's snap-back (SPEC section 6.4) |
+| 0 | 16 | stroke_id | UUID; the stroke is removed from the canvas (dirty rectangle redrawn); may trigger the governor's snap-back (SPEC section 5.2, ENGAGING + cancel) |
 
 Web sends it on `pointercancel` or `pointerleave` while down when the stroke has fewer than 2 points or is younger than 80 ms; otherwise it sends STROKE_COMMIT. Android sends it on `ACTION_CANCEL` and on `FLAG_CANCELED`.
 
@@ -410,4 +410,4 @@ Both the pure-Swift SHA-1 (used on Linux) and CryptoKit `Insecure.SHA1` (used on
 | TOGGLE_PIN_WHITEBOARD | nothing | `.pin(value)` |
 | client disconnect | commit that client's open strokes as they stand | remove its ids from `activeContacts`; no state change |
 
-Mirror mode produces the same governor events from `getevent` (SPEC section 9.3) and feeds no canvas.
+Mirror mode produces the same governor events from `getevent` (SPEC section 8, engage detector column, and ARCHITECTURE section 6 item 7) and feeds no canvas.

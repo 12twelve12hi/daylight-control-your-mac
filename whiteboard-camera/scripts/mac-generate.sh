@@ -11,6 +11,9 @@ export DAYLIGHT_TEAM_ID="${DAYLIGHT_TEAM_ID:-}"
 export DAYLIGHT_CODE_SIGN_IDENTITY="${DAYLIGHT_CODE_SIGN_IDENTITY:-Developer ID Application}"
 export DAYLIGHT_APP_PROFILE="${DAYLIGHT_APP_PROFILE:-}"
 export DAYLIGHT_EXT_PROFILE="${DAYLIGHT_EXT_PROFILE:-}"
+# LOOSE_ENDS H1 (8): 1 ships the bundled adb (default); 0 builds without it (Info.plist DaylightBundlesAdb).
+export DAYLIGHT_BUNDLE_ADB="${DAYLIGHT_BUNDLE_ADB:-1}"
+[[ "$DAYLIGHT_BUNDLE_ADB" == "0" || "$DAYLIGHT_BUNDLE_ADB" == "1" ]] || { echo "mac-generate: DAYLIGHT_BUNDLE_ADB must be 0 or 1, got '$DAYLIGHT_BUNDLE_ADB'" >&2; exit 2; }
 # The web whiteboard is a folder reference inside the app bundle. CI runs `make web` first; when the
 # build is missing we still generate with a one-line placeholder page so the project opens.
 webres="mac/Daylight/Resources/web"
@@ -29,7 +32,7 @@ if [[ ! -d "$vendor" ]]; then
   printf 'Bundled tools are missing from this build. Run make fetch-tools (needs dl.google.com and github.com).\n' > "$vendor/README.txt"
   echo "mac-generate: $vendor missing, wrote a placeholder README.txt (mirror mode needs make fetch-tools)"
 fi
-echo "mac-generate: build $DAYLIGHT_BUILD_NUMBER, version $DAYLIGHT_MARKETING_VERSION, team '${DAYLIGHT_TEAM_ID}', identity '${DAYLIGHT_CODE_SIGN_IDENTITY}', profiles '${DAYLIGHT_APP_PROFILE}' / '${DAYLIGHT_EXT_PROFILE}'"
+echo "mac-generate: build $DAYLIGHT_BUILD_NUMBER, version $DAYLIGHT_MARKETING_VERSION, team '${DAYLIGHT_TEAM_ID}', identity '${DAYLIGHT_CODE_SIGN_IDENTITY}', profiles '${DAYLIGHT_APP_PROFILE}' / '${DAYLIGHT_EXT_PROFILE}', bundled adb ${DAYLIGHT_BUNDLE_ADB}"
 xcodegen --version
 (cd mac && xcodegen generate --spec project.yml)
 ls mac/Daylight.xcodeproj

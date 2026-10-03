@@ -362,6 +362,8 @@ Gestures: tap = pin toggle (during a countdown this is "keep it"); long press 60
 | `mirrorMaxSize`, `mirrorBitRate`, `mirrorMaxFps` | Int | 1600, 8000000, 30 | ScrcpySession ("Low bandwidth" preset 1200 / 4000000 / 24) |
 | `mirrorDeviceSerial` | String? | nil (first DC-1-looking device) | DeviceTracker |
 | `adbServerMode`, `adbPrivatePort` | auto / shared / private, UInt16 | auto, 27180 | AdbServerPolicy |
+| `adbSource` | bundled / download / installed ("Bundled (default)" / "Download on first use" / "Use installed adb"); an unknown stored value loads as bundled | bundled (download on a `DAYLIGHT_BUNDLE_ADB=0` build) | `AdbClient.locateExecutable` (LOOSE_ENDS H1) |
+| `adbTermsAcceptedVersion` | String? | nil | the platform-tools version whose Android SDK License the owner accepted; Download never runs before it equals the pin |
 | `mirrorOverWiFi` | Bool | false | mirror (D42) |
 | `mirrorTransport` | usb / wifiStream ("USB (adb)" / "Wi-Fi (Daylight Ink screen stream)") | usb | mirror (9.4b, PROTOCOL 14) |
 | `mirrorStreamMaxSize`, `mirrorStreamBitRate`, `mirrorStreamMaxFps`, `mirrorStreamKeyIntervalMs` | Int 320...1600, Int 1000000...8000000, Int 1...30, Int 500...10000 | 1600, 7000000, 30, 2000 | MIRROR_CONTROL START (PROTOCOL 14.4) |
@@ -454,6 +456,11 @@ Shows: build signed or not; extension status and the two `kCMIOStreamPropertyDir
 | 36 | Wi-Fi mirror stalled | "The tablet's screen stream paused. Reconnecting..." | `mirror stream: no packet for <s> s from <label>; key frame requested` | no MIRROR_PACKET for 2 s while STREAMING (PROTOCOL 14.5); REQUEST_KEY_FRAME every 2 s |
 | 37 | Wi-Fi mirror engage by frame differencing | "Mirror over Wi-Fi starts the whiteboard when the tablet screen changes. Plug in with USB debugging for pen-exact engage." | `mirror stream: engage source frame-diff (no USB pen watcher)` | informational; no `getevent` without adb |
 | 38 | Wi-Fi mirror, no capable tablet | "Open Daylight Ink on your Daylight to mirror over Wi-Fi." | `mirror stream: no capable Daylight Ink connection` | no allowed connection announced MIRROR_STATUS |
+| 39 | adb source Download, terms declined | "Downloading adb needs Google's Android SDK License accepted. Choose Download again in Settings > Mirror to review it, or pick another adb source." | `adb download: terms not accepted for platform-tools <version>` | Cancel on the terms prompt; nothing is downloaded |
+| 40 | adb source Download, download failed | "Could not download adb: <reason>. Check the internet connection and try again, or choose Use bundled." (+ Try again, Use bundled) | `adb download <url> failed: <error>` | offline, proxy, HTTP error; partial files are removed |
+| 41 | adb source Download, checksum mismatch | "The downloaded adb did not match its checksum and was deleted. Try again, or choose Use bundled." | `adb download: sha256 <got> want <want>` | the zip or the stored adb differs from the pinned sha256 (scripts/fetch-tools.sh) |
+| 42 | adb source Installed, none found | "No installed adb found. Daylight looked in your PATH, in Homebrew (/opt/homebrew/bin, /usr/local/bin) and in the Android Studio SDK (ANDROID_HOME, ~/Library/Android/sdk)." | `adb installed: none executable in <paths>` | install platform-tools (brew install android-platform-tools) or pick another source |
+| 43 | adb source Installed, too old | "The adb at <path> is version <version>. Daylight needs platform-tools 35 or newer: update it, or choose another adb source." | `adb installed: <path> version <version> below platform-tools 35` | the first adb found is older than platform-tools 35 (or prints no version) |
 
 `docs/TESTING-CHECKLIST.md` lists rows 1, 12, 13, 19, 21, 22, 28, 33 as the ones the owner triggers on purpose on day one.
 

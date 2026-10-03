@@ -244,8 +244,8 @@ final class AppModelMenuTests: XCTestCase {
 
 /// SPEC B6: every failure row has one case; the rows B shows map to their exact sentences.
 final class FailureCoverageTests: XCTestCase {
-    func testFortyCasesAndTheRowsBTriggers() {
-        XCTAssertEqual(FailureText.Case.allCases.count, 40)
+    func testFortyFiveCasesAndTheRowsBTriggers() {
+        XCTAssertEqual(FailureText.Case.allCases.count, 45)
         for c in FailureText.Case.allCases where c != .bonjourRenamed {
             XCTAssertFalse(FailureText.sentence(c).isEmpty, "\(c) has owner text")
             XCTAssertFalse(FailureText.logLine(c).isEmpty)

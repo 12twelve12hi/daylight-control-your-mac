@@ -70,6 +70,9 @@ targets:
         NSLocalNetworkUsageDescription: Daylight talks to your Daylight tablet on the local network.
         NSBonjourServices: [_daylight-camera._tcp]
         DaylightBuildSigned: false
+        # LOOSE_ENDS H1 (8): "0" when make fetch-tools ran with DAYLIGHT_BUNDLE_ADB=0 (no Vendor/adb); the app then hides
+        # Bundled in Settings > Mirror > adb source and uses Download on first use as the default.
+        DaylightBundlesAdb: "${DAYLIGHT_BUNDLE_ADB}"
         DaylightCameraDeviceUUID: AB51C6BA-17FD-4A67-BE3A-06A8540BA6AA
         DaylightCameraSourceUUID: 8C5A2272-C779-469F-8439-BFE8BEBA229A
         DaylightCameraSinkUUID: 4B856AE3-B992-490B-8DC5-1F2A9475D6E7

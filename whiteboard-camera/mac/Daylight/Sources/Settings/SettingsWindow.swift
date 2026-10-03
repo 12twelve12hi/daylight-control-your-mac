@@ -27,6 +27,7 @@ final class SettingsContext: ObservableObject {
 struct SettingsView: View {
     @ObservedObject var store: SettingsStore
     @ObservedObject var context: SettingsContext
+    @StateObject private var adbSourceModel = AdbSourceModel()
 
     var body: some View {
         TabView {
@@ -138,6 +139,7 @@ struct SettingsView: View {
                 Text("USB (adb)").tag(MirrorTransport.usb)
                 Text("Wi-Fi (Daylight Ink screen stream)").tag(MirrorTransport.wifiStream)
             }
+            AdbSourceSection(store: store, model: adbSourceModel)
             if store.settings.mirrorTransport == .wifiStream {
                 Stepper("Stream size \(store.settings.mirrorStreamMaxSize) px", value: $store.settings.mirrorStreamMaxSize, in: Settings.mirrorStreamMaxSizeRange, step: 160)
                 Stepper(String(format: "Bit rate %.1f Mbit/s", Double(store.settings.mirrorStreamBitRate) / 1_000_000), value: $store.settings.mirrorStreamBitRate, in: Settings.mirrorStreamBitRateRange, step: 500_000)

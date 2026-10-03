@@ -117,5 +117,25 @@ run_kit 139 139 139
 expect "kit-test: a crash on every attempt fails with its exit code" 139 "attempt 3 of 3; giving up"
 expect "kit-test: a crash on every attempt stops after three runs" 139 "calls=3 "
 
+# LOOSE_ENDS H1: the download pins in the app equal the bundled pins in fetch-tools.sh; the build switch is wired.
+check_eq() { # $1 name, $2 got, $3 want
+  if [[ -n "$2" && "$2" == "$3" ]]; then echo "ok    $1"; passes=$((passes + 1)); else echo "FAIL  $1: got '$2' want '$3'"; fails=$((fails + 1)); fi
+}
+swift_src=mac/Daylight/Sources/Mirror/AdbClientSources.swift
+check_eq "adb pin: Swift platformToolsVersion equals fetch-tools PT_VERSION" \
+  "$(sed -n 's/.*static let platformToolsVersion = "\([^"]*\)".*/\1/p' "$swift_src")" \
+  "$(sed -n 's/^PT_VERSION="${PT_VERSION:-\([^}]*\)}"$/\1/p' scripts/fetch-tools.sh)"
+check_eq "adb pin: Swift platformToolsSHA256 equals fetch-tools PT_SHA256" \
+  "$(sed -n 's/.*static let platformToolsSHA256 = "\([0-9a-f]*\)".*/\1/p' "$swift_src")" \
+  "$(sed -n 's/^PT_SHA256="\([0-9a-f]*\)"$/\1/p' scripts/fetch-tools.sh)"
+check_eq "adb switch: project.yml writes DaylightBundlesAdb from DAYLIGHT_BUNDLE_ADB" \
+  "$(grep -c 'DaylightBundlesAdb: "${DAYLIGHT_BUNDLE_ADB}"' mac/project.yml)" "1"
+check_eq "adb switch: mac-generate.sh defaults DAYLIGHT_BUNDLE_ADB to 1" \
+  "$(grep -c 'export DAYLIGHT_BUNDLE_ADB="${DAYLIGHT_BUNDLE_ADB:-1}"' scripts/mac-generate.sh)" "1"
+check_eq "adb switch: fetch-tools.sh leaves adb out on DAYLIGHT_BUNDLE_ADB=0" \
+  "$(grep -c 'if \[\[ "$DAYLIGHT_BUNDLE_ADB" == "0" \]\]; then' scripts/fetch-tools.sh)" "1"
+check_eq "adb switch: the Swift key name matches project.yml" \
+  "$(sed -n 's/.*static let bundlesAdbInfoKey = "\([^"]*\)".*/\1/p' "$swift_src")" "DaylightBundlesAdb"
+
 echo "scripts-check: $passes passed, $fails failed"
 (( fails == 0 ))

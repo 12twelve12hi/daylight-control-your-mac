@@ -1,11 +1,11 @@
 import XCTest
 import DaylightKit
 
-/// SPEC 13.3 and plan 3.4: 35 cases in row order, exact owner-facing sentences, log lines, placeholder substitution.
+/// SPEC 13.3 and plan 3.4: 45 cases in row order, exact owner-facing sentences, log lines, placeholder substitution.
 final class FailureTextTests: XCTestCase {
-    func testFortyCasesInRowOrder() {
+    func testFortyFiveCasesInRowOrder() {
         let names = FailureText.Case.allCases.map { $0.rawValue }
-        XCTAssertEqual(names.count, 40)
+        XCTAssertEqual(names.count, 45)
         XCTAssertEqual(names, [
             "notInApplications", "unsignedBuild", "cameraAccessDenied", "noWebcam", "webcamFormatComposed",
             "extensionMissingEntitlement", "extensionUnsupportedLocation", "extensionDamaged", "extensionSignatureInvalid",
@@ -16,12 +16,24 @@ final class FailureTextTests: XCTestCase {
             "mdnsNotFound", "saveFailed", "wifiMirrorFailed", "captureIdle",
             "wifiStreamConsentDenied", "wifiStreamEncoderUnavailable", "wifiStreamStalled", "wifiStreamFrameDiffEngage",
             "wifiStreamNoTablet",
+            "adbTermsDeclined", "adbDownloadFailed", "adbChecksumMismatch", "adbInstalledMissing", "adbInstalledTooOld",
         ])
         XCTAssertEqual(FailureText.Case.allCases.map { $0.row }, [
             "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "12b", "13", "14", "15", "16", "17", "18", "19", "20",
             "21", "22", "23", "24", "25", "26", "27", "28", "28b", "29", "30", "31", "32", "33",
-            "34", "35", "36", "37", "38",
+            "34", "35", "36", "37", "38", "39", "40", "41", "42", "43",
         ])
+    }
+
+    /// LOOSE_ENDS H1: the adb source rows, every sentence exact (SPEC 13.3 rows 39 to 43).
+    func testAdbSourceRowsExact() {
+        XCTAssertEqual(FailureText.sentence(.adbTermsDeclined), "Downloading adb needs Google's Android SDK License accepted. Choose Download again in Settings > Mirror to review it, or pick another adb source.")
+        XCTAssertEqual(FailureText.sentence(.adbDownloadFailed, ["the request timed out"]), "Could not download adb: the request timed out. Check the internet connection and try again, or choose Use bundled.")
+        XCTAssertEqual(FailureText.sentence(.adbChecksumMismatch), "The downloaded adb did not match its checksum and was deleted. Try again, or choose Use bundled.")
+        XCTAssertEqual(FailureText.sentence(.adbInstalledMissing), "No installed adb found. Daylight looked in your PATH, in Homebrew (/opt/homebrew/bin, /usr/local/bin) and in the Android Studio SDK (ANDROID_HOME, ~/Library/Android/sdk).")
+        XCTAssertEqual(FailureText.sentence(.adbInstalledTooOld, ["/usr/local/bin/adb", "1.0.39 (29.0.6)"]), "The adb at /usr/local/bin/adb is version 1.0.39 (29.0.6). Daylight needs platform-tools 35 or newer: update it, or choose another adb source.")
+        XCTAssertEqual(FailureText.logLine(.adbTermsDeclined, ["37.0.0"]), "failure.adbTermsDeclined (row 39): adb download: terms not accepted for platform-tools 37.0.0")
+        XCTAssertEqual(FailureText.logLine(.adbChecksumMismatch, ["aa", "bb"]), "failure.adbChecksumMismatch (row 41): adb download: sha256 aa want bb")
     }
 
     func testEveryCaseHasASentenceAndALogLine() {

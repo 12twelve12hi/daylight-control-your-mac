@@ -52,6 +52,28 @@ public enum AdbServerMode: String, Codable {
     case privatePort
 }
 
+/// Settings > Mirror > adb source (LOOSE_ENDS H1): where the adb executable comes from. Raw values are the SPEC 11 values.
+public enum AdbSource: String, Codable, CaseIterable {
+    case bundled
+    case download
+    case installed
+
+    /// The Settings picker label.
+    public var label: String {
+        switch self {
+        case .bundled: return "Bundled (default)"
+        case .download: return "Download on first use"
+        case .installed: return "Use installed adb"
+        }
+    }
+
+    /// The effective source on a build that may ship without the bundled adb (`DaylightBundlesAdb` false):
+    /// Bundled becomes Download there, every other choice stays.
+    public func effective(bundledAvailable: Bool) -> AdbSource {
+        return (self == .bundled && !bundledAvailable) ? .download : self
+    }
+}
+
 /// Settings > Mirror > Transport (PROTOCOL 14, LOOSE_ENDS A9): scrcpy over adb, or Daylight Ink's own screen stream.
 public enum MirrorTransport: String, Codable, CaseIterable {
     case usb
@@ -106,6 +128,10 @@ public struct Settings: Codable, Equatable {
     public var mirrorDeviceSerial: String? = nil
     public var adbServerMode: AdbServerMode = .auto
     public var adbPrivatePort: UInt16 = 27180
+    /// LOOSE_ENDS H1. An unknown stored value decodes as `.bundled`.
+    public var adbSource: AdbSource = .bundled
+    /// The platform-tools version whose Android SDK License terms the owner accepted (Download on first use); nil until Accept.
+    public var adbTermsAcceptedVersion: String? = nil
     public var mirrorOverWiFi: Bool = false
     public var viewerIdleStopSeconds: Int = 60
     /// nil means ~/Documents/Daylight Camera (resolved by the app).
@@ -199,6 +225,7 @@ public struct Settings: Codable, Equatable {
         case mirrorPinClearMode, sideButtonDoublePressMs, sideButtonLongPressMs, sideButtonSwap
         case mirrorCropInsetsPortrait, mirrorCropInsetsLandscape, pillStripHeight, mirrorPillsPosition
         case mirrorMaxSize, mirrorBitRate, mirrorMaxFps, mirrorDeviceSerial, adbServerMode, adbPrivatePort, mirrorOverWiFi
+        case adbSource, adbTermsAcceptedVersion
         case viewerIdleStopSeconds, saveDirectory, saveStrokesJSON, autosaveSeconds, previewOnLaunch, previewFloats
         case frameReuse, deadlineIdle, perfLog
         case mirrorTransport, mirrorStreamMaxSize, mirrorStreamBitRate, mirrorStreamMaxFps, mirrorStreamKeyIntervalMs, mirrorDiffThreshold
@@ -237,6 +264,9 @@ public struct Settings: Codable, Equatable {
         adbServerMode = try c.decodeIfPresent(AdbServerMode.self, forKey: .adbServerMode) ?? d.adbServerMode
         adbPrivatePort = try c.decodeIfPresent(UInt16.self, forKey: .adbPrivatePort) ?? d.adbPrivatePort
         mirrorOverWiFi = try c.decodeIfPresent(Bool.self, forKey: .mirrorOverWiFi) ?? d.mirrorOverWiFi
+        // A raw string, so a value from a newer build (or a typo) maps to the default instead of failing the whole blob.
+        adbSource = (try? c.decodeIfPresent(String.self, forKey: .adbSource)).flatMap { $0 }.flatMap(AdbSource.init(rawValue:)) ?? d.adbSource
+        adbTermsAcceptedVersion = try c.decodeIfPresent(String.self, forKey: .adbTermsAcceptedVersion) ?? d.adbTermsAcceptedVersion
         viewerIdleStopSeconds = try c.decodeIfPresent(Int.self, forKey: .viewerIdleStopSeconds) ?? d.viewerIdleStopSeconds
         saveDirectory = try c.decodeIfPresent(URL.self, forKey: .saveDirectory) ?? d.saveDirectory
         saveStrokesJSON = try c.decodeIfPresent(Bool.self, forKey: .saveStrokesJSON) ?? d.saveStrokesJSON
@@ -285,6 +315,8 @@ public struct Settings: Codable, Equatable {
         try c.encode(adbServerMode, forKey: .adbServerMode)
         try c.encode(adbPrivatePort, forKey: .adbPrivatePort)
         try c.encode(mirrorOverWiFi, forKey: .mirrorOverWiFi)
+        try c.encode(adbSource, forKey: .adbSource)
+        try c.encodeIfPresent(adbTermsAcceptedVersion, forKey: .adbTermsAcceptedVersion)
         try c.encode(viewerIdleStopSeconds, forKey: .viewerIdleStopSeconds)
         try c.encodeIfPresent(saveDirectory, forKey: .saveDirectory)
         try c.encode(saveStrokesJSON, forKey: .saveStrokesJSON)

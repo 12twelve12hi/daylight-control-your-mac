@@ -70,10 +70,55 @@ final class AdbClient: AdbRunning {
         self.queue = queue
     }
 
+    /// The seam every mirror path goes through (`MirrorController.ensureAdb`). Since LOOSE_ENDS H1 it resolves the adb
+    /// source chosen in Settings > Mirror (read from the persisted settings, so no caller changes) and records the result
+    /// for Diagnostics; Bundled is the original behaviour below, bit for bit.
+    static func locateExecutable(vendorDirectory: URL, fileManager: FileManager = .default) -> Result<URL, AdbError> {
+        let settings = SettingsStore.load(from: .standard)?.validated() ?? Settings.defaults
+        let request = AdbSourceRequest(settings: settings, vendorDirectory: vendorDirectory)
+        return locateExecutable(request, fileManager: fileManager).map { $0.url }.mapError { $0.adbError }
+    }
+
+    /// Resolves one adb source to an executable, its source and version (LOOSE_ENDS H1 (2) to (5)). Never downloads:
+    /// Download on first use is started from Settings after the terms are accepted (`AdbDownloader.ensure`).
+    /// `recordStatus` false is the Settings preview, which must not change what Diagnostics reports as active.
+    static func locateExecutable(_ request: AdbSourceRequest, fileManager: FileManager = .default, recordStatus: Bool = true) -> Result<AdbLocation, AdbSourceError> {
+        let source = request.source.effective(bundledAvailable: request.bundledAvailable)
+        let result: Result<AdbLocation, AdbSourceError>
+        switch source {
+        case .bundled:
+            result = locateBundled(vendorDirectory: request.vendorDirectory, fileManager: fileManager)
+                .map { AdbLocation(url: $0, source: .bundled, version: "platform-tools \(AdbPins.platformToolsVersion) (bundled)") }
+                .mapError { error -> AdbSourceError in
+                    if case let .executableMissing(path) = error { return .bundledMissing(path: path) }
+                    if case let .launchFailed(detail) = error { return .bundledNotExecutable(detail: detail) }
+                    return .bundledNotExecutable(detail: "\(error)")
+                }
+        case .download:
+            if request.termsAcceptedVersion != request.downloader.pins.version {
+                result = .failure(.termsNotAccepted(version: request.downloader.pins.version))
+            } else {
+                result = request.downloader.locateInstalled()
+            }
+        case .installed:
+            result = AdbInstalledProbe.locate(environment: request.environment, home: request.home, homebrew: request.homebrew, fileManager: fileManager, versionOutput: request.versionOutput)
+        }
+        if recordStatus { AdbSourceStatus.record(result, requested: request.source) }
+        switch result {
+        case let .success(location):
+            let line = "adb source \(location.source.rawValue): \(location.url.path) \(location.version ?? "")"
+            log.notice("\(line, privacy: .public)")
+        case let .failure(error):
+            let line = "adb source \(source.rawValue): \(error.logLine)"
+            log.error("\(line, privacy: .public)")
+        }
+        return result
+    }
+
     /// The bundled adb inside `Resources/Vendor/`. A folder-reference copy normally keeps the executable bit; when it
     /// does not (UNVERIFIED on a notarized bundle), the binary is copied once into Application Support and made
     /// executable there, because chmod inside the bundle would break the signature.
-    static func locateExecutable(vendorDirectory: URL, fileManager: FileManager = .default) -> Result<URL, AdbError> {
+    static func locateBundled(vendorDirectory: URL, fileManager: FileManager = .default) -> Result<URL, AdbError> {
         let bundled = vendorDirectory.appendingPathComponent(vendorExecutableName)
         guard fileManager.fileExists(atPath: bundled.path) else {
             return .failure(.executableMissing(bundled.path))

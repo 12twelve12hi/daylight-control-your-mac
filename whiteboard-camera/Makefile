@@ -1,6 +1,9 @@
 # Daylight Whiteboard Camera: every CI step is one of these targets so both workflows stay thin.
 # Scripts live in scripts/ (bash, set -euo pipefail). Run `make help` for the list.
 SHELL := /bin/bash
+# LOOSE_ENDS H1 (8): `make fetch-tools mac-generate mac-debug DAYLIGHT_BUNDLE_ADB=0` builds without the bundled adb.
+DAYLIGHT_BUNDLE_ADB ?= 1
+export DAYLIGHT_BUNDLE_ADB
 .DEFAULT_GOAL := help
 
 .PHONY: help web web-test android kit-test mac-generate mac-debug mac-test mac-smoke mac-release fetch-tools embed-apk ci ci-linux ci-mac golden golden-check scripts-check doctor clean

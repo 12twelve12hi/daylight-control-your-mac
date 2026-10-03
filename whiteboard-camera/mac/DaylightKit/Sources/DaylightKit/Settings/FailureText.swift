@@ -46,6 +46,11 @@ public enum FailureText {
         case wifiStreamStalled              // 36
         case wifiStreamFrameDiffEngage      // 37
         case wifiStreamNoTablet             // 38
+        case adbTermsDeclined               // 39
+        case adbDownloadFailed              // 40
+        case adbChecksumMismatch            // 41
+        case adbInstalledMissing            // 42
+        case adbInstalledTooOld             // 43
 
         /// The SPEC 13.3 row label.
         public var row: String {
@@ -90,6 +95,11 @@ public enum FailureText {
             case .wifiStreamStalled: return "36"
             case .wifiStreamFrameDiffEngage: return "37"
             case .wifiStreamNoTablet: return "38"
+            case .adbTermsDeclined: return "39"
+            case .adbDownloadFailed: return "40"
+            case .adbChecksumMismatch: return "41"
+            case .adbInstalledMissing: return "42"
+            case .adbInstalledTooOld: return "43"
             }
         }
     }
@@ -146,6 +156,11 @@ public enum FailureText {
         case .wifiStreamStalled: template = "The tablet's screen stream paused. Reconnecting..."
         case .wifiStreamFrameDiffEngage: template = "Mirror over Wi-Fi starts the whiteboard when the tablet screen changes. Plug in with USB debugging for pen-exact engage."
         case .wifiStreamNoTablet: template = "Open Daylight Ink on your Daylight to mirror over Wi-Fi."
+        case .adbTermsDeclined: template = "Downloading adb needs Google's Android SDK License accepted. Choose Download again in Settings > Mirror to review it, or pick another adb source."
+        case .adbDownloadFailed: template = "Could not download adb: <reason>. Check the internet connection and try again, or choose Use bundled."
+        case .adbChecksumMismatch: template = "The downloaded adb did not match its checksum and was deleted. Try again, or choose Use bundled."
+        case .adbInstalledMissing: template = "No installed adb found. Daylight looked in your PATH, in Homebrew (/opt/homebrew/bin, /usr/local/bin) and in the Android Studio SDK (ANDROID_HOME, ~/Library/Android/sdk)."
+        case .adbInstalledTooOld: template = "The adb at <path> is version <version>. Daylight needs platform-tools 35 or newer: update it, or choose another adb source."
         }
         var filled = args
         if c == .extensionNeedsApproval && filled.isEmpty { filled = [approvalPathModern] }
@@ -213,6 +228,11 @@ public enum FailureText {
         case .wifiStreamStalled: template = "mirror stream: no packet for <s> s from <label>; key frame requested"
         case .wifiStreamFrameDiffEngage: template = "mirror stream: engage source frame-diff (no USB pen watcher)"
         case .wifiStreamNoTablet: template = "mirror stream: no capable Daylight Ink connection"
+        case .adbTermsDeclined: template = "adb download: terms not accepted for platform-tools <version>"
+        case .adbDownloadFailed: template = "adb download <url> failed: <error>"
+        case .adbChecksumMismatch: template = "adb download: sha256 <got> want <want>"
+        case .adbInstalledMissing: template = "adb installed: none executable in <paths>"
+        case .adbInstalledTooOld: template = "adb installed: <path> version <version> below platform-tools 35"
         }
         return "failure.\(c.rawValue) (row \(c.row)): " + substitute(template, args)
     }

@@ -19,7 +19,13 @@ if [[ ! -f "$out/scrcpy-server-v${SCRCPY_VERSION}" ]]; then
   check "build/tools/scrcpy-server-v${SCRCPY_VERSION}" "$SCRCPY_SERVER_SHA256"
   cp "build/tools/scrcpy-server-v${SCRCPY_VERSION}" "$out/"
 fi
-if [[ ! -f "$out/adb" ]]; then
+# LOOSE_ENDS H1 (8): DAYLIGHT_BUNDLE_ADB=0 leaves Google's adb out of the bundle (the app then defaults to Download on
+# first use, with the same PT_VERSION and PT_SHA256 pinned in AdbClientSources.swift; make scripts-check compares them).
+DAYLIGHT_BUNDLE_ADB="${DAYLIGHT_BUNDLE_ADB:-1}"
+if [[ "$DAYLIGHT_BUNDLE_ADB" == "0" ]]; then
+  rm -f "$out/adb" "$out/NOTICE-platform-tools.txt"
+  echo "fetch-tools: DAYLIGHT_BUNDLE_ADB=0, building without the bundled adb"
+elif [[ ! -f "$out/adb" ]]; then
   curl -fsSL --retry 3 -o build/tools/platform-tools.zip "https://dl.google.com/android/repository/platform-tools_r${PT_VERSION}-darwin.zip"
   check build/tools/platform-tools.zip "$PT_SHA256"
   unzip -l build/tools/platform-tools.zip | tee build/tools/platform-tools-listing.txt | grep -E 'platform-tools/(adb|NOTICE.txt)$' || echo "fetch-tools: WARNING adb or NOTICE.txt not at the expected path (LOOSE_ENDS B2)"
@@ -33,7 +39,7 @@ cp LICENSES/Apache-2.0.txt "$out/LICENSE-Apache-2.0.txt"
 cp THIRD_PARTY_NOTICES.md "$out/THIRD_PARTY_NOTICES.md"
 # Facts for LOOSE_ENDS B2 and THIRD_PARTY_NOTICES.md, kept in the xcodebuild-logs artifact.
 {
-  echo "== fetch-tools: $(date -u +%Y-%m-%dT%H:%M:%SZ) scrcpy-server v${SCRCPY_VERSION}, platform-tools r${PT_VERSION}"
+  echo "== fetch-tools: $(date -u +%Y-%m-%dT%H:%M:%SZ) scrcpy-server v${SCRCPY_VERSION}, platform-tools r${PT_VERSION}, DAYLIGHT_BUNDLE_ADB=${DAYLIGHT_BUNDLE_ADB}"
   ls -l "$out"
   if command -v lipo >/dev/null 2>&1; then echo "lipo -archs adb: $(lipo -archs "$out/adb" 2>&1)"; fi
   if command -v file >/dev/null 2>&1; then file "$out/adb"; fi

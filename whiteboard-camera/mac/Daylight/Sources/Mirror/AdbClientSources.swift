@@ -301,8 +301,10 @@ final class AdbDownloader {
 
     var executable: URL { return directory.appendingPathComponent(AdbClient.vendorExecutableName) }
     var manifestURL: URL { return directory.appendingPathComponent(AdbDownloadManifest.fileName) }
+    var noticeURL: URL { return directory.appendingPathComponent("NOTICE.txt") }
 
-    /// The downloaded adb when it is present, of the pinned version, and its sha256 still matches the manifest.
+    /// The downloaded adb when it is present, of the pinned version, and its sha256 still matches the manifest. A copy
+    /// that no longer matches is deleted with its manifest and notice (row 41), so the next `ensure` downloads again.
     func locateInstalled() -> Result<AdbLocation, AdbSourceError> {
         guard fileManager.isExecutableFile(atPath: executable.path),
               let data = fileManager.contents(atPath: manifestURL.path),
@@ -312,7 +314,10 @@ final class AdbDownloader {
         }
         guard let got = AdbSHA256.hex(of: executable), got == manifest.adbSHA256 else {
             let got = AdbSHA256.hex(of: executable) ?? "unreadable"
+            // Row 41 says the copy "was deleted": remove the binary and its notice as well as the manifest.
             try? fileManager.removeItem(at: manifestURL)
+            try? fileManager.removeItem(at: executable)
+            try? fileManager.removeItem(at: noticeURL)
             return .failure(.checksumMismatch(got: got, want: manifest.adbSHA256))
         }
         return .success(AdbLocation(url: executable, source: .download, version: "platform-tools \(manifest.version)"))
@@ -382,7 +387,7 @@ final class AdbDownloader {
             if fileManager.fileExists(atPath: executable.path) { try fileManager.removeItem(at: executable) }
             try fileManager.moveItem(at: partial, to: executable)
             let notice = work.appendingPathComponent("x/platform-tools/NOTICE.txt")
-            let noticeTarget = directory.appendingPathComponent("NOTICE.txt")
+            let noticeTarget = noticeURL
             if fileManager.fileExists(atPath: notice.path) {
                 if fileManager.fileExists(atPath: noticeTarget.path) { try fileManager.removeItem(at: noticeTarget) }
                 try fileManager.copyItem(at: notice, to: noticeTarget)

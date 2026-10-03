@@ -174,6 +174,7 @@ final class AdbClientSourcesTests: XCTestCase {
         XCTAssertFalse(fm.fileExists(atPath: installDirectory.appendingPathComponent("adb").path))
     }
 
+    /// ADB-3: before the fix only the manifest was removed and the tampered 0755 adb stayed, so the binary check failed.
     func testTamperedCopyFailsTheChecksumBeforeUse() throws {
         let zip = try makeZip()
         let sha = try XCTUnwrap(AdbSHA256.hex(of: zip))
@@ -184,6 +185,9 @@ final class AdbClientSourcesTests: XCTestCase {
         handle.write(Data("# changed\n".utf8))
         try handle.close()
         guard case let .failure(error) = downloader.locateInstalled(), case .checksumMismatch = error else { return XCTFail("tampered adb accepted") }
+        XCTAssertFalse(fm.fileExists(atPath: adb.path), "row 41 says the copy was deleted, so the binary is gone")
+        XCTAssertFalse(fm.fileExists(atPath: installDirectory.appendingPathComponent("NOTICE.txt").path), "and its notice")
+        XCTAssertFalse(fm.fileExists(atPath: downloader.manifestURL.path))
         XCTAssertEqual(downloader.locateInstalled().failureValue, .notDownloaded(version: "37.0.0"), "the manifest is dropped, so the next ensure downloads again")
     }
 

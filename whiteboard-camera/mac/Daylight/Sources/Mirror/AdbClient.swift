@@ -81,7 +81,8 @@ final class AdbClient: AdbRunning {
 
     /// Resolves one adb source to an executable, its source and version (LOOSE_ENDS H1 (2) to (5)). Never downloads:
     /// Download on first use is started from Settings after the terms are accepted (`AdbDownloader.ensure`).
-    /// `recordStatus` false is the Settings preview, which must not change what Diagnostics reports as active.
+    /// `recordStatus` false is the Settings preview: it does not change what Diagnostics reports as active (it can still
+    /// delete a downloaded copy whose checksum no longer matches, as any resolution does).
     static func locateExecutable(_ request: AdbSourceRequest, fileManager: FileManager = .default, recordStatus: Bool = true) -> Result<AdbLocation, AdbSourceError> {
         let source = request.source.effective(bundledAvailable: request.bundledAvailable)
         let result: Result<AdbLocation, AdbSourceError>

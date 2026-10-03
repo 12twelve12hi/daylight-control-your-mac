@@ -304,6 +304,7 @@ One pill, bottom centre of the toolbar in the apps, top centre overlay in mirror
 | searching / connecting | outline, TextMuted text | "Looking for your Mac" |
 | ACK status 1 (bit2 clear) | outline, Amber dot | "Look at your Mac" |
 | denied | outline, Terracotta text | "Not allowed by the Mac" (tap retries) |
+| incompatible (ACK status 3, or the server did not echo `solstream.v1`; PROTOCOL 1 and 10) | outline, Terracotta text | "Update Daylight on your Mac" (tap retries once; no automatic re-dial) |
 | allowed but bit3 clear | outline | "Ink source is <web / Daylight Ink / mirror> on the Mac" (tap shows how to switch) |
 | governor PASSTHROUGH | SurfaceCream fill, InkBlack text | "Camera" |
 | ENGAGING or LIVE, not pinned | PaperBg fill, Amber dot | "LIVE" |

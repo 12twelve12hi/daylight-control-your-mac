@@ -6,7 +6,7 @@ Binding documents: `SPEC.md` (behaviour), `docs/ARCHITECTURE.md` (how), `docs/PR
 
 ## Status
 
-Milestone M0, skeleton. Everything compiles and the protocol codecs pass the shared golden vectors on all three platforms; the camera extension publishes a solid cream 1920x1080 frame at 30 fps; the menu-bar app has a menu and a preview placeholder; the web page draws pen strokes locally; the Android app shows a pen-only placeholder canvas. Nothing ships to a user yet. See `docs/ARCHITECTURE.md` section 12 for the milestone plan.
+Implementation wave 1 merged (components A and D of `docs/IMPLEMENTATION-PLAN.md`): `DaylightKit` implements the full engage governor, spring, layout, stroke store, settings, failure text and RFC 6455 framing with 170 tests that run on Linux and macOS; the web whiteboard is complete (pen-only ink, chip, offline ring, fake Mac, 46 Playwright tests). The camera extension publishes a solid cream 1920x1080 frame at 30 fps; the menu-bar app still has only a menu and a preview placeholder; the Android app shows a pen-only placeholder canvas. Nothing ships to a user yet. See `docs/ARCHITECTURE.md` section 12 for the milestone plan and `docs/handoff/` for each component's handoff.
 
 ## Layout
 

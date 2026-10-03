@@ -26,15 +26,15 @@ Writing rules: no em-dashes; LivePaper is a transflective LCD; the backlight is 
 ### 1.3 First run, row by row
 
 - Location: "Daylight is in your Applications folder." or row 1. On an unsigned build: "This is an unsigned test build. The virtual camera cannot be installed on this Mac. Use Daylight > Preview window to see the output." with a button "Open the preview window".
-- Camera: "Allow camera access so Daylight can show your webcam." with "Allow camera access"; macOS asks; the preview fills within a second of Allow. Denied once: "Camera access is off for Daylight." with "Open System Settings" (Privacy & Security > Camera). macOS 15 may also ask about the local network: Allow.
-- Install Daylight Camera (signed builds): "Click Install to add the Daylight Camera extension." > "Install" > "Approve 'Daylight Camera' in System Settings > General > Login Items & Extensions > Camera Extensions, then click Check again." > "Open System Settings" > switch it on, password > "Check again" > "Daylight Camera is installed and connected." On macOS 13 and 14 the path is System Settings > Privacy & Security > Security. "Restart your Mac once to finish installing Daylight Camera." means a reboot is pending.
-- Your Daylight: the picker "Ink source" (Web whiteboard, Daylight Ink app, Mirror the tablet) and either "A Daylight is on USB (<serial>). Set up over USB does everything for the chosen ink source." with "Set up over USB", or "Open http://<ip>:7788 on your Daylight." with "Copy the address", or "Connect your Daylight to the same Wi-Fi, or plug it in over USB."
+- Camera: "Allow camera access so Daylight can show your webcam." with "Allow camera access"; the first launch does not ask on its own, the button does: macOS asks; the preview fills within a second of Allow. Denied once: "Camera access is off for Daylight." with "Open System Settings" (Privacy & Security > Camera). macOS 15 may also ask about the local network: Allow.
+- Install Daylight Camera (signed builds): the install request goes to macOS by itself at launch, so the row reads "Installing..." and then "Approve 'Daylight Camera' in System Settings > General > Login Items & Extensions > Camera Extensions, then click Check again." > "Open System Settings" > switch it on, password > "Check again" > "Daylight Camera is installed and connected." ("Click Install to add the Daylight Camera extension." with an "Install" button shows only when no request is pending.) On macOS 13 and 14 the path is System Settings > Privacy & Security > Security. "Restart your Mac once to finish installing Daylight Camera." means a reboot is pending.
+- Your Daylight: the picker "Ink source" (Web whiteboard, Daylight Ink app, Mirror the tablet) and either "A Daylight is on USB (<serial>). Set up over USB does everything for the chosen ink source." with "Set up over USB", or "Open http://<ip>:7788 on your Daylight." with "Copy the address", or "Connect your Daylight to the same Wi-Fi, or plug it in over USB." The USB sentence appears with every ink source: while the window is open Daylight runs `adb devices -l` every 5 s (mirror mode tracks devices continuously). When "Set up over USB" stops on a step after the tablet was found, the menu shows "Set up over USB failed: <reason>" instead of row 21.
 - Allow this Daylight?: "Shown when a tablet connects over Wi-Fi." then "Allowed and remembered."
-- Finish: "Open Zoom and pick Daylight Camera.", the toggle "Launch Daylight at login", "Done". Menu bar > "Setup again" reopens the window any time.
+- Finish: "Open Zoom and pick Daylight Camera.", the toggle "Launch Daylight at login", "Done". Closing the window with its red button only hides it until the next launch; "Done" finishes it. Menu bar > "Setup again" reopens the window any time.
 
 ### 1.4 The menu bar
 
-Top to bottom: the version line; "Open http://<ip>:7788 on your Daylight" (one line per address, Tailscale first with "(Tailscale)", click to copy) and a muted "http://<hostname>.local:7788 may also work on Wi-Fi"; while a tablet waits, "Allow <tablet>"; "Ink source" > "Web whiteboard" / "Daylight Ink app" / "Mirror the tablet"; "Hold" > "Auto" / "Camera" / "Studio Split" / "Whiteboard Only"; "Keep whiteboard" (ticked while pinned); "Clear"; "Camera"; "Whiteboard now (Studio Split)"; "Whiteboard now (Whiteboard Only)"; "Preview window"; "Settings..."; "Diagnostics..."; "Setup again"; "Quit Daylight". The icon shows a slashed camera when no webcam is found (row 4). A red dot with "Port 7788 is in use. Daylight is using 7789." (row 16) or "Nobody has connected yet. Same Wi-Fi? Office networks often block this: use USB or Tailscale." (row 18, after 60 s without a tablet) appears when relevant.
+Top to bottom: the version line; "Open http://<ip>:7788 on your Daylight" (one line per address, Tailscale first with "(Tailscale)", click to copy) and a muted "http://<hostname>.local:7788 may also work on Wi-Fi"; while a tablet waits, "Allow <tablet>"; "Ink source" > "Web whiteboard" / "Daylight Ink app" / "Mirror the tablet"; "Hold" > "Auto" / "Camera" / "Studio Split" / "Whiteboard Only"; "Keep whiteboard" (ticked while pinned); "Clear"; "Camera"; "Whiteboard now (Studio Split)"; "Whiteboard now (Whiteboard Only)"; "Preview window"; "Settings..."; "Diagnostics..."; "Setup again"; "Quit Daylight". The icon shows a slashed camera when no webcam is found (row 4). A red dot with "Port 7788 is in use. Daylight is using 7789." (row 16) or "Nobody has connected yet. Same Wi-Fi? Office networks often block this: use USB or Tailscale." (row 18, after 60 s without a tablet) or "Set up over USB failed: <reason>" appears when relevant.
 
 ### 1.5 Picking the camera in apps
 
@@ -62,7 +62,7 @@ Every later day: open the app. It reconnects on its own (Bonjour first, then the
 
 The app's Settings: "Front buffer (lowest latency wet ink)", "Unbuffered input", "Send every pen sample at once (A/B against per-frame batching)", "Start the pills at boot", "Pills at the bottom instead of the top", the Mac address, "Forget this Mac", "Show the pills now" / "Hide the pills", "Setup again", and "This tablet" (the device facts for `docs/LOOSE_ENDS.md` section D).
 
-The tablet needs no USB debugging for this source. The APK is debug-signed in v1 (LOOSE_ENDS A8); a later release key means uninstall and reinstall.
+The tablet needs no USB debugging for this source once the app is installed over Wi-Fi; the "Set up over USB" shortcut does need it. The APK is debug-signed in v1 (LOOSE_ENDS A8); a later release key means uninstall and reinstall.
 
 ### 2.3 Mirror mode
 
@@ -204,7 +204,7 @@ Ctrl+Opt+Cmd+W Whiteboard Only, Ctrl+Opt+Cmd+D Studio Split, Ctrl+Opt+Cmd+K Keep
 
 - [ ] 🟢 Daylight in `/Applications`, opened from there. You see: camera icon in the menu bar, "Welcome to Daylight". ⏱️ 2 minutes
 - [ ] 🟢 "Allow camera access". You see: your face in the preview within a second. ⏱️ 30 seconds
-- [ ] 🟢 Signed build only: "Install", "Open System Settings", switch on, "Check again". You see: "Daylight Camera is installed and connected." ⏱️ 3 minutes
+- [ ] 🟢 Signed build only: "Open System Settings", switch on, "Check again". You see: "Daylight Camera is installed and connected." ⏱️ 3 minutes
 - [ ] 🟢 Web: type the menu-bar address into Chrome on the tablet, "Tap to start", "Allow" on the Mac. You see: chip "Camera". ⏱️ 3 minutes
 - [ ] 🟢 Daylight Ink: cable in, "Ink source" > "Daylight Ink app", "Set up over USB". You see: the app opens, chip "Camera". ⏱️ 3 minutes
 - [ ] 🟢 Mirror: "Ink source" > "Mirror the tablet"; "Diagnostics..." shows `mirror.status: mirroring`. ⏱️ 1 minute

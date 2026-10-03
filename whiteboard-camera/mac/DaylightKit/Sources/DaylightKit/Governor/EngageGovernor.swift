@@ -18,6 +18,9 @@ public struct EngageGovernor {
     private var activeContacts: Set<UUID> = []
     private var lastActivity: Double
     private var engageStart: Double
+    /// The current engage was caused by a stroke (an ink row), not by a pin, a hold, a hotkey or the menu: only such
+    /// an engage may snap back on a cancel (SPEC 5.4).
+    private var strokeCausedEngage = false
     private var preWarningFired = false
     private var preWarningStart: Double = 0
     private var lastNow: Double
@@ -166,36 +169,36 @@ public struct EngageGovernor {
             activeContacts.insert(id)
             markInk()
             if tool == .eraser && !config.engageOnEraser { return }
-            if autoEngageArmed { engage(now: now, effects: &effects) }
+            if autoEngageArmed { engage(now: now, byStroke: true, effects: &effects) }
         case let .penContact(down):
             if down {
                 activeContacts.insert(penSentinel)
                 markInk()
-                if autoEngageArmed { engage(now: now, effects: &effects) }
+                if autoEngageArmed { engage(now: now, byStroke: true, effects: &effects) }
             } else {
                 activeContacts.remove(penSentinel)
             }
         case let .eraserContact(down):
             if down && config.engageOnEraser {
                 markInk()
-                if autoEngageArmed { engage(now: now, effects: &effects) }
+                if autoEngageArmed { engage(now: now, byStroke: true, effects: &effects) }
             }
         case let .pin(value):
             if value == 0 { return }
             setPinned(true, effects: &effects)
-            engage(now: now, effects: &effects)
+            engage(now: now, byStroke: false, effects: &effects)
         case .engage:
-            if hold != .camera { engage(now: now, effects: &effects) }
+            if hold != .camera { engage(now: now, byStroke: false, effects: &effects) }
         case let .layoutHotkey(style):
             if hold != .camera {
                 preferredLayout = style
-                engage(now: now, effects: &effects)
+                engage(now: now, byStroke: false, effects: &effects)
             }
         case let .hold(mode):
             setHold(mode, effects: &effects)
             if let forced = mode.forcedLayout {
                 preferredLayout = forced
-                engage(now: now, effects: &effects)
+                engage(now: now, byStroke: false, effects: &effects)
             }
         case .clear:
             clearPage(&effects)
@@ -214,10 +217,10 @@ public struct EngageGovernor {
         switch event {
         case let .cancel(id):
             let others = activeContacts.subtracting([id])
-            // Snap back only when the stroke itself caused the engage: a pin or a forced hold asked for the board
-            // regardless of the stroke, and PASSTHROUGH must never carry `pinned` or a forced hold.
+            // Snap back only when the stroke itself caused the engage: a pin, a forced hold, a hotkey or the menu
+            // asked for the board regardless of the stroke, and PASSTHROUGH must never carry `pinned` or a forced hold.
             if now - engageStart < config.snapBackWindow && spring.position < config.snapBackMaxProgress && others.isEmpty
-                && !pinned && hold == .auto {
+                && !pinned && hold == .auto && strokeCausedEngage {
                 activeContacts.remove(id)
                 spring.snap(to: 0, at: now)
                 transition(to: .passthrough, effects: &effects)   // snap-back, no save
@@ -327,7 +330,7 @@ public struct EngageGovernor {
             setPinned(false, effects: &effects)
             startReturn(now: now, effects: &effects)
         case .engage:
-            lastActivity = now
+            touch(now: now, effects: &effects)
         case let .layoutHotkey(style):
             if style == preferredLayout {
                 setPinned(false, effects: &effects)
@@ -343,7 +346,7 @@ public struct EngageGovernor {
                 startReturn(now: now, effects: &effects)
             case .auto:
                 setHold(.auto, effects: &effects)
-                lastActivity = now
+                touch(now: now, effects: &effects)
             case .split, .whiteboard:
                 setHold(mode, effects: &effects)
                 if let forced = mode.forcedLayout { preferredLayout = forced }
@@ -363,40 +366,40 @@ public struct EngageGovernor {
             guard isStylusContact(pointer: pointer, phase: phase, pressure: pressure) else { return }
             activeContacts.insert(id)
             markInk()
-            if autoEngageArmed { reengage(now: now, effects: &effects) }
+            if autoEngageArmed { reengage(now: now, byStroke: true, effects: &effects) }
         case let .motion(id):
             if activeContacts.contains(id) {
                 markInk()
-                if autoEngageArmed { reengage(now: now, effects: &effects) }
+                if autoEngageArmed { reengage(now: now, byStroke: true, effects: &effects) }
             }
         case let .penContact(down):
             if down {
                 activeContacts.insert(penSentinel)
                 markInk()
-                if autoEngageArmed { reengage(now: now, effects: &effects) }
+                if autoEngageArmed { reengage(now: now, byStroke: true, effects: &effects) }
             } else {
                 activeContacts.remove(penSentinel)
             }
         case let .eraserContact(down):
-            if down && autoEngageArmed { reengage(now: now, effects: &effects) }   // D36: eraser contact cancels a return
+            if down && autoEngageArmed { reengage(now: now, byStroke: true, effects: &effects) }   // D36: eraser contact cancels a return
         case let .pin(value):
             if value == 1 || (value < 0 && !pinned) {
                 setPinned(true, effects: &effects)
-                reengage(now: now, effects: &effects)
+                reengage(now: now, byStroke: false, effects: &effects)
             } else {
                 setPinned(false, effects: &effects)
             }
         case .engage:
-            reengage(now: now, effects: &effects)
+            reengage(now: now, byStroke: false, effects: &effects)
         case let .layoutHotkey(style):
             preferredLayout = style
-            reengage(now: now, effects: &effects)
+            reengage(now: now, byStroke: false, effects: &effects)
         case let .hold(mode):
             switch mode {
             case .split, .whiteboard:
                 setHold(mode, effects: &effects)
                 if let forced = mode.forcedLayout { preferredLayout = forced }
-                reengage(now: now, effects: &effects)
+                reengage(now: now, byStroke: false, effects: &effects)
             case .camera:
                 setHold(.camera, effects: &effects)
             case .auto:
@@ -423,9 +426,12 @@ public struct EngageGovernor {
         effects.append(.stateChanged(from: from, to: next))
     }
 
-    /// PASSTHROUGH -> ENGAGING (the first row of SPEC 5.2).
-    private mutating func engage(now: Double, effects: inout [GovernorEffect]) {
+    /// PASSTHROUGH -> ENGAGING (the first row of SPEC 5.2). `byStroke` is true only for the ink rows. Only an explicit
+    /// request (a pin) reaches here under hold camera; it brings the board up, so it releases the hold to auto.
+    private mutating func engage(now: Double, byStroke: Bool, effects: inout [GovernorEffect]) {
         guard state == .passthrough else { return }
+        if hold == .camera { setHold(.auto, effects: &effects) }
+        strokeCausedEngage = byStroke
         spring.retarget(1, at: now)
         engageStart = now
         lastActivity = now
@@ -440,9 +446,12 @@ public struct EngageGovernor {
         transition(to: .returning, effects: &effects)
     }
 
-    /// RETURNING -> ENGAGING from the current position and velocity (no discontinuity).
-    private mutating func reengage(now: Double, effects: inout [GovernorEffect]) {
+    /// RETURNING -> ENGAGING from the current position and velocity (no discontinuity). Only an explicit request (pin,
+    /// engage, layout hotkey) reaches here under hold camera; it brings the board up, so it releases the hold to auto.
+    private mutating func reengage(now: Double, byStroke: Bool, effects: inout [GovernorEffect]) {
         guard state == .returning else { return }
+        if hold == .camera { setHold(.auto, effects: &effects) }
+        strokeCausedEngage = byStroke
         spring.retarget(1, at: now)
         engageStart = now
         lastActivity = now

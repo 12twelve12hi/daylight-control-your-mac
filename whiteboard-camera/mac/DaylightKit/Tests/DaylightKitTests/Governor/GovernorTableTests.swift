@@ -161,6 +161,30 @@ final class GovernorTableTests: XCTestCase {
         XCTAssertEqual(out.msToReturn, 90_000)
     }
 
+    func testLiveEngageOrHoldAutoDuringPreWarningCancelsIt() {
+        // Menu "Whiteboard now" with the current layout posts engage; menu "Hold > Auto" while already auto posts
+        // hold(auto). Both reset the idle timer, so the pre-warning must go off with it (no 90 s of amber breathing).
+        for event in [GovernorEvent.engage, .hold(.auto)] {
+            var h = GovernorHarness()
+            h.goLive()
+            h.tickUntil(86)
+            XCTAssertTrue(h.last.preWarning)
+            let out = h.send(event)
+            XCTAssertEqual(out.state, .live)
+            XCTAssertEqual(out.effects, [.preWarningCancelled], "\(event)")
+            XCTAssertFalse(out.preWarning)
+            XCTAssertEqual(out.breath, 0)
+            XCTAssertEqual(out.msToReturn, 90_000)
+            h.tickUntil(170.9)
+            XCTAssertFalse(h.last.preWarning, "no warning before 85 s of new idle")
+            h.tickUntil(171.0)
+            let starts = h.effects.filter { $0.effect == .preWarningStarted }
+            XCTAssertEqual(starts.count, 2, "a fresh pre-warning 85 s after the reset")
+            XCTAssertEqual(starts.last?.t ?? 0, 171.0, accuracy: 1e-9)
+            XCTAssertEqual(h.tickUntil(state: .returning, maxSeconds: 6) ?? 0, 176.0, accuracy: 1e-9)
+        }
+    }
+
     func testLiveHoldCancelsPreWarning() {
         var h = GovernorHarness()
         h.goLive()
@@ -232,6 +256,49 @@ final class GovernorTableTests: XCTestCase {
         p.send(.hold(.camera))
         XCTAssertEqual(p.send(.pin(1)).state, .engaging)
         XCTAssertTrue(p.last.pinned)
+    }
+
+    func testExplicitEngageUnderHoldCameraReleasesTheHold() {
+        // (A) Pin from PASSTHROUGH under hold camera brings the board up and releases the hold, so unpinning gives a
+        // fresh 90 s (SPEC 7) instead of a board that never returns.
+        var h = GovernorHarness()
+        h.send(.hold(.camera))
+        let pinned = h.send(.pin(-1))
+        XCTAssertEqual(pinned.state, .engaging)
+        XCTAssertTrue(pinned.pinned)
+        XCTAssertEqual(pinned.hold, .auto)
+        XCTAssertTrue(pinned.effects.contains(.holdChanged(.auto)))
+        XCTAssertNotNil(h.tickUntil(state: .live, maxSeconds: 1))
+        let unpinned = h.send(.pin(-1))
+        XCTAssertFalse(unpinned.pinned)
+        XCTAssertEqual(unpinned.msToReturn, 90_000)
+        let t0 = h.now
+        XCTAssertEqual(h.tickUntil(state: .returning, maxSeconds: 91) ?? 0, t0 + 90, accuracy: 1.5 / 30)
+
+        // (B) Hold: Camera from LIVE starts the return; an explicit engage during it re-engages and releases the hold.
+        var b = GovernorHarness()
+        b.goLive()
+        XCTAssertEqual(b.send(.hold(.camera)).state, .returning)
+        let engaged = b.send(.engage)
+        XCTAssertEqual(engaged.state, .engaging)
+        XCTAssertEqual(engaged.hold, .auto)
+        XCTAssertTrue(engaged.effects.contains(.holdChanged(.auto)))
+        let t1 = b.now
+        XCTAssertNotNil(b.tickUntil(state: .live, maxSeconds: 1))
+        b.tickUntil(t1 + 84.9)
+        XCTAssertFalse(b.last.preWarning)
+        b.tickUntil(t1 + 85.1)
+        XCTAssertTrue(b.last.preWarning, "the idle timer runs again")
+
+        // (C) The layout hotkey during a Hold: Camera return does the same.
+        var c = GovernorHarness()
+        c.goLive()
+        c.send(.hold(.camera))
+        let hotkey = c.send(.layoutHotkey(.whiteboardOnly))
+        XCTAssertEqual(hotkey.state, .engaging)
+        XCTAssertEqual(hotkey.layout, .whiteboardOnly)
+        XCTAssertEqual(hotkey.hold, .auto)
+        XCTAssertTrue(hotkey.effects.contains(.holdChanged(.auto)))
     }
 
     func testReturningInkWithAutoEngageOffDoesNotReengage() {

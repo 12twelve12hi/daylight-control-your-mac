@@ -178,6 +178,43 @@ final class GovernorScenarioTests: XCTestCase {
         XCTAssertEqual(out.hold, .auto)
     }
 
+    func testSnapBackNeedsTheStrokeThatEngaged() {
+        // A stylus contact tracked in PASSTHROUGH without engaging (auto-engage off, or the eraser without
+        // engageOnEraser), then a hotkey or the menu brings the board up: cancelling that contact inside the window
+        // must not snap the board back (SPEC 5.2: a hotkey brought it up).
+        var config = GovernorConfig()
+        config.springK = 90
+        config.autoEngage = false
+        for request in [GovernorEvent.layoutHotkey(.studioSplit), .engage] {
+            var h = GovernorHarness(config: config)
+            let x = UUID()
+            XCTAssertEqual(h.send(GovernorHarness.stylus(x)).state, .passthrough)
+            XCTAssertEqual(h.send(request).state, .engaging)
+            let out = h.governor.handle(.cancel(strokeID: x), now: 0.02)
+            XCTAssertLessThan(out.progress, config.snapBackMaxProgress, "inside the snap-back progress limit")
+            XCTAssertEqual(out.state, .engaging, "\(request): no snap-back for a board the stroke did not bring up")
+            XCTAssertEqual(out.activeContacts, 0)
+        }
+
+        var eraserConfig = GovernorConfig()
+        eraserConfig.springK = 90
+        var e = GovernorHarness(config: eraserConfig)
+        let rub = UUID()
+        XCTAssertEqual(e.send(GovernorHarness.stylus(rub, tool: .eraser)).state, .passthrough)
+        XCTAssertEqual(e.send(.engage).state, .engaging)
+        XCTAssertEqual(e.governor.handle(.cancel(strokeID: rub), now: 0.02).state, .engaging, "eraser stroke, menu engage")
+
+        // After that board comes down, a stroke-caused engage snaps back again.
+        var again = GovernorHarness(config: eraserConfig)
+        again.send(.engage)
+        again.send(.returnNow)
+        XCTAssertNotNil(again.tickUntil(state: .passthrough, maxSeconds: 2))
+        let y = UUID()
+        let start = again.now
+        XCTAssertEqual(again.send(GovernorHarness.stylus(y)).state, .engaging)
+        XCTAssertEqual(again.governor.handle(.cancel(strokeID: y), now: start + 0.02).state, .passthrough)
+    }
+
     // "pre-warning at exactly 85.0 s, RETURNING at 90.0 s, PASSTHROUGH 0.251 s later with exactly one savePage(.returned)"
 
     func testPreWarningAt85ReturnAt90PassthroughWithOneSave() throws {

@@ -231,41 +231,70 @@ public struct Settings: Codable, Equatable {
         case mirrorTransport, mirrorStreamMaxSize, mirrorStreamBitRate, mirrorStreamMaxFps, mirrorStreamKeyIntervalMs, mirrorDiffThreshold
     }
 
+    /// LOOSE_ENDS J5: every enum key decodes its raw value leniently, so a value from a newer build (a case this build
+    /// does not know), a typo or a wrong JSON type falls back to that key's default instead of failing the whole blob
+    /// (which reset every setting on a downgrade). A known value decodes exactly as before.
+    private static func lenient<T: RawRepresentable>(_ type: T.Type, _ c: KeyedDecodingContainer<CodingKeys>, _ key: CodingKeys, _ fallback: T) -> T where T.RawValue: Decodable {
+        let raw: T.RawValue?
+        do {
+            raw = try c.decodeIfPresent(T.RawValue.self, forKey: key)
+        } catch {
+            raw = nil
+        }
+        return raw.flatMap { T(rawValue: $0) } ?? fallback
+    }
+
+    /// `hotkeys` is keyed by action name: an action this build does not know is dropped, the known ones are kept, and a
+    /// malformed value falls back to the defaults (`validated()` fills any missing action).
+    private static func lenientHotkeys(_ c: KeyedDecodingContainer<CodingKeys>, _ fallback: [HotkeyAction: HotkeyBinding]) -> [HotkeyAction: HotkeyBinding] {
+        let named: [String: HotkeyBinding]?
+        do {
+            named = try c.decodeIfPresent([String: HotkeyBinding].self, forKey: .hotkeys)
+        } catch {
+            return fallback
+        }
+        guard let byName = named else { return fallback }
+        var out: [HotkeyAction: HotkeyBinding] = [:]
+        for (name, binding) in byName {
+            if let action = HotkeyAction(rawValue: name) { out[action] = binding }
+        }
+        return out
+    }
+
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let d = Settings.defaults
         onboardingDone = try c.decodeIfPresent(Bool.self, forKey: .onboardingDone) ?? d.onboardingDone
         onboardingVersion = try c.decodeIfPresent(Int.self, forKey: .onboardingVersion) ?? d.onboardingVersion
         cameraUniqueID = try c.decodeIfPresent(String.self, forKey: .cameraUniqueID) ?? d.cameraUniqueID
-        inkSource = try c.decodeIfPresent(InkSource.self, forKey: .inkSource) ?? d.inkSource
-        preferredLayout = try c.decodeIfPresent(LayoutStyle.self, forKey: .preferredLayout) ?? d.preferredLayout
+        inkSource = Settings.lenient(InkSource.self, c, .inkSource, d.inkSource)
+        preferredLayout = Settings.lenient(LayoutStyle.self, c, .preferredLayout, d.preferredLayout)
         holdMode = .auto
         autoEngage = try c.decodeIfPresent(Bool.self, forKey: .autoEngage) ?? d.autoEngage
         idleTimeoutSeconds = try c.decodeIfPresent(Int.self, forKey: .idleTimeoutSeconds) ?? d.idleTimeoutSeconds
         preWarningSeconds = try c.decodeIfPresent(Int.self, forKey: .preWarningSeconds) ?? d.preWarningSeconds
         springK = try c.decodeIfPresent(Double.self, forKey: .springK) ?? d.springK
         engageOnEraser = try c.decodeIfPresent(Bool.self, forKey: .engageOnEraser) ?? d.engageOnEraser
-        hotkeys = try c.decodeIfPresent([HotkeyAction: HotkeyBinding].self, forKey: .hotkeys) ?? d.hotkeys
+        hotkeys = Settings.lenientHotkeys(c, d.hotkeys)
         port = try c.decodeIfPresent(UInt16.self, forKey: .port) ?? d.port
         bonjourName = try c.decodeIfPresent(String.self, forKey: .bonjourName) ?? d.bonjourName
         trustLoopback = try c.decodeIfPresent(Bool.self, forKey: .trustLoopback) ?? d.trustLoopback
-        mirrorPinClearMode = try c.decodeIfPresent(MirrorPinClearMode.self, forKey: .mirrorPinClearMode) ?? d.mirrorPinClearMode
+        mirrorPinClearMode = Settings.lenient(MirrorPinClearMode.self, c, .mirrorPinClearMode, d.mirrorPinClearMode)
         sideButtonDoublePressMs = try c.decodeIfPresent(Int.self, forKey: .sideButtonDoublePressMs) ?? d.sideButtonDoublePressMs
         sideButtonLongPressMs = try c.decodeIfPresent(Int.self, forKey: .sideButtonLongPressMs) ?? d.sideButtonLongPressMs
         sideButtonSwap = try c.decodeIfPresent(Bool.self, forKey: .sideButtonSwap) ?? d.sideButtonSwap
         mirrorCropInsetsPortrait = try c.decodeIfPresent(CropInsets.self, forKey: .mirrorCropInsetsPortrait) ?? d.mirrorCropInsetsPortrait
         mirrorCropInsetsLandscape = try c.decodeIfPresent(CropInsets.self, forKey: .mirrorCropInsetsLandscape) ?? d.mirrorCropInsetsLandscape
         pillStripHeight = try c.decodeIfPresent(Int.self, forKey: .pillStripHeight) ?? d.pillStripHeight
-        mirrorPillsPosition = try c.decodeIfPresent(PillsPosition.self, forKey: .mirrorPillsPosition) ?? d.mirrorPillsPosition
+        mirrorPillsPosition = Settings.lenient(PillsPosition.self, c, .mirrorPillsPosition, d.mirrorPillsPosition)
         mirrorMaxSize = try c.decodeIfPresent(Int.self, forKey: .mirrorMaxSize) ?? d.mirrorMaxSize
         mirrorBitRate = try c.decodeIfPresent(Int.self, forKey: .mirrorBitRate) ?? d.mirrorBitRate
         mirrorMaxFps = try c.decodeIfPresent(Int.self, forKey: .mirrorMaxFps) ?? d.mirrorMaxFps
         mirrorDeviceSerial = try c.decodeIfPresent(String.self, forKey: .mirrorDeviceSerial) ?? d.mirrorDeviceSerial
-        adbServerMode = try c.decodeIfPresent(AdbServerMode.self, forKey: .adbServerMode) ?? d.adbServerMode
+        adbServerMode = Settings.lenient(AdbServerMode.self, c, .adbServerMode, d.adbServerMode)
         adbPrivatePort = try c.decodeIfPresent(UInt16.self, forKey: .adbPrivatePort) ?? d.adbPrivatePort
         mirrorOverWiFi = try c.decodeIfPresent(Bool.self, forKey: .mirrorOverWiFi) ?? d.mirrorOverWiFi
-        // A raw string, so a value from a newer build (or a typo) maps to the default instead of failing the whole blob.
-        adbSource = (try? c.decodeIfPresent(String.self, forKey: .adbSource)).flatMap { $0 }.flatMap(AdbSource.init(rawValue:)) ?? d.adbSource
+        adbSource = Settings.lenient(AdbSource.self, c, .adbSource, d.adbSource)
         adbTermsAcceptedVersion = try c.decodeIfPresent(String.self, forKey: .adbTermsAcceptedVersion) ?? d.adbTermsAcceptedVersion
         viewerIdleStopSeconds = try c.decodeIfPresent(Int.self, forKey: .viewerIdleStopSeconds) ?? d.viewerIdleStopSeconds
         saveDirectory = try c.decodeIfPresent(URL.self, forKey: .saveDirectory) ?? d.saveDirectory
@@ -276,7 +305,7 @@ public struct Settings: Codable, Equatable {
         frameReuse = try c.decodeIfPresent(Bool.self, forKey: .frameReuse) ?? d.frameReuse
         deadlineIdle = try c.decodeIfPresent(Bool.self, forKey: .deadlineIdle) ?? d.deadlineIdle
         perfLog = try c.decodeIfPresent(Bool.self, forKey: .perfLog) ?? d.perfLog
-        mirrorTransport = try c.decodeIfPresent(MirrorTransport.self, forKey: .mirrorTransport) ?? d.mirrorTransport
+        mirrorTransport = Settings.lenient(MirrorTransport.self, c, .mirrorTransport, d.mirrorTransport)
         mirrorStreamMaxSize = try c.decodeIfPresent(Int.self, forKey: .mirrorStreamMaxSize) ?? d.mirrorStreamMaxSize
         mirrorStreamBitRate = try c.decodeIfPresent(Int.self, forKey: .mirrorStreamBitRate) ?? d.mirrorStreamBitRate
         mirrorStreamMaxFps = try c.decodeIfPresent(Int.self, forKey: .mirrorStreamMaxFps) ?? d.mirrorStreamMaxFps

@@ -29,9 +29,9 @@ Probes, in order:
 
 ## 3. What the perf log measures (`--perf-log`)
 
-One line per second on stdout while running from Terminal, or kept in Diagnostics' last 200 lines when Settings > Advanced > "Perf log (one line per second in the unified log)" is on:
+One line per second on stdout while running from Terminal, or kept in Diagnostics' last 200 lines when Settings > Advanced > "Perf log (one line per second, kept for Diagnostics and the export)" is on:
 
-`perf mode=<passthrough|engaging|split|whiteboard|returning> fps=<pushed per second> dropped=<n> cpu_ms=<encode time per frame> gpu_ms=<GPU time per frame> inflight=<pool buffers busy> zerocopy=<true|false> capture=<running|idle> viewers=<n>`
+`perf mode=<passthrough|engaging|split|whiteboard|overlay|returning> fps=<pushed per second> dropped=<n> cpu_ms=<encode time per frame> gpu_ms=<GPU time per frame> inflight=<pool buffers busy> zerocopy=<true|false> capture=<running|idle> viewers=<n>`
 
 | Field | Meaning | Healthy |
 |---|---|---|
@@ -44,6 +44,8 @@ One line per second on stdout while running from Terminal, or kept in Diagnostic
 | `zerocopy` | passthrough forwards the camera buffer untouched | `true` with a 1080p BGRA IOSurface webcam; `false` means one composed pass per frame (row 5 names the format) |
 | `capture` | `running`, or `idle` when the idle rule stopped the webcam | `idle` 60 s after the last viewer with the preview closed |
 | `viewers` | apps streaming Daylight Camera, read from the extension once a second | 1 in a call, 0 after |
+
+With Overlay switched on (Settings > Overlay > "Enable overlay mode", SPEC 6.7) and only then, a second line follows every second: `perf overlay seg_ms=<last segmentation time> mask_age_ms=<age of the mask in use> seg_dropped=<frames offered while a segmentation was running> state=<matte|rectangle|fellBack>`. `mode=overlay` means the cutout is drawn; a fallen-back Overlay reports `mode=split`. With Overlay off the `perf` line is unchanged (no controller exists). Both lines are in `perf-log.txt` of menu bar > "Export diagnostics..." (the last 200 perf lines).
 
 `--latency-probe` adds, once per session on the first engage, `engage probe: STROKE_START to first moved frame <ms>` (web, native); mirror logs `engage probe: pen contact at <t> (mirror)` and `first decoded frame at <t>`. The `OSSignposter` intervals `capture`, `composite`, `sink.push` (and `decode` in mirror mode) are visible in Instruments under subsystem `com.twelve.daylight`, category `perf`.
 

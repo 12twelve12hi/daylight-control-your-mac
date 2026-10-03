@@ -276,7 +276,7 @@ struct SettingsView: View {
             Stepper("Stop the webcam \(store.settings.viewerIdleStopSeconds) s after the last viewer", value: $store.settings.viewerIdleStopSeconds, in: Settings.viewerIdleStopRange, step: 10)
             Toggle("Frame reuse (measure first)", isOn: $store.settings.frameReuse)
             Toggle("Deadline idling (measure first)", isOn: $store.settings.deadlineIdle)
-            Toggle("Perf log (one line per second in the unified log)", isOn: $store.settings.perfLog)
+            Toggle("Perf log (one line per second, kept for Diagnostics and the export)", isOn: $store.settings.perfLog)
         }
         .padding()
     }

@@ -223,6 +223,17 @@ final class WifiMirrorSource: MirrorFrameSource {
     func start() { onStart?() }
     func stop() { onStop?() }
 
+    /// Drops the last Wi-Fi frame (the transport changed to USB), like `MirrorSource.clear()`: it must not be shown or
+    /// saved later as a picture of another session (finder USB-A2/B3, the Wi-Fi half).
+    func clear() {
+        slot.clear()
+    }
+
+    /// Test hook: puts a frame into the slot as a decoded frame would.
+    func publishForTesting(_ buffer: CVPixelBuffer, ptsUs: UInt64) {
+        slot.publish(buffer, ptsUs: ptsUs)
+    }
+
     var status: MirrorStatus { return statusBox.withLock { $0 } }
 
     /// Decoded frames since launch.

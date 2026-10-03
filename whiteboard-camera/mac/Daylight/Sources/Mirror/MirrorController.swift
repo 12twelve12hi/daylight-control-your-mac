@@ -366,8 +366,10 @@ final class MirrorController: MirrorControl {
     private func transportChanged() {
         log("mirror transport: \(settings.mirrorTransport.rawValue)")
         // The USB slot must not be shown or saved for the other transport, nor come back after a later switch to USB
-        // (USB-A2/B3). The Wi-Fi source keeps its own slot.
+        // (USB-A2/B3). The same holds for the Wi-Fi slot when the transport becomes USB; the Wi-Fi source keeps its
+        // slot otherwise (a later stream replaces it).
         mirrorSource.clear()
+        if !usesWifi { wifiSource.clear() }
         guard started else {
             onStatusChange?(status)
             return

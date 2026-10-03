@@ -493,6 +493,25 @@ final class MirrorControllerTests: XCTestCase {
         controller.stop()
     }
 
+    /// USB-A2/B3, the Wi-Fi half: the Wi-Fi slot kept its last frame across a switch to USB, so a later switch back
+    /// showed and saved that old picture before any new stream. Before the fix both reads returned the buffer.
+    func testASwitchToUSBDropsTheWifiFrame() {
+        let adb = FakeAdb()
+        adb.respond(containing: ["version"], with: FakeAdb.ok("Android Debug Bridge version 1.0.41\n"))
+        let controller = makeController(adb: adb, pipeline: FakePipelineControl())
+        controller.start()
+        waitForStatus(controller) { $0 == .noDevice }
+        switchTransport(controller, to: .wifiStream)
+        controller.wifiSource.publishForTesting(FrameDiffEngageHostedTests.makeBuffer(), ptsUs: 1)
+        XCTAssertNotNil(controller.latestFrameForSave(), "the Wi-Fi frame is the active picture")
+        switchTransport(controller, to: .usb)
+        XCTAssertNil(controller.wifiSource.latest(), "dropped on the switch to USB")
+        switchTransport(controller, to: .wifiStream)
+        XCTAssertNil(controller.latestFrameForSave(), "the old Wi-Fi frame is not saved")
+        XCTAssertNil(controller.activeSource.latest(), "nor shown")
+        controller.stop()
+    }
+
     /// USB-A3/B5: a `.watching` hop queued behind `endSession` set the pen present with no watcher, which disabled
     /// frame-difference engage until the next session. The control queue is held while the probe answers so the hop
     /// lands after `stop()`. Before the fix `penWatcherPresent()` was true at the end.

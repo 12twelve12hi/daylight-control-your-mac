@@ -4,7 +4,7 @@ What is done, what is not, every UNVERIFIED fact with its fallback, what the own
 
 Writing rules: no em-dashes; LivePaper is a transflective LCD; the backlight is DC dimming; VRR is 45 to 90 Hz.
 
-Last CI run on the final integration commit: see the "CI" section (run id, commit, every job green). Section 7 is the review round that followed: what was found, confirmed, fixed, and deliberately left as it was. Section 8 records the owner decisions applied on 2026-10-03.
+Last CI run on the final integration commit: see the "CI" section (run id, commit, every job green). Section 7 is the review round that followed: what was found, confirmed, fixed, and deliberately left as it was. Section 8 records the owner decisions applied on 2026-10-03; section 9 is review round 2.
 
 ---
 
@@ -327,3 +327,29 @@ The owner settled the open decisions of LOOSE_ENDS section A; each is recorded i
 - A6: the bundled adb stays the default; downloading platform-tools on first use and reusing an installed adb are the engineering ticket LOOSE_ENDS H1, with the legal note kept in A6 and `THIRD_PARTY_NOTICES.md`.
 - A14: Apache-2.0. `LICENSE` is the standard text; the scrcpy copy moved to `LICENSES/Apache-2.0.txt` (G15 closed); `make scripts-check` now runs 26 checks, one of them asserting `LICENSE`.
 - The public standalone repository is https://github.com/12twelve12hi/whiteboard-camera-draw (created by the owner, populated on 2026-10-03 by `git subtree split --prefix=whiteboard-camera`, 92 commits, tree identical to this directory); its `ci.yml` runs the same jobs, and CI also keeps running in the monorepo.
+
+---
+
+## 9. Review round 2 (2026-10-03)
+
+A second adversarial pass over the areas round 1 changed most (camera sink client and extension, frame pipeline, ink router and server, web ink) plus the app core, the governor and the tests. Twelve finders (six areas, two lenses each) audited every round-1 fix against its own finding; an independent refuter whose default was "not real" judged every finding; one fixer per area landed the confirmed ones with a test that fails before and passes after. `docs/handoff/vp-review-2.md` holds the per-finding table, the rejected findings with reasons, and the requests to other owners; `docs/LOOSE_ENDS.md` section I holds what stays open.
+
+Counts: 57 findings reached the refuters; 45 confirmed and 6 confirmed-unverified (three of them duplicates across lenses, so 47 distinct), 6 rejected; the VP reopened one rejected finding (WEBA-02, a one-line fix of G3). Every confirmed finding is fixed except PIPB-06 test 1's B24 bound (I9).
+
+What changed for the owner:
+
+- Camera: SPEC 13.3 row 13's second sentence now reaches the menu, Diagnostics and onboarding, timed from losing the device; the "Daylight is not running" card after Quit no longer depends on undocumented CMIO cleanup (the host stops the sink on Quit, the extension stops it when the host's client disconnects); a packaging mistake no longer crash-loops the extension (the charter's item 6 decision: log a fault and keep running with built-in UUIDs pinned by a test).
+- Pipeline: unplugging the webcam in use falls back to another present camera at once (round-1 app-04 only handled a plug-in); a viewer that starts while the camera is off, lost or not authorized gets the cream card instead of no frame; Settings "Layout when engaging" reaches the governor; a capture restart never pushes a raw frame that is not zero-copy eligible, nor one while the board is up.
+- Ink and server: a tablet demoted mid-stroke can still finish its stroke (the board returns); an Allow clicked after the tablet's socket closed is remembered; closed connections are freed; a web page from another site in a browser on the Mac can no longer connect over loopback without the Allow panel (Origin rule, PROTOCOL 8); a malformed first HANDSHAKE gets ACK 3 and 1002 (PROTOCOL 9); the governor's late Clear effects no longer wipe a stroke drawn right after a Clear.
+- Web: strokes the offline ring drops leave the page too, and after a Mac relaunch the tablet keeps the strokes the Mac holds (newest-end alignment); a stale STATE after an Undo is recognised; a dead socket is given up after 25 s of silence with an unanswered PING, so ink is ringed instead of lost; a second drop inside one contact restarts the stroke (G3 closed).
+- App: onboarding "Done" stops its 1 s poll (and its 5 s `adb devices`); the menu's red line clears when its problem is fixed; one Daylight runs at a time; a new save folder applies to the next save; the hotkey recorder names every key.
+- Governor (SPEC D54 to D56): an explicit request that brings the board up releases Hold: Camera; engage or Hold: Auto during the pre-warning cancels it; snap-back applies only to a board a stroke brought up.
+- Tests: 12 hosted-test timing assumptions became condition waits (the e524f5b flake class, a mid-animation pixel probe, Playwright fixed waits); the self-test and the loopback test use a PING/PONG ordering barrier; the self-test asserts the bundled web build, adb architectures, scrcpy-server and APK under `CI=true`; SPEC C3's extension rules are finally exercised by tests.
+
+CI: the fixes compiled and passed in run 37148222326 except one test in the mirror owner's new `WifiMirrorSourceTests` (LOOSE_ENDS I8); the final runs are listed at the end of `docs/handoff/vp-review-2.md`.
+
+Lessons:
+
+- Two lenses per area paid off: the duplicates (PIPA-01/PIPB-02, PIPA-02/PIPB-01, CAMB-03/TSTA-01) were found independently, and each lens also found what the other missed.
+- A refuter that defaults to "not real" removed six findings, among them one that needed the compiler source to settle (APPA-03).
+- `scripts/mac-debug.sh` hides Swift compile errors from the job log; a compile break in another owner's files cost one cycle to locate by reading the code (I7).

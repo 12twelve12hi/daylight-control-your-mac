@@ -284,7 +284,11 @@ Client                                   Mac
   |<-- HANDSHAKE_ACK status 2 ------------|   then close 1008 (the client shows "Not allowed by the Mac" and retries only on user action)
 ```
 
-A loopback connection sets `seenOverUSB = true` on the record and records it as allowed, so the same tablet connecting later over Wi-Fi with the same clientId needs no prompt. Exactly one ink client is "active" at a time per source: the most recently handshaken allowed `web` client when `inkSource == web`, the most recent allowed `ink` client when `inkSource == native`; others receive STATE with bit3 clear and their ink is dropped. `overlay` and `test` roles may send TOGGLE_PIN, CLEAR_CANVAS and AUTO_ENGAGE_RETURN in every ink source; `test` may send everything.
+A loopback connection sets `seenOverUSB = true` on the record and records it as allowed, so the same tablet connecting later over Wi-Fi with the same clientId needs no prompt. Exactly one ink client is "active" at a time per source: the most recently handshaken allowed `web` client when `inkSource == web`, the most recent allowed `ink` client when `inkSource == native`; others receive STATE with bit3 clear and their ink is dropped. `overlay` and `test` roles may send TOGGLE_PIN, CLEAR_CANVAS and AUTO_ENGAGE_RETURN in every ink source; `test` may send everything. A client demoted from active while a stroke is open may still send STROKE_CHUNK, STROKE_COMMIT and STROKE_CANCEL for its own open stroke ids, so the stroke ends and the governor contact is released; new ink from it is dropped.
+
+Loopback is judged by the TCP peer address and the Origin header together: a loopback socket whose upgrade request carries an `Origin` whose host and port differ from its `Host` header (a web page from another site in a browser on the Mac) is treated as a network client and goes through the Allow panel. A request without `Origin` (Daylight Ink, the self-test) is judged by the peer address alone. Role `test` is accepted only from a loopback socket; from any other it gets HANDSHAKE_ACK 3 and close 1002.
+
+The owner's Allow is recorded by clientId: clicking Allow after the pending socket closed still writes the registry, and a redial of the same clientId that is pending gets status 0.
 
 ---
 
@@ -295,7 +299,8 @@ A loopback connection sets `seenOverUSB = true` on the record and records it as 
 | bad magic or version | close 1002 |
 | payload_len mismatch, truncated payload, wrong fixed size for a known opcode | drop message, log once per connection |
 | unknown opcode | ignore, log once per opcode |
-| STROKE_CHUNK count 0 or > 4096; ERASE_STROKES count > 1024; HANDSHAKE name_len 0 or > 200 | drop message, log |
+| STROKE_CHUNK count 0 or > 4096; ERASE_STROKES count > 1024; HANDSHAKE name_len 0 or > 200 after the connection has an identity | drop message, log |
+| a first HANDSHAKE that does not decode (name_len 0 or > 200, short payload, payload_len mismatch) | HANDSHAKE_ACK 3, close 1002 |
 | payload > 1 MiB or WebSocket frame > 2 MiB | close 1009 |
 | no HANDSHAKE within 5 s, or a non-HANDSHAKE first | close 1002 |
 | ink from a pending client | decode and drop (bounded cost), STATE keeps flowing |

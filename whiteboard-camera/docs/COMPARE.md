@@ -62,7 +62,7 @@ Do each block for each source. Write the numbers into the "Measured" rows above 
 ### 4.1 Round trip (2 min per source)
 
 - Web: tap "?" on the page; the card's `rtt <n> ms` line is the WebSocket ping time.
-- Daylight Ink: `adb logcat -s DaylightInk.net` shows `pong N rtt=... ms` lines every 10 s.
+- Daylight Ink: `adb logcat -s DaylightInk.net` shows `pong N rtt=<n>ms` lines every 10 s.
 - Mirror: no round trip; skip.
 
 ### 4.2 Engage latency, pen contact to the first moved frame (5 min per source)
@@ -103,7 +103,7 @@ Daylight Ink is the recommended default: strokes, native input, self-reconnectin
 - [ ] ✍️ Web: draw one stroke from the camera state. You see: `engage probe: STROKE_START to first moved frame <ms>`. Write the number into the web column. ⏱️ 2 minutes
 - [ ] 🟣 Web: tap "?", read `rtt <n> ms`. Write it down. ⏱️ 1 minute
 - [ ] ✍️ "Ink source" > "Daylight Ink app"; draw one stroke. Write the probe number. ⏱️ 2 minutes
-- [ ] 🟣 `adb logcat -s DaylightInk.net`, read `pong N rtt=`. Write it down. ⏱️ 1 minute
+- [ ] 🟣 `adb logcat -s DaylightInk.net`, read `pong N rtt=<n>ms`. Write it down. ⏱️ 1 minute
 - [ ] ✍️ "Ink source" > "Mirror the tablet"; write in the note app. You see: `engage probe: pen contact at <t> (mirror)` and `first decoded frame at <t>`. Write the difference. ⏱️ 2 minutes
 - [ ] 🟣 Stopwatch on the tablet, photograph tablet and preview together, three times, median. Write it down. ⏱️ 5 minutes
 - [ ] 🟣 Activity Monitor CPU and Memory for Daylight: one minute writing, one minute idle, per source. Write six numbers. ⏱️ 10 minutes

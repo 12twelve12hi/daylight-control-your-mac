@@ -21,11 +21,11 @@ Writing rules: no em-dashes; LivePaper is a transflective LCD; the backlight is 
 
 Probes, in order:
 
-1. Render probes at s = 0, 0.5 and 1 for Studio Split portrait, plus Whiteboard Only, landscape Studio Split and the mirror crop fit: cream margin, divider, paper and presenter pixels at the SPEC 6 coordinates; skipped with `WARNING no Metal device on this machine; render probes skipped` when there is no GPU. The first probe also reports the Metal device name and the first command buffer's completion time (cold GPU).
-2. The WebSocket round trip against the real listener: the golden handshake, STROKE_START, STROKE_CHUNK, COMMIT; ACK 0 bytes 16 to 31; STATE with bit2 set then governor state 1 (ENGAGING); the subprotocol echo; the 2 MiB oversize frame closing with 1009.
-3. Ink alpha along the stroke in the ink IOSurface; UNDO returns the alpha to zero; REDO brings it back.
-4. The ink-source switch to Daylight Ink, mirror and back: STATE carries the `ink_source` byte and bit3; a stand-in tablet frame is composed while the source is mirror ("sink: frames pushed while engaged", waited for up to 2 s because the first composed frame can take about 70 ms cold).
-5. Vendor facts: `lipo -archs` and the size of the bundled `adb`, the sha256 of `scrcpy-server-v4.1`, the embedded APK size; extension facts: the three UUIDs identical in both Info.plists, `CMIOExtensionMachServiceName`.
+1. `metal device: <name>`, then the render probes at s = 0, 0.5 and 1 for Studio Split portrait, plus Whiteboard Only, landscape Studio Split and the mirror crop fit: cream margin, divider, paper and presenter pixels at the SPEC 6 coordinates, each with a `render s=<s> gpu <ms> ms` line (the first one is the cold GPU time); skipped with `WARNING no Metal device on this machine; render probes skipped` when there is no GPU.
+2. The real listener on 127.0.0.1: `/healthz` and `/api/info` over HTTP, then the WebSocket round trip with the golden handshake (ACK 0 bytes 16 to 31 equal the golden vector; STATE with bit2 set), STROKE_START, STROKE_CHUNK and COMMIT (STATE with governor 1, ENGAGING).
+3. Ink alpha along the stroke in the ink IOSurface, one committed stroke in the store; UNDO returns the alpha to zero; "sink: frames pushed while engaged" (waited for up to 2 s because the first composed frame can take about 70 ms cold).
+4. The ink-source switch to Daylight Ink and back to web: STATE carries the `ink_source` byte and bit3, ink from the non-active source is dropped; REDO brings the alpha back; then the switch to mirror, where a stand-in tablet frame is composed into the board slot.
+5. Vendor facts: `lipo -archs` and the size of the bundled `adb`, the sha256 of `scrcpy-server-v4.1`, the embedded APK size; extension facts: the three UUIDs identical in both Info.plists, `CMIOExtensionMachServiceName`; one `perf` line; `self-test: PASS`.
 
 ## 3. What the perf log measures (`--perf-log`)
 

@@ -169,7 +169,7 @@ Every key of SPEC section 11, by tab, in plain words. Values outside the range a
 | "Perf log (one line per second in the unified log)" | `perfLog` | off | the `perf` line of `docs/PERFORMANCE.md`, also kept in Diagnostics' last 200 lines |
 | (menu "Hold", never persisted) | `holdMode` | Auto | "Camera", "Studio Split", "Whiteboard Only" force a layout and stop the idle timer; "Auto" re-arms |
 
-Tablet-side keys (SharedPreferences in Daylight Ink, `localStorage` on the web page): `clientId` (generated once; this is what the Mac remembers), `deviceName`, `manualHost`, `frontBuffer`, `unbufferedInput`, `sendPerEvent`, `pillsAtBoot`, `pillsPosition`, `flagHintDismissed`.
+Tablet-side keys. Daylight Ink (SharedPreferences): `clientId` (generated once; this is what the Mac remembers), `deviceName`, `manualHost`, `frontBuffer`, `unbufferedInput`, `sendPerEvent`, `pillsAtBoot`, `pillsPosition`, `flagHintDismissed`, `onboardingDone` and the collected facts `fact.pressureRaw`, `fact.actionButton`, `fact.frontBufferOk`. The web page (`localStorage`): `daylight.clientId`, `daylight.deviceName`, `daylight.flagHintDismissed`.
 
 ---
 
@@ -184,10 +184,10 @@ Ctrl+Opt+Cmd+W Whiteboard Only, Ctrl+Opt+Cmd+D Studio Split, Ctrl+Opt+Cmd+K Keep
 ## 7. Logs and Diagnostics
 
 - Menu bar > "Diagnostics..." (also Settings > Diagnostics): build signed or not, extension state, sink status with the two direction values, capture state and viewers, first-frame camera facts and the zero-copy flag, pipeline numbers, governor state, ink source, listener and port, addresses, clients, allowed tablets, every `mirror.*` fact, the failures seen, and the last 200 log lines. "Copy diagnostics" puts the whole report on the clipboard; paste it into `docs/TESTING-CHECKLIST.md` results or a GitHub issue.
-- Unified log in Terminal: `log stream --predicate 'subsystem == "com.twelve.daylight"' --level info` while Daylight runs; the categories are `perf`, `latency`, `mirror`, `scrcpy`, `stylus`, `decode`, `adb`, `extension` and the app's own.
+- Unified log in Terminal: `log stream --predicate 'subsystem == "com.twelve.daylight"' --level info` while Daylight runs; the categories are `app`, `capture`, `failure`, `governor`, `hotkeys`, `ink`, `latency`, `perf`, `pipeline`, `save`, `server`, `camera`, `cmio`, `installer`, `mirror`, `scrcpy`, `stylus`, `decode` and `adb`.
 - Perf line: Settings > Advanced > "Perf log (one line per second in the unified log)" and read it in Diagnostics, or quit Daylight and run `/Applications/Daylight.app/Contents/MacOS/Daylight --perf-log` from Terminal (one `perf mode=... fps=... dropped=... cpu_ms=... gpu_ms=... inflight=... zerocopy=... capture=... viewers=...` line per second on stdout). `--latency-probe` adds `engage probe: STROKE_START to first moved frame <ms>` once per session. `docs/PERFORMANCE.md` explains the fields.
 - Self-test: `/Applications/Daylight.app/Contents/MacOS/Daylight --self-test --perf-log` (quit the menu bar app first so the port is free) prints one line per probe and ends with `self-test: PASS`.
-- Tablet, Daylight Ink: `adb logcat -s DaylightInk.facts DaylightInk.ink DaylightInk.net` with Daylight's adb (`/Applications/Daylight.app/Contents/Resources/Vendor/adb`), or the app's Settings > "This tablet". Web page: the "?" card shows the same facts the console prints (`daylight-web caps ...` and `daylight-web first pen pointerdown ...`).
+- Tablet, Daylight Ink: `adb logcat -s DaylightInk.facts DaylightInk.ink DaylightInk.net` with Daylight's adb (`/Applications/Daylight.app/Contents/Resources/Vendor/adb`), or the app's Settings > "This tablet". Web page: the "?" card shows the capability facts (`secure`, `wake lock`, `coalesced`, `rawupdate`, `fullscreen`, `display`, `dpr`, `viewport`, `rtt`, `mac`, the user agent); the Chrome console prints `daylight-web caps {...}` and `daylight-web first pen pointerdown ...` (read it with desktop Chrome's `chrome://inspect#devices` over the cable, or `__daylight.consoleFacts` in that console).
 
 ## 8. Uninstall
 

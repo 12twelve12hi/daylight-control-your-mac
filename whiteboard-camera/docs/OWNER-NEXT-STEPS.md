@@ -104,7 +104,7 @@ Done looks like: menu bar > "Diagnostics..." shows `mirror.status: mirroring <se
 3. Pin and Clear here are the two floating pills "Pin" and "Clear" at the top of the tablet (Daylight starts them over the cable) and the pen's side button: double press = Pin, hold for 0.7 s = Clear and return. Settings > Mirror > "Pin and Clear in mirror mode" picks "Floating pills", "Pen side button" or "Both".
 4. The top 96 tablet pixels (where the pills live) are cropped out of the camera picture. If the crop is wrong, Settings > Mirror > Crop, drag the edges over the live picture.
 
-If it fails: "The screen mirror could not start: ..." (row 25; copy the sentence into LOOSE_ENDS); "Pen events not found on this Daylight. Mirror works, but auto-engage and the pen button do not. Use the pills or the Whiteboard hotkey." (row 28: the Wacom input node is not where the code expects; paste the Diagnostics `mirror.pen.status` line (it reads "no pen node among [...]") into LOOSE_ENDS D1); "Pen button events not seen; use the pills." (row 28b). "Recovering video..." for more than 12 s means the decoder is waiting for a key frame; unplug and replug.
+If it fails: "The screen mirror could not start: ..." (row 25; copy the sentence into LOOSE_ENDS); "Pen events not found on this Daylight. Mirror works, but auto-engage and the pen button do not. Use the pills or the Whiteboard hotkey." (row 28: the Wacom input node is not where the code expects; paste the Diagnostics `mirror.pen.status` line (it reads "no pen node among [...]") into LOOSE_ENDS D1); "Pen button events not seen; use the pills." (row 28b). "Recovering video..." means the decoder is waiting for a key frame (row 27); after 12 s without one Daylight restarts the mirror by itself; if the text stays, unplug and replug.
 
 ---
 
@@ -114,7 +114,7 @@ The virtual camera is a macOS system extension, and macOS loads one only from an
 
 1. Developer ID Application certificate (Keychain Access makes the request file; Apple's portal issues the certificate; export it as a `.p12` with a password).
 2. Two App IDs: `com.twelve.daylight` with System Extension and App Groups ticked, `com.twelve.daylight.camera` with App Groups ticked.
-3. Two Developer ID provisioning profiles named exactly "Daylight Developer ID" and "Daylight Camera Developer ID".
+3. Two Developer ID provisioning profiles, one per App ID; call them "Daylight Developer ID" and "Daylight Camera Developer ID" (the build reads each profile's name from the file, so the name itself is yours to choose).
 4. One App Store Connect API Team Key (for notarization): download the `.p8` once, note the Key ID and the Issuer ID.
 5. Eight `gh secret set` commands with the names `DAYLIGHT_TEAM_ID`, `DAYLIGHT_DEVELOPER_ID_P12_BASE64`, `DAYLIGHT_DEVELOPER_ID_P12_PASSWORD`, `DAYLIGHT_APP_PROVISIONING_PROFILE_BASE64`, `DAYLIGHT_EXT_PROVISIONING_PROFILE_BASE64`, `ASC_API_KEY_ID`, `ASC_API_ISSUER_ID`, `ASC_API_PRIVATE_KEY_BASE64`.
 
@@ -207,7 +207,8 @@ Switching ink sources: menu bar > "Ink source" > "Web whiteboard" / "Daylight In
 - [ ] 🟣 Finder: `~/Documents/Daylight Camera/<today>/<time>/page-01.png` and `page-01.json` exist. ⏱️ 1 minute
 - [ ] ✍️ Tap the chip. You see: "KEEP WHITEBOARD" in black. Hold the chip for a second. You see: back to "Camera". ⏱️ 1 minute
 - [ ] ✍️ Press Ctrl+Opt+Cmd+D. You see: Studio Split without drawing; press it again: camera. ⏱️ 1 minute
-- [ ] 📋 Tablet "?" card: copy the "This tablet" facts into LOOSE_ENDS D8 and the `first pen pointerdown` line into D3 and D4. ⏱️ 2 minutes
+- [ ] 📋 Tablet "?" card: copy the "This tablet" facts into LOOSE_ENDS D8. ⏱️ 2 minutes
+- [ ] 📋 Chrome console (desktop Chrome `chrome://inspect#devices` over the cable): copy the `daylight-web first pen pointerdown` line into D3 and D4; Daylight Ink's "This tablet" gives the same facts without a console. ⏱️ 3 minutes
 - [ ] 🟢 Tablet: Developer options > USB debugging on; plug in; "Always allow from this computer", Allow. ⏱️ 3 minutes
 - [ ] 🟢 Mac: "Ink source" > "Daylight Ink app"; Welcome window > "Set up over USB". You see: the app opens on the tablet by itself, its chip reads "Camera". ⏱️ 2 minutes
 - [ ] 🟢 Tablet: "Open the permission screen" > Daylight Ink > "Allow display over other apps" > Back; "Allow notifications"; "Start writing". ⏱️ 2 minutes
@@ -226,5 +227,5 @@ Switching ink sources: menu bar > "Ink source" > "Web whiteboard" / "Daylight In
 - [ ] 🟢 FaceTime > Video > "Daylight Camera". You see: your webcam. Touch the pen: the call slides to Studio Split. You feel: this is the whole product. ⏱️ 2 minutes
 - [ ] 🟡 Quit Daylight while FaceTime is open. You see: a cream card "Daylight is not running. Open Daylight from the menu bar." Reopen Daylight: your webcam is back within 2 s. ⏱️ 1 minute
 - [ ] ⏱️ Close FaceTime and wait 60 s. You see and feel: the webcam LED goes off. Open FaceTime again: the picture is back within a second. ⏱️ 2 minutes
-- [ ] 📋 Tell the integrator: which macOS runs on the M5 Max (LOOSE_ENDS A2), and the six decisions A3, A4, A5, A6, A14 (one line each). ⏱️ 5 minutes
+- [ ] 📋 Tell the integrator: which macOS runs on the M5 Max (LOOSE_ENDS A2), and the five decisions A3, A4, A5, A6, A14 (one line each). ⏱️ 5 minutes
 - [ ] 📋 Then run `docs/TESTING-CHECKLIST.md`, one session at a time (Mac only, web, Daylight Ink, mirror, signed camera). ⏱️ 60 to 90 minutes, in pieces

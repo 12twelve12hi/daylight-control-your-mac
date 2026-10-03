@@ -1,9 +1,11 @@
 // Offline ring: SolStream frames drawn while the socket is down (or still pending Allow) wait here
 // and are replayed in order when the connection becomes live. Bounded by points, not frames, so a
-// Wi-Fi blip never loses a sentence and a long outage drops the OLDEST whole strokes first.
+// Wi-Fi blip never loses a sentence and a long outage drops the OLDEST whole strokes first. A second,
+// frame-count bound keeps a long eraser session (frames that carry no points) from growing without end.
 // No DOM dependency: the Node unit test imports this file.
 
 export const RING_CAPACITY_POINTS = 2000;
+export const RING_CAPACITY_FRAMES = 4096;
 
 export interface RingEntry {
   /** The encoded SolStream frame, ready for `WebSocket.send`. */
@@ -17,10 +19,12 @@ export interface RingEntry {
 export class Ring {
   private entries: RingEntry[] = [];
   private pointTotal = 0;
-  /** Whole strokes dropped because the ring was full (diagnostics). */
+  /** Whole strokes dropped because the point budget was full (diagnostics). */
   droppedStrokes = 0;
+  /** Single oldest frames dropped because the frame budget was full (diagnostics; erase frames mostly). */
+  droppedFrames = 0;
 
-  constructor(readonly capacityPoints: number = RING_CAPACITY_POINTS) {}
+  constructor(readonly capacityPoints: number = RING_CAPACITY_POINTS, readonly capacityFrames: number = RING_CAPACITY_FRAMES) {}
 
   get length(): number {
     return this.entries.length;
@@ -30,7 +34,11 @@ export class Ring {
     return this.pointTotal;
   }
 
-  /** Queues a frame. When the point budget overflows, the oldest stroke (all of its frames) is dropped. */
+  /**
+   * Queues a frame. When the point budget overflows, the oldest stroke (all of its frames) is dropped; when the
+   * frame budget overflows, the oldest frames go one by one. Erase frames are never merged: their order
+   * relative to the ink matters.
+   */
   push(frame: ArrayBuffer, strokeKey: string, points = 0): void {
     this.entries.push({ frame, strokeKey, points });
     this.pointTotal += points;
@@ -39,6 +47,17 @@ export class Ring {
       if (victim === null) break;
       this.dropStroke(victim);
     }
+    while (this.entries.length > this.capacityFrames) {
+      const first = this.entries.shift();
+      if (!first) break;
+      this.pointTotal -= first.points;
+      this.droppedFrames++;
+    }
+  }
+
+  /** A read-only view of the queued entries (diagnostics and tests). */
+  peek(): readonly RingEntry[] {
+    return this.entries;
   }
 
   /** Removes and returns everything in arrival order. */

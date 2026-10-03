@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { Ring, RING_CAPACITY_POINTS } from "../../src/ring.js";
+import { Ring, RING_CAPACITY_FRAMES, RING_CAPACITY_POINTS } from "../../src/ring.js";
 
 function frame(tag: number): ArrayBuffer {
   const b = new ArrayBuffer(1);
@@ -64,4 +64,26 @@ test("clear discards everything", () => {
   r.clear();
   assert.equal(r.length, 0);
   assert.equal(r.points, 0);
+});
+
+test("a frame budget bounds point-free frames too: the oldest frames go one by one and are counted apart", () => {
+  const r = new Ring(2000, 4);
+  for (let i = 1; i <= 6; i++) r.push(frame(i), "");   // six erase frames into a ring of four
+  assert.equal(r.length, 4);
+  assert.deepEqual(r.drain().map(tag), [3, 4, 5, 6]);
+  assert.equal(r.droppedFrames, 2);
+  assert.equal(r.droppedStrokes, 0, "frame drops are not stroke drops");
+  assert.equal(RING_CAPACITY_FRAMES, 4096);
+  assert.equal(new Ring().capacityFrames, 4096);
+});
+
+test("the frame budget keeps the point total right and never reorders erase frames against ink", () => {
+  const r = new Ring(2000, 3);
+  r.push(frame(1), "a", 2);
+  r.push(frame(2), "");         // erase after stroke a
+  r.push(frame(3), "b", 1);
+  r.push(frame(4), "b");        // 4 > 3: frame 1 goes (its 2 points too)
+  assert.equal(r.points, 1);
+  assert.deepEqual(r.drain().map(tag), [2, 3, 4]);
+  assert.equal(r.droppedFrames, 1);
 });

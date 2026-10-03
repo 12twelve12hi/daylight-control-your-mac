@@ -111,10 +111,10 @@ A is pure Swift, so there are no Apple API facts here. Judgement calls the owner
 
 ## 5. Requests for the integrator
 
-1. None blocking. `Package.swift` needs no change (no new resources; fixtures are literals).
-2. Optional golden additions (plan 4, step 8: `handshake_ack_denied`, `handshake_ack_unsupported`, a decode-only `state_extended_24`) were NOT added to `gen_golden.py`, to avoid turning `golden-check`, D's and E's case counts red on the same day. The same bytes are pinned by `CodecLimitsTests` instead (`da0102001000000040e2cfeeb540060080070000380400001e00000002000000` and `...03000000`). Add them to the oracle at M6 if the cross-client parity list (ARCHITECTURE 11.6) wants them; D and E then bump their counts from 26 to 29.
-3. LOOSE_ENDS candidates: erase is not undoable in v1 (UNDO and REDO are stroke based per PROTOCOL 6.7); the web and native clients should mirror that rule.
-4. The handoff README names this file `A-daylightkit.md`; the orchestrator's task text spelled it `a-daylightkit.md`. This is the only copy.
+1. None blocking. `Package.swift` needs no change (no new resources; fixtures are literals). Confirmed in f2d0d43: `Package.swift` unchanged, `make golden-check` green.
+2. Optional golden additions (plan 4, step 8: `handshake_ack_denied`, `handshake_ack_unsupported`, a decode-only `state_extended_24`) were NOT added to `gen_golden.py`, to avoid turning `golden-check`, D's and E's case counts red on the same day. The same bytes are pinned by `CodecLimitsTests` instead (`da0102001000000040e2cfeeb540060080070000380400001e00000002000000` and `...03000000`). Add them to the oracle at M6 if the cross-client parity list (ARCHITECTURE 11.6) wants them; D and E then bump their counts from 26 to 29. Applied in f2d0d43 as LOOSE_ENDS F14 (owner M6).
+3. LOOSE_ENDS candidates: erase is not undoable in v1 (UNDO and REDO are stroke based per PROTOCOL 6.7); the web and native clients should mirror that rule. Applied in f2d0d43 as LOOSE_ENDS F13.
+4. The handoff README names this file `A-daylightkit.md`; the orchestrator's task text spelled it `a-daylightkit.md`. This is the only copy. Noted in f2d0d43: the integrator reads `A-daylightkit.md`; the toolchain facts of section 3 are now in ARCHITECTURE section 18 and the red runs in LOOSE_ENDS B18.
 
 ---
 

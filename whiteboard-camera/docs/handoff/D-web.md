@@ -88,11 +88,11 @@ Console lines to copy into LOOSE_ENDS section D (Chrome menu > More tools is not
 
 ## 4. Requests for the integrator
 
-1. Owner-facing text not in the SPEC section 10 chip table: `"Update Daylight on your Mac"` for the incompatible phase (UNVERIFIED 7 above). Please add a row to SPEC section 10 (or tell D to reuse an existing row) so the text lives in one place; D changes `web/src/chip-state.ts` on request.
-2. LOOSE_ENDS: a line for UNVERIFIED 7 (Chromium rejects a non-echoed subprotocol; the probe heuristic), and the web rows of section D above for D3, D4, D8, D9 with the two console lines as the collection method.
-3. The Mac server must keep three things the suite relies on, all already in PROTOCOL: echo `Sec-WebSocket-Protocol: solstream.v1`; send STATE with bit2 set right after ACK 0 (the chip reads `allowed` from STATE, not only from the ACK); `GET /api/info` with `"app":"daylight"` (the incompatibility probe and the card use it).
-4. ARCHITECTURE 2.5 file list: `web/src/chip-state.ts` (pure chip logic, Node-tested) and `web/tests/solstream-node.mjs` are additional files; `web/tsconfig.e2e.json` typechecks the specs. No change needed elsewhere.
-5. Nothing else: no plist key, no make target, no golden change. `make web` and `make web-test` run unchanged (`web-test.sh` runs `npm run test:unit` then `npx playwright test`; the Playwright `webServer` is now `node tests/fake-mac.mjs 4173`).
+1. Owner-facing text not in the SPEC section 10 chip table: `"Update Daylight on your Mac"` for the incompatible phase (UNVERIFIED 7 above). Please add a row to SPEC section 10 (or tell D to reuse an existing row) so the text lives in one place; D changes `web/src/chip-state.ts` on request. Applied in f2d0d43: SPEC 10 has the row "incompatible" with that exact text; PROTOCOL 6.14 maps ACK 3 and the non-echoed subprotocol onto it; no change to chip-state.ts needed.
+2. LOOSE_ENDS: a line for UNVERIFIED 7 (Chromium rejects a non-echoed subprotocol; the probe heuristic), and the web rows of section D above for D3, D4, D8, D9 with the two console lines as the collection method. Applied in f2d0d43: LOOSE_ENDS E18 and the D3, D4, D8, D9 rows.
+3. The Mac server must keep three things the suite relies on, all already in PROTOCOL: echo `Sec-WebSocket-Protocol: solstream.v1`; send STATE with bit2 set right after ACK 0 (the chip reads `allowed` from STATE, not only from the ACK); `GET /api/info` with `"app":"daylight"` (the incompatibility probe and the card use it). Applied in f2d0d43: recorded for B in ARCHITECTURE section 18 ("Facts B needs from the wave 1 handoffs") and LOOSE_ENDS E18.
+4. ARCHITECTURE 2.5 file list: `web/src/chip-state.ts` (pure chip logic, Node-tested) and `web/tests/solstream-node.mjs` are additional files; `web/tsconfig.e2e.json` typechecks the specs. No change needed elsewhere. Applied in f2d0d43: ARCHITECTURE section 18 row "Web file list (2.5)".
+5. Nothing else: no plist key, no make target, no golden change. `make web` and `make web-test` run unchanged (`web-test.sh` runs `npm run test:unit` then `npx playwright test`; the Playwright `webServer` is now `node tests/fake-mac.mjs 4173`). Noted in f2d0d43; the CI cancellation finding of section 5 became LOOSE_ENDS B16 and per-job concurrency in both workflows.
 
 ---
 

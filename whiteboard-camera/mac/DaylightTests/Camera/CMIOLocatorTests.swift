@@ -73,6 +73,14 @@ final class CMIOLocatorTests: XCTestCase {
         XCTAssertEqual(ViewerWatcher.pollInterval, 1, "SPEC: 1 Hz poll fallback, always on")
     }
 
+    /// Finding 04: a failed property read no longer forgets the stream (which re-registered a listener block every
+    /// second on the fallback path); the stream only changes when the device is gone or carries a new source stream id.
+    func testFailedReadKeepsTheStreamUnlessTheDeviceChanged() {
+        XCTAssertEqual(ViewerWatcher.streamAfterFailedRead(current: 41, located: 41), 41, "same stream: keep it, no new listener")
+        XCTAssertEqual(ViewerWatcher.streamAfterFailedRead(current: 41, located: 51), 51, "the extension was replaced: follow the new id")
+        XCTAssertNil(ViewerWatcher.streamAfterFailedRead(current: 41, located: nil), "device gone: re-locate on the next poll")
+    }
+
     func testWatcherWithoutTheDeviceReportsZeroOnceAndNeverCrashes() {
         let queue = DispatchQueue(label: "camera-tests.viewers")
         let locator = CMIODeviceLocator(deviceUUID: UUID())
@@ -85,6 +93,7 @@ final class CMIOLocatorTests: XCTestCase {
         queue.asyncAfter(deadline: .now() + 0.3) { watcher.poll(); watcher.poll(); polled.fulfill() }
         wait(for: [polled], timeout: 5)
         XCTAssertEqual(watcher.viewerCount, 0)
+        XCTAssertEqual(watcher.listenerRegistrations, 0, "no stream, no read succeeded: no listener block is registered")
         lock.lock()
         XCTAssertTrue(reports.isEmpty, "zero is the initial state; nothing changed, nothing reported")
         lock.unlock()

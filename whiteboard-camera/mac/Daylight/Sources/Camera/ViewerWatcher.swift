@@ -6,6 +6,11 @@ import os
 /// Reads the extension's custom viewers property on the source stream (`4cc_dlvw_glob_0000`, ARCHITECTURE 2.4
 /// item 2) with `CMIOObjectGetPropertyData` once a second, and also registers a `CMIOObjectAddPropertyListenerBlock`
 /// whose firing for a custom property is UNVERIFIED (LOOSE_ENDS E3); the poll is always on. Reports changes only.
+///
+/// The listener is registered at most once per distinct source stream id, and only after one read of the property
+/// succeeded, so an unreadable property (the unverified transport failing) costs one locate per second and registers
+/// nothing, instead of a new listener block per second for the life of the app. A failed read keeps the stream unless
+/// the device is gone or carries a new source stream id (the extension was replaced).
 final class ViewerWatcher {
     static let log = Logger(subsystem: "com.twelve.daylight", category: "camera")
     static let pollInterval: Double = 1
@@ -18,7 +23,10 @@ final class ViewerWatcher {
     private let state = Locked<Int>(0)
     private var timer: DispatchSourceTimer?
     private var stream: CMIOStreamID?
-    private var listenerInstalled = false
+    /// The stream a listener block was registered on (never removed: one per distinct id over the app's life).
+    private var listenerStream: CMIOStreamID?
+    /// How many listener blocks were registered so far (tests assert it stays bounded).
+    private(set) var listenerRegistrations = 0
     private var loggedMissingProperty = false
     private var loggedUnsupported = false
 
@@ -33,7 +41,6 @@ final class ViewerWatcher {
     func setSourceStream(_ stream: CMIOStreamID?) {
         queue.async { [weak self] in
             guard let self = self else { return }
-            if self.stream != stream { self.listenerInstalled = false }
             self.stream = stream
             if stream == nil { self.report(0) }
         }
@@ -62,24 +69,28 @@ final class ViewerWatcher {
     /// One read; on the watcher queue.
     func poll() {
         if stream == nil {
-            guard let found = locator.locate(), let index = CMIODeviceLocator.sourceStreamIndex(streamCount: found.streams.count) else {
+            stream = locateSourceStream()
+            if stream == nil {
                 report(0)
                 return
             }
-            stream = found.streams[index]
-            listenerInstalled = false
         }
         guard let stream = stream else { return }
-        installListenerIfNeeded(on: stream)
         guard let value = CMIOProperties.customValue(stream, fourCC: ViewerWatcher.propertySelector) else {
             if !loggedMissingProperty {
                 loggedMissingProperty = true
                 ViewerWatcher.log.notice("viewers property dlvw not readable on stream \(stream); the idle rule falls back to the sink state")
             }
-            // The stream may have gone away (extension replaced); re-locate on the next poll.
-            self.stream = nil
+            // The stream may have gone away (extension replaced): keep it unless the device is gone or has a new id.
+            let next = ViewerWatcher.streamAfterFailedRead(current: stream, located: locateSourceStream())
+            if next != stream {
+                ViewerWatcher.log.info("viewers source stream \(stream) replaced by \(String(describing: next), privacy: .public)")
+                self.stream = next
+                if next == nil { report(0) }
+            }
             return
         }
+        installListenerIfNeeded(on: stream)
         guard let count = ViewerWatcher.parseCount(value) else {
             if !loggedUnsupported {
                 loggedUnsupported = true
@@ -104,9 +115,24 @@ final class ViewerWatcher {
         }
     }
 
+    /// After a failed read: the same stream while the device still carries it, the new id when the device was replaced
+    /// (a new extension process gets new object ids), nil when no device is found.
+    static func streamAfterFailedRead(current: CMIOStreamID, located: CMIOStreamID?) -> CMIOStreamID? {
+        guard let found = located else { return nil }
+        return found == current ? current : found
+    }
+
+    /// One device walk; the source stream id or nil.
+    private func locateSourceStream() -> CMIOStreamID? {
+        guard let found = locator.locate(), let index = CMIODeviceLocator.sourceStreamIndex(streamCount: found.streams.count) else { return nil }
+        return found.streams[index]
+    }
+
+    /// Registers once per distinct stream id, and only once a read succeeded (the caller guarantees that).
     private func installListenerIfNeeded(on stream: CMIOStreamID) {
-        guard !listenerInstalled else { return }
-        listenerInstalled = true
+        guard listenerStream != stream else { return }
+        listenerStream = stream
+        listenerRegistrations += 1
         var address = CMIOProperties.address(selector: ViewerWatcher.propertySelector)
         let status = CMIOObjectAddPropertyListenerBlock(stream, &address, queue) { [weak self] _, _ in
             self?.poll()

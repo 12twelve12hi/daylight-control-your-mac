@@ -179,7 +179,7 @@ final class WifiMirrorSourceTests: XCTestCase {
         }
         probe.invalidate()
         var s = WifiMirrorSourceTests.wifiSettings()
-        s.mirrorPinClearMode = .penButton   // no pills: the top inset is not forced
+        s.mirrorPinClearMode = .pills   // pills on: the top inset applies (without pills it is 0, CropInsets.effective)
         s.mirrorCropInsetsLandscape = CropInsets(top: 120, left: 160, right: 160, bottom: 0)
         let source = makeSource(s)
         let events = Locked<[GovernorEvent]>([])
@@ -213,7 +213,7 @@ final class WifiMirrorSourceTests: XCTestCase {
         XCTAssertEqual(latest.uv.v0, 0.1, accuracy: 1e-9)
         XCTAssertEqual(latest.uv.u1, 0.9, accuracy: 1e-9)
         XCTAssertEqual(latest.uv.v1, 1.0, accuracy: 1e-9)
-        let usb = MirrorSource.geometry(sessionWidth: 320, sessionHeight: 240, portrait: s.mirrorCropInsetsPortrait, landscape: s.mirrorCropInsetsLandscape, pillsEnabled: false)
+        let usb = MirrorSource.geometry(sessionWidth: 320, sessionHeight: 240, portrait: s.mirrorCropInsetsPortrait, landscape: s.mirrorCropInsetsLandscape, pillsEnabled: true)
         XCTAssertEqual(latest.uv, usb.uv, "the same crop rule as the USB MirrorSource")
         XCTAssertEqual(latest.aspect, usb.aspect, accuracy: 1e-9)
         XCTAssertEqual(source.status, .mirroring(serial: "DC-1", width: 320, height: 240))

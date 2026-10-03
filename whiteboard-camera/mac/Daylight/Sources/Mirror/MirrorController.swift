@@ -356,7 +356,9 @@ final class MirrorController: MirrorControl {
         if !usesWifi { onStatusChange?(new) }
     }
 
-    /// Locates the bundled adb and decides the server policy once; completion on the control queue.
+    /// Locates adb from the source chosen in Settings > Mirror (LOOSE_ENDS H1) and decides the server policy once;
+    /// completion on the control queue. A failure of the Download or Installed source raises its own row (39 to 43) as
+    /// well as row 25 in the status, so the menu names the real cause instead of a Swift enum description.
     private func ensureAdb(_ completion: @escaping (AdbRunning?) -> Void) {
         if let adb = adb {
             completion(adb)
@@ -366,18 +368,14 @@ final class MirrorController: MirrorControl {
         if let injected = injectedAdb {
             client = injected
         } else {
-            switch AdbClient.locateExecutable(vendorDirectory: vendorDirectory) {
-            case let .success(url):
-                client = AdbClient(executable: url, queue: adbQueue)
+            switch AdbClient.locateExecutable(AdbSourceRequest(settings: settings, vendorDirectory: vendorDirectory)) {
+            case let .success(location):
+                client = AdbClient(executable: location.url, queue: adbQueue)
             case let .failure(error):
-                let detail: String
-                switch error {
-                case let .executableMissing(path): detail = "bundled adb missing at \(path) (run make fetch-tools)"
-                default: detail = "\(error)"
-                }
-                log(detail)
+                log(error.logLine)
                 adbUnavailable = true
-                setStatus(.error(.scrcpyServerFailed, detail))
+                setStatus(.error(.scrcpyServerFailed, error.sentence))
+                if let row = error.failure { onFailure?(row.0, row.1) }
                 completion(nil)
                 return
             }

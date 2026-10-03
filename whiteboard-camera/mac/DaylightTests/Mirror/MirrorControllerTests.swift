@@ -61,6 +61,40 @@ final class MirrorControllerTests: XCTestCase {
         XCTAssertTrue(pipeline.posted.isEmpty)
     }
 
+    /// LOOSE_ENDS H1 seam: the controller resolves the adb source from its own settings. Download without accepted
+    /// terms raises row 39 itself (the menu banner) and shows the row's sentence inside row 25 in the status, never a
+    /// Swift enum description; a missing bundled adb keeps row 25's wording and raises nothing else.
+    func testAdbSourceFailureRaisesItsOwnRowAndAReadableStatus() {
+        var settings = Settings.defaults
+        settings.adbServerMode = .shared
+        settings.adbSource = .download
+        settings.adbTermsAcceptedVersion = nil
+        let controller = MirrorController(settings: settings, vendorDirectory: vendor, pipeline: FakePipelineControl(), queue: DispatchQueue(label: "mirror-control"))
+        let raised = Locked<[FailureText.Case]>([])
+        let row39 = expectation(description: "row 39")
+        controller.onFailure = { failure, _ in
+            raised.withLock { $0.append(failure) }
+            if failure == .adbTermsDeclined { row39.fulfill() }
+        }
+        let sentence = FailureText.sentence(.adbTermsDeclined)
+        controller.start()
+        wait(for: [row39], timeout: 8)
+        waitForStatus(controller) { $0 == .error(.scrcpyServerFailed, sentence) }
+        XCTAssertEqual(MirrorController.describe(controller.status), "error: The screen mirror could not start: " + sentence)
+        XCTAssertEqual(raised.withLock { $0 }, [.adbTermsDeclined])
+        controller.stop()
+
+        settings.adbSource = .bundled
+        let bundled = MirrorController(settings: settings, vendorDirectory: vendor, pipeline: FakePipelineControl(), queue: DispatchQueue(label: "mirror-control-bundled"))
+        let other = Locked<[FailureText.Case]>([])
+        bundled.onFailure = { failure, _ in other.withLock { $0.append(failure) } }
+        let missing = vendor.appendingPathComponent(AdbClient.vendorExecutableName).path
+        bundled.start()
+        waitForStatus(bundled) { $0 == .error(.scrcpyServerFailed, "bundled adb missing at \(missing) (run make fetch-tools)") }
+        XCTAssertEqual(other.withLock { $0 }, [], "a missing bundled adb is row 25 only, as before H1")
+        bundled.stop()
+    }
+
     func testReadyDeviceStartsTheSessionAndThePenPathPostsGovernorEvents() {
         let adb = FakeAdb()
         adb.respond(containing: ["devices"], with: FakeAdb.ok("JP0001   device usb:1-1 product:daylight model:Daylight_DC_1 device:dc1 transport_id:1\n"))

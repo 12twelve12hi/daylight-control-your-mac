@@ -258,6 +258,9 @@ Menu bar > "Ink source" > Web / Daylight Ink app / Mirror (also in Settings). Sw
 | Web | Chrome on the DC-1 at `http://<mac>:7788`, added to the home screen | SolStream strokes (tens of bytes per sample) | pen to camera about 35 to 60 ms | STROKE_START with stylus, contact, pressure > 0 | chip, toolbar, hotkeys |
 | Native (Daylight Ink) | the APK, mDNS auto-connect, adb reverse on USB | SolStream strokes | same as web, slightly lower (unbuffered dispatch, TCP_NODELAY) | same | chip, toolbar, hotkeys, pills |
 | Mirror | the tablet's own note app, mirrored over USB debugging | H.264 video of the screen (about 1 MB/s) plus `getevent` lines | 60 to 90 ms engage, 100 to 200 ms picture | `BTN_TOUCH DOWN` while `BTN_TOOL_PEN` on the Wacom evdev node | pills, pen side button, hotkeys |
+| Mirror over Wi-Fi (Daylight Ink screen stream) | the tablet's own note app; Daylight Ink captures the screen (MediaProjection) and streams it over its WebSocket, no USB debugging | H.264 of the screen inside MIRROR_PACKET frames (PROTOCOL 14, up to about 1 MB/s) | engage on the second changed frame plus decode (estimated 100 to 250 ms; not yet measured), picture estimated 100 to 250 ms | frame differencing inside the canvas crop (`FrameDiffEngage`, failure row 37) | pills, hotkeys |
+
+Mirror over Wi-Fi is the Mirror source with Settings > Mirror > Transport set to "Wi-Fi (Daylight Ink screen stream)" (`mirrorTransport = wifiStream`): the same crop, compositor and decoder as USB mirror, fed from the PROTOCOL 14 stream of an allowed Daylight Ink connection instead of scrcpy over adb, and engaged by frame differencing because no pen watcher exists without adb.
 
 Web and native produce a vector record (JSON) and let the Mac render the ink; mirror shows any app on the tablet but produces no vectors. `docs/COMPARE.md` records the owner's measured numbers side by side.
 
@@ -288,6 +291,14 @@ Persisted on the Mac: camera permission (system), extension approval (system), `
 1. Tablet: Settings > About > tap Build number 7 times; Developer options > USB debugging; plug in; accept "Allow USB debugging" with "Always allow from this computer"; if SolOS shows "Disable adb authorization timeout", enable it (otherwise the authorisation expires after 7 days; UNVERIFIED on SolOS).
 2. Mac: `adb track-devices` sees the serial; the Mac pushes `scrcpy-server-v4.1`, forwards the port, starts the server, enumerates input devices with `getevent -pl`, starts the pen watcher, and, if the Pin/Clear mode includes pills, installs the APK as in 9.3 and runs `adb shell am start-foreground-service -n com.twelve.daylight.ink/.OverlayService`. Settings shows the live mirror with four draggable crop edges.
 3. Every later day: plug in; everything happens within about two seconds. Optional Settings toggle "Mirror over Wi-Fi" (D42) tries `adb connect <ip>:5555` when no USB device is present and says "Plug in once to re-enable Wi-Fi mirroring" when it fails.
+
+### 9.4b Mirror over Wi-Fi without USB debugging
+
+1. Mac: Settings > Mirror > Transport = "Wi-Fi (Daylight Ink screen stream)" with the ink source Mirror. Tablet: Daylight Ink is running, connected and allowed (9.3), and has announced the capability with MIRROR_STATUS (PROTOCOL 14.3); without one the Mac shows failure row 38.
+2. The Mac sends MIRROR_CONTROL START (PROTOCOL 14.4) with `mirrorStreamMaxSize`, `mirrorStreamBitRate`, `mirrorStreamMaxFps` and `mirrorStreamKeyIntervalMs`.
+3. The tablet shows the Android screen-capture prompt (Cancel / Start now). Start now begins the stream (MIRROR_HELLO, session, config, frames); Cancel reports CONSENT_DENIED and the Mac shows failure row 34.
+4. While streaming, the tablet shows a persistent notification "Sharing screen with your Mac" with a Stop action; Stop ends the projection (PROJECTION_ENDED).
+5. Consent is asked again after the projection ends (Stop, the system's cast control, or the app ending it); MIRROR_CONTROL STOP keeps the projection, so the next START needs no new prompt, and RELEASE ends it.
 
 ### 9.5 The Allow prompt
 
@@ -349,6 +360,9 @@ Gestures: tap = pin toggle (during a countdown this is "keep it"); long press 60
 | `mirrorDeviceSerial` | String? | nil (first DC-1-looking device) | DeviceTracker |
 | `adbServerMode`, `adbPrivatePort` | auto / shared / private, UInt16 | auto, 27180 | AdbServerPolicy |
 | `mirrorOverWiFi` | Bool | false | mirror (D42) |
+| `mirrorTransport` | usb / wifiStream ("USB (adb)" / "Wi-Fi (Daylight Ink screen stream)") | usb | mirror (9.4b, PROTOCOL 14) |
+| `mirrorStreamMaxSize`, `mirrorStreamBitRate`, `mirrorStreamMaxFps`, `mirrorStreamKeyIntervalMs` | Int 320...1600, Int 1000000...8000000, Int 1...30, Int 500...10000 | 1600, 7000000, 30, 2000 | MIRROR_CONTROL START (PROTOCOL 14.4) |
+| `mirrorDiffThreshold` | Double 0.0005...0.05 | 0.002 | `FrameDiffEngage.Config.changedFraction` (Wi-Fi mirror engage) |
 | `viewerIdleStopSeconds` | Int 10...600 | 60 | idle rule (D32) |
 | `saveDirectory`, `saveStrokesJSON`, `autosaveSeconds` | URL?, Bool, Int 15...600 | ~/Documents/Daylight Camera, true, 60 | SessionSaver |
 | `previewOnLaunch`, `previewFloats` | Bool, Bool | false (true on unsigned builds), true | PreviewWindow |
@@ -432,6 +446,11 @@ Shows: build signed or not; extension status and the two `kCMIOStreamPropertyDir
 | 31 | save failed | menu "Could not save the whiteboard: <error>" | `SessionSaver error` | Documents permission, disk |
 | 32 | Wi-Fi mirror failed | "Plug in once to re-enable Wi-Fi mirroring." | `adb connect <ip>:5555 -> <stdout>` | TCP mode reset after reboot |
 | 33 | capture stopped by the idle rule | Diagnostics: "Webcam capture is paused because no app is viewing Daylight Camera (LED off). It restarts within a second when a call starts." | `capture stopped: viewers=0 preview=hidden` | expected behaviour |
+| 34 | Wi-Fi mirror consent denied | "Daylight Ink was not allowed to share the tablet screen. Tap the Daylight Ink notification on the tablet and choose Start now." | `mirror stream: consent denied by <label>` | MIRROR_STATUS CONSENT_DENIED; the owner tapped Cancel on the screen-capture prompt |
+| 35 | Wi-Fi mirror encoder unavailable | "Your Daylight could not start its screen encoder. Restart Daylight Ink, or use Mirror over USB." | `mirror stream: encoder unavailable on <label> (state <n>)` | MIRROR_STATUS ENCODER_UNAVAILABLE or UNSUPPORTED |
+| 36 | Wi-Fi mirror stalled | "The tablet's screen stream paused. Reconnecting..." | `mirror stream: no packet for <s> s from <label>; key frame requested` | no MIRROR_PACKET for 2 s while STREAMING (PROTOCOL 14.5); REQUEST_KEY_FRAME every 2 s |
+| 37 | Wi-Fi mirror engage by frame differencing | "Mirror over Wi-Fi starts the whiteboard when the tablet screen changes. Plug in with USB debugging for pen-exact engage." | `mirror stream: engage source frame-diff (no USB pen watcher)` | informational; no `getevent` without adb |
+| 38 | Wi-Fi mirror, no capable tablet | "Open Daylight Ink on your Daylight to mirror over Wi-Fi." | `mirror stream: no capable Daylight Ink connection` | no allowed connection announced MIRROR_STATUS |
 
 `docs/TESTING-CHECKLIST.md` lists rows 1, 12, 13, 19, 21, 22, 28, 33 as the ones the owner triggers on purpose on day one.
 
@@ -517,6 +536,9 @@ Measurement: `OSSignposter` intervals (`capture`, `composite`, `ink.apply`, `sin
 - F5 `AdbServerPolicy` never runs `kill-server`; shared 5037 when versions match, private port otherwise with failure row 24.
 - F6 The cable-free toggle follows D42 and shows row 32 on failure.
 - F7 On the owner's device: pen contact engages within 90 ms, double press pins, long press clears, pills appear on the tablet and are absent from the camera picture, rotation keeps the crop region.
+- F8 Wi-Fi stream golden (Kit `MirrorStreamTests`): every `mirror_cases` vector decodes to its fields and every non-decode-only case re-encodes byte-equal; the payloads of HELLO, session, config, key and delta fed to `ScrcpyDemuxer(expectsDummyByte: false)` yield device meta "DC-1", codec h264, session 1200x1600, config, key frame (pts 33333) and delta (pts 66666); `Control.resolved` follows the PROTOCOL 14.4 table (0 = default; max_size 320...1600 rounded down to a multiple of 16; bit rate 1000000...8000000, default 7000000; fps 1...30; key interval 500...10000 ms); the HELLO name is truncated to 63 bytes on a UTF-8 boundary.
+- F9 Wi-Fi stream receiver rules (Kit `MirrorStreamReceiverTests`, PROTOCOL 14.5): MIRROR_PACKET before MIRROR_HELLO is logged once and dropped; a media packet whose size field differs from n, or a session packet with a payload, is dropped, resets the demuxer and requests a key frame at most once per second; no MIRROR_PACKET for 2.0 s while the last status said STREAMING emits the stall (row 36) and REQUEST_KEY_FRAME, again every 2.0 s.
+- F10 Frame-diff engage (Kit `FrameDiffEngageTests`, `LumaGridTests`): a 48x64 luma grid (64x48 landscape) sampled at cell centres inside the crop with Y = (54 R + 183 G + 19 B) >> 8; a frame changed when at least max(4, ceil(0.002 x cells)) cells (7 on 48x64) moved by 24 or more; engage on the second changed frame within 0.25 s of the previous one, so a single clock tick followed by identical repeats never engages; release after 1.0 s without a changed frame.
 
 ### Integrator (project.yml, Makefile, CI, Package.swift, scripts)
 

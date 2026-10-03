@@ -119,6 +119,71 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(s.validated().hotkeys[.keep], Settings.defaultHotkeys[.keep])
     }
 
+    /// Mirror over Wi-Fi keys (SPEC 11, PROTOCOL 14.4): defaults, clamps, JSON tolerance and the derived START control.
+    func testMirrorStreamKeys() throws {
+        let d = Settings.defaults
+        XCTAssertEqual(d.mirrorTransport, .usb)
+        XCTAssertEqual(d.mirrorStreamMaxSize, 1600)
+        XCTAssertEqual(d.mirrorStreamBitRate, 7_000_000)
+        XCTAssertEqual(d.mirrorStreamMaxFps, 30)
+        XCTAssertEqual(d.mirrorStreamKeyIntervalMs, 2000)
+        XCTAssertEqual(d.mirrorDiffThreshold, 0.002)
+        XCTAssertEqual(MirrorTransport.allCases, [.usb, .wifiStream])
+        XCTAssertEqual(MirrorTransport.usb.label, "USB (adb)")
+        XCTAssertEqual(MirrorTransport.wifiStream.label, "Wi-Fi (Daylight Ink screen stream)")
+
+        var s = Settings.defaults
+        s.mirrorStreamMaxSize = 100
+        s.mirrorStreamBitRate = 5
+        s.mirrorStreamMaxFps = 0
+        s.mirrorStreamKeyIntervalMs = 10
+        s.mirrorDiffThreshold = 0.00001
+        var v = s.validated()
+        XCTAssertEqual(v.mirrorStreamMaxSize, 320)
+        XCTAssertEqual(v.mirrorStreamBitRate, 1_000_000)
+        XCTAssertEqual(v.mirrorStreamMaxFps, 1)
+        XCTAssertEqual(v.mirrorStreamKeyIntervalMs, 500)
+        XCTAssertEqual(v.mirrorDiffThreshold, 0.0005)
+        s.mirrorStreamMaxSize = 4000
+        s.mirrorStreamBitRate = 50_000_000
+        s.mirrorStreamMaxFps = 120
+        s.mirrorStreamKeyIntervalMs = 60000
+        s.mirrorDiffThreshold = 0.9
+        v = s.validated()
+        XCTAssertEqual(v.mirrorStreamMaxSize, 1600)
+        XCTAssertEqual(v.mirrorStreamBitRate, 8_000_000)
+        XCTAssertEqual(v.mirrorStreamMaxFps, 30)
+        XCTAssertEqual(v.mirrorStreamKeyIntervalMs, 10000)
+        XCTAssertEqual(v.mirrorDiffThreshold, 0.05)
+        XCTAssertEqual(v, v.validated())
+        s.mirrorDiffThreshold = .nan
+        XCTAssertEqual(s.validated().mirrorDiffThreshold, 0.002)
+
+        var custom = Settings.defaults
+        custom.mirrorTransport = .wifiStream
+        custom.mirrorStreamMaxSize = 1200
+        custom.mirrorStreamBitRate = 4_000_000
+        custom.mirrorStreamMaxFps = 24
+        custom.mirrorStreamKeyIntervalMs = 3000
+        custom.mirrorDiffThreshold = 0.01
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let data = try encoder.encode(custom)
+        let text = String(decoding: data, as: UTF8.self)
+        XCTAssertTrue(text.contains("\"mirrorTransport\":\"wifiStream\""), text)
+        XCTAssertEqual(try JSONDecoder().decode(Settings.self, from: data), custom)
+        let old = try JSONDecoder().decode(Settings.self, from: Data("{\"mirrorMaxSize\":1200}".utf8))
+        XCTAssertEqual(old.mirrorTransport, .usb, "a blob from before the Wi-Fi stream keeps the defaults")
+        XCTAssertEqual(old.mirrorStreamBitRate, 7_000_000)
+
+        XCTAssertEqual(Settings.defaults.mirrorStreamStartControl, MirrorStream.Control.start(maxSize: 1600, bitrateBps: 7_000_000, maxFps: 30, keyIntervalMs: 2000))
+        XCTAssertEqual(custom.mirrorStreamStartControl, MirrorStream.Control.start(maxSize: 1200, bitrateBps: 4_000_000, maxFps: 24, keyIntervalMs: 3000))
+        custom.mirrorStreamMaxSize = 1000
+        XCTAssertEqual(custom.mirrorStreamStartControl.maxSize, 992, "rounded down to a multiple of 16")
+        XCTAssertEqual(custom.frameDiffEngageConfig.changedFraction, 0.01)
+        XCTAssertEqual(Settings.defaults.frameDiffEngageConfig, FrameDiffEngage.Config())
+    }
+
     func testValidatedIsIdempotent() {
         var s = Settings.defaults
         s.idleTimeoutSeconds = 5

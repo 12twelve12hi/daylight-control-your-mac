@@ -41,6 +41,11 @@ public enum FailureText {
         case saveFailed                     // 31
         case wifiMirrorFailed               // 32
         case captureIdle                    // 33
+        case wifiStreamConsentDenied        // 34
+        case wifiStreamEncoderUnavailable   // 35
+        case wifiStreamStalled              // 36
+        case wifiStreamFrameDiffEngage      // 37
+        case wifiStreamNoTablet             // 38
 
         /// The SPEC 13.3 row label.
         public var row: String {
@@ -80,6 +85,11 @@ public enum FailureText {
             case .saveFailed: return "31"
             case .wifiMirrorFailed: return "32"
             case .captureIdle: return "33"
+            case .wifiStreamConsentDenied: return "34"
+            case .wifiStreamEncoderUnavailable: return "35"
+            case .wifiStreamStalled: return "36"
+            case .wifiStreamFrameDiffEngage: return "37"
+            case .wifiStreamNoTablet: return "38"
             }
         }
     }
@@ -131,6 +141,11 @@ public enum FailureText {
         case .saveFailed: template = "Could not save the whiteboard: <error>"
         case .wifiMirrorFailed: template = "Plug in once to re-enable Wi-Fi mirroring."
         case .captureIdle: template = "Webcam capture is paused because no app is viewing Daylight Camera (LED off). It restarts within a second when a call starts."
+        case .wifiStreamConsentDenied: template = "Daylight Ink was not allowed to share the tablet screen. Tap the Daylight Ink notification on the tablet and choose Start now."
+        case .wifiStreamEncoderUnavailable: template = "Your Daylight could not start its screen encoder. Restart Daylight Ink, or use Mirror over USB."
+        case .wifiStreamStalled: template = "The tablet's screen stream paused. Reconnecting..."
+        case .wifiStreamFrameDiffEngage: template = "Mirror over Wi-Fi starts the whiteboard when the tablet screen changes. Plug in with USB debugging for pen-exact engage."
+        case .wifiStreamNoTablet: template = "Open Daylight Ink on your Daylight to mirror over Wi-Fi."
         }
         var filled = args
         if c == .extensionNeedsApproval && filled.isEmpty { filled = [approvalPathModern] }
@@ -184,6 +199,11 @@ public enum FailureText {
         case .saveFailed: template = "SessionSaver error: <error>"
         case .wifiMirrorFailed: template = "adb connect <ip>:5555 -> <stdout>"
         case .captureIdle: template = "capture stopped: viewers=0 preview=hidden"
+        case .wifiStreamConsentDenied: template = "mirror stream: consent denied by <label>"
+        case .wifiStreamEncoderUnavailable: template = "mirror stream: encoder unavailable on <label> (state <n>)"
+        case .wifiStreamStalled: template = "mirror stream: no packet for <s> s from <label>; key frame requested"
+        case .wifiStreamFrameDiffEngage: template = "mirror stream: engage source frame-diff (no USB pen watcher)"
+        case .wifiStreamNoTablet: template = "mirror stream: no capable Daylight Ink connection"
         }
         return "failure.\(c.rawValue) (row \(c.row)): " + substitute(template, args)
     }

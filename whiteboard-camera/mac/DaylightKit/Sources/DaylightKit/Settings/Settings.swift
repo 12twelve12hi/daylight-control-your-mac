@@ -52,6 +52,20 @@ public enum AdbServerMode: String, Codable {
     case privatePort
 }
 
+/// Settings > Mirror > Transport (PROTOCOL 14, LOOSE_ENDS A9): scrcpy over adb, or Daylight Ink's own screen stream.
+public enum MirrorTransport: String, Codable, CaseIterable {
+    case usb
+    case wifiStream
+
+    /// The Settings picker label.
+    public var label: String {
+        switch self {
+        case .usb: return "USB (adb)"
+        case .wifiStream: return "Wi-Fi (Daylight Ink screen stream)"
+        }
+    }
+}
+
 /// Persisted user settings (SPEC section 11). Property names equal the SPEC keys verbatim.
 /// Stored as one JSON blob under `UserDefaults` key `userDefaultsKey`; `holdMode` is never persisted.
 /// Decoding tolerates missing keys (every absent key keeps its default) so older blobs load after an upgrade.
@@ -104,6 +118,14 @@ public struct Settings: Codable, Equatable {
     public var frameReuse: Bool = false
     public var deadlineIdle: Bool = false
     public var perfLog: Bool = false
+    // Mirror over Wi-Fi (Daylight Ink screen stream, PROTOCOL 14.4 ranges).
+    public var mirrorTransport: MirrorTransport = .usb
+    public var mirrorStreamMaxSize: Int = 1600
+    public var mirrorStreamBitRate: Int = 7_000_000
+    public var mirrorStreamMaxFps: Int = 30
+    public var mirrorStreamKeyIntervalMs: Int = 2000
+    /// `FrameDiffEngage.Config.changedFraction`.
+    public var mirrorDiffThreshold: Double = 0.002
 
     public init() {}
 
@@ -128,6 +150,11 @@ public struct Settings: Codable, Equatable {
     public static let viewerIdleStopRange = 10...600
     public static let autosaveRange = 15...600
     public static let portRange: ClosedRange<Int> = 1024...65535
+    public static let mirrorStreamMaxSizeRange = 320...1600
+    public static let mirrorStreamBitRateRange = 1_000_000...8_000_000
+    public static let mirrorStreamMaxFpsRange = 1...30
+    public static let mirrorStreamKeyIntervalRange = 500...10000
+    public static let mirrorDiffThresholdRange: ClosedRange<Double> = 0.0005...0.05
 
     /// Clamps every range of SPEC section 11; `preWarningSeconds <= idleTimeoutSeconds - 1`; a port below 1024 becomes 7788.
     public func validated() -> Settings {
@@ -148,6 +175,12 @@ public struct Settings: Codable, Equatable {
         if s.mirrorBitRate < 1 { s.mirrorBitRate = Settings.defaults.mirrorBitRate }
         if s.mirrorMaxFps < 1 { s.mirrorMaxFps = Settings.defaults.mirrorMaxFps }
         if s.onboardingVersion < 1 { s.onboardingVersion = 1 }
+        s.mirrorStreamMaxSize = Settings.clamp(s.mirrorStreamMaxSize, Settings.mirrorStreamMaxSizeRange)
+        s.mirrorStreamBitRate = Settings.clamp(s.mirrorStreamBitRate, Settings.mirrorStreamBitRateRange)
+        s.mirrorStreamMaxFps = Settings.clamp(s.mirrorStreamMaxFps, Settings.mirrorStreamMaxFpsRange)
+        s.mirrorStreamKeyIntervalMs = Settings.clamp(s.mirrorStreamKeyIntervalMs, Settings.mirrorStreamKeyIntervalRange)
+        if s.mirrorDiffThreshold.isNaN { s.mirrorDiffThreshold = Settings.defaults.mirrorDiffThreshold }
+        s.mirrorDiffThreshold = min(max(s.mirrorDiffThreshold, Settings.mirrorDiffThresholdRange.lowerBound), Settings.mirrorDiffThresholdRange.upperBound)
         for action in HotkeyAction.allCases where s.hotkeys[action] == nil {
             s.hotkeys[action] = Settings.defaultHotkeys[action]
         }
@@ -168,6 +201,7 @@ public struct Settings: Codable, Equatable {
         case mirrorMaxSize, mirrorBitRate, mirrorMaxFps, mirrorDeviceSerial, adbServerMode, adbPrivatePort, mirrorOverWiFi
         case viewerIdleStopSeconds, saveDirectory, saveStrokesJSON, autosaveSeconds, previewOnLaunch, previewFloats
         case frameReuse, deadlineIdle, perfLog
+        case mirrorTransport, mirrorStreamMaxSize, mirrorStreamBitRate, mirrorStreamMaxFps, mirrorStreamKeyIntervalMs, mirrorDiffThreshold
     }
 
     public init(from decoder: Decoder) throws {
@@ -212,6 +246,12 @@ public struct Settings: Codable, Equatable {
         frameReuse = try c.decodeIfPresent(Bool.self, forKey: .frameReuse) ?? d.frameReuse
         deadlineIdle = try c.decodeIfPresent(Bool.self, forKey: .deadlineIdle) ?? d.deadlineIdle
         perfLog = try c.decodeIfPresent(Bool.self, forKey: .perfLog) ?? d.perfLog
+        mirrorTransport = try c.decodeIfPresent(MirrorTransport.self, forKey: .mirrorTransport) ?? d.mirrorTransport
+        mirrorStreamMaxSize = try c.decodeIfPresent(Int.self, forKey: .mirrorStreamMaxSize) ?? d.mirrorStreamMaxSize
+        mirrorStreamBitRate = try c.decodeIfPresent(Int.self, forKey: .mirrorStreamBitRate) ?? d.mirrorStreamBitRate
+        mirrorStreamMaxFps = try c.decodeIfPresent(Int.self, forKey: .mirrorStreamMaxFps) ?? d.mirrorStreamMaxFps
+        mirrorStreamKeyIntervalMs = try c.decodeIfPresent(Int.self, forKey: .mirrorStreamKeyIntervalMs) ?? d.mirrorStreamKeyIntervalMs
+        mirrorDiffThreshold = try c.decodeIfPresent(Double.self, forKey: .mirrorDiffThreshold) ?? d.mirrorDiffThreshold
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -254,5 +294,11 @@ public struct Settings: Codable, Equatable {
         try c.encode(frameReuse, forKey: .frameReuse)
         try c.encode(deadlineIdle, forKey: .deadlineIdle)
         try c.encode(perfLog, forKey: .perfLog)
+        try c.encode(mirrorTransport, forKey: .mirrorTransport)
+        try c.encode(mirrorStreamMaxSize, forKey: .mirrorStreamMaxSize)
+        try c.encode(mirrorStreamBitRate, forKey: .mirrorStreamBitRate)
+        try c.encode(mirrorStreamMaxFps, forKey: .mirrorStreamMaxFps)
+        try c.encode(mirrorStreamKeyIntervalMs, forKey: .mirrorStreamKeyIntervalMs)
+        try c.encode(mirrorDiffThreshold, forKey: .mirrorDiffThreshold)
     }
 }

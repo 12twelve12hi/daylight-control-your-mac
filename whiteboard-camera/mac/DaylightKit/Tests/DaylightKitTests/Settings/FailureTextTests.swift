@@ -3,9 +3,9 @@ import DaylightKit
 
 /// SPEC 13.3 and plan 3.4: 35 cases in row order, exact owner-facing sentences, log lines, placeholder substitution.
 final class FailureTextTests: XCTestCase {
-    func testThirtyFiveCasesInRowOrder() {
+    func testFortyCasesInRowOrder() {
         let names = FailureText.Case.allCases.map { $0.rawValue }
-        XCTAssertEqual(names.count, 35)
+        XCTAssertEqual(names.count, 40)
         XCTAssertEqual(names, [
             "notInApplications", "unsignedBuild", "cameraAccessDenied", "noWebcam", "webcamFormatComposed",
             "extensionMissingEntitlement", "extensionUnsupportedLocation", "extensionDamaged", "extensionSignatureInvalid",
@@ -14,10 +14,13 @@ final class FailureTextTests: XCTestCase {
             "allowDismissed", "webNonSecure", "adbNoDevice", "adbUnauthorized", "adbOffline", "adbVersionClash",
             "scrcpyServerFailed", "scrcpyCodecError", "decoderError", "noPenDevice", "noSideButtonEvents", "pillsInvisible",
             "mdnsNotFound", "saveFailed", "wifiMirrorFailed", "captureIdle",
+            "wifiStreamConsentDenied", "wifiStreamEncoderUnavailable", "wifiStreamStalled", "wifiStreamFrameDiffEngage",
+            "wifiStreamNoTablet",
         ])
         XCTAssertEqual(FailureText.Case.allCases.map { $0.row }, [
             "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "12b", "13", "14", "15", "16", "17", "18", "19", "20",
             "21", "22", "23", "24", "25", "26", "27", "28", "28b", "29", "30", "31", "32", "33",
+            "34", "35", "36", "37", "38",
         ])
     }
 
@@ -101,6 +104,21 @@ final class FailureTextTests: XCTestCase {
         XCTAssertEqual(FailureText.logLine(.noSideButtonEvents), "failure.noSideButtonEvents (row 28b): no BTN_STYLUS after 30 s of inking")
         XCTAssertEqual(FailureText.logLine(.wifiMirrorFailed, ["192.168.1.40", "failed to connect"]), "failure.wifiMirrorFailed (row 32): adb connect 192.168.1.40:5555 -> failed to connect")
         XCTAssertEqual(FailureText.logLine(.captureIdle), "failure.captureIdle (row 33): capture stopped: viewers=0 preview=hidden")
+    }
+
+    /// SPEC 13.3 rows 34 to 38: Mirror over Wi-Fi (Daylight Ink screen stream, PROTOCOL 14).
+    func testWifiStreamRows34To38() {
+        XCTAssertEqual(FailureText.sentence(.wifiStreamConsentDenied), "Daylight Ink was not allowed to share the tablet screen. Tap the Daylight Ink notification on the tablet and choose Start now.")
+        XCTAssertEqual(FailureText.sentence(.wifiStreamEncoderUnavailable), "Your Daylight could not start its screen encoder. Restart Daylight Ink, or use Mirror over USB.")
+        XCTAssertEqual(FailureText.sentence(.wifiStreamStalled), "The tablet's screen stream paused. Reconnecting...")
+        XCTAssertEqual(FailureText.sentence(.wifiStreamFrameDiffEngage), "Mirror over Wi-Fi starts the whiteboard when the tablet screen changes. Plug in with USB debugging for pen-exact engage.")
+        XCTAssertEqual(FailureText.sentence(.wifiStreamNoTablet), "Open Daylight Ink on your Daylight to mirror over Wi-Fi.")
+        XCTAssertEqual(FailureText.logLine(.wifiStreamConsentDenied, ["Mike's DC-1"]), "failure.wifiStreamConsentDenied (row 34): mirror stream: consent denied by Mike's DC-1")
+        XCTAssertEqual(FailureText.logLine(.wifiStreamEncoderUnavailable, ["DC-1", "6"]), "failure.wifiStreamEncoderUnavailable (row 35): mirror stream: encoder unavailable on DC-1 (state 6)")
+        XCTAssertEqual(FailureText.logLine(.wifiStreamStalled, ["2.0", "DC-1"]), "failure.wifiStreamStalled (row 36): mirror stream: no packet for 2.0 s from DC-1; key frame requested")
+        XCTAssertEqual(FailureText.logLine(.wifiStreamFrameDiffEngage), "failure.wifiStreamFrameDiffEngage (row 37): mirror stream: engage source frame-diff (no USB pen watcher)")
+        XCTAssertEqual(FailureText.logLine(.wifiStreamNoTablet), "failure.wifiStreamNoTablet (row 38): mirror stream: no capable Daylight Ink connection")
+        XCTAssertEqual(FailureText.logLine(.wifiStreamStalled), "failure.wifiStreamStalled (row 36): mirror stream: no packet for <s> s from <label>; key frame requested", "placeholders stay without arguments")
     }
 
     func testPlaceholdersWithoutArgumentsStayVerbatim() {

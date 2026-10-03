@@ -6,9 +6,11 @@
 //   GET  /__frames            every decoded frame since the last reset, in arrival order
 //   GET  /__dials             upgrade attempts (ms timestamps), refused ones included
 //   GET  /__clients           { open: n }
+//   GET  /__facts             every POST /api/facts since the last reset: { contentType, status, body }
 //   POST /__reset             forget frames and dials; scenario back to defaults
 //   POST /__scenario {...}    ack 0|1|2|3|"none"; echoProtocol bool; refuse bool; inkSource 0|1|2; state {...}; apk bool;
-//                            silent bool (a dead path: frames are recorded, nothing is answered, nothing is closed)
+//                            silent bool (a dead path: frames are recorded, nothing is answered, nothing is closed);
+//                            factsStatus number|null (answer every POST /api/facts with this status, e.g. 404 for an old Mac)
 //   POST /__ack {status}      send HANDSHAKE_ACK to every open socket (the owner clicked Allow)
 //   POST /__state {...}       send one STATE to every open socket (fields as in encodeState)
 //   POST /__close {code}      close every open socket with that code
@@ -39,13 +41,14 @@ const MIME = {
 };
 
 function defaultScenario() {
-  return { ack: 0, echoProtocol: true, refuse: false, inkSource: 0, state: null, apk: false, closeAfterAck: null, silent: false };
+  return { ack: 0, echoProtocol: true, refuse: false, inkSource: 0, state: null, apk: false, closeAfterAck: null, silent: false, factsStatus: null };
 }
 
 const fake = {
   scenario: defaultScenario(),
   frames: [],
   dials: [],
+  facts: [],
   sockets: new Set(),
   connSeq: 0,
 };
@@ -80,6 +83,70 @@ function readBody(req) {
       try { resolve(text ? JSON.parse(text) : {}); } catch { resolve({}); }
     });
   });
+}
+
+function text(res, status, body) {
+  const data = Buffer.from(body, "utf8");
+  res.writeHead(status, { "Content-Type": "text/plain; charset=utf-8", "Content-Length": data.length, Connection: "close" });
+  res.end(data);
+}
+
+function readRaw(req) {
+  return new Promise((resolve) => {
+    const chunks = [];
+    req.on("data", (c) => chunks.push(c));
+    req.on("end", () => resolve(Buffer.concat(chunks)));
+  });
+}
+
+const FACTS_MAX_BYTES = 16384;
+
+/** PROTOCOL 15.1 body rules; returns a reason or null. Written from the PROTOCOL text, not from the page. */
+function factsProblem(body) {
+  if (body === null || typeof body !== "object" || Array.isArray(body)) return "not an object";
+  if (body.schema !== "daylight-tablet-facts/1") return "schema";
+  if (body.source !== "web" && body.source !== "ink") return "source";
+  if (body.clientId !== undefined && (typeof body.clientId !== "string" || body.clientId.length > 64)) return "clientId";
+  if (typeof body.sentAt !== "string" || Number.isNaN(Date.parse(body.sentAt))) return "sentAt";
+  const facts = body.facts;
+  if (facts === null || typeof facts !== "object" || Array.isArray(facts)) return "facts";
+  const keys = Object.keys(facts);
+  if (keys.length > 64) return "too many keys";
+  for (const k of keys) {
+    const v = facts[k];
+    if (v === null || typeof v === "boolean" || (typeof v === "number" && Number.isFinite(v))) continue;
+    if (typeof v === "string") { if (v.length > 1024) return `value too long: ${k}`; continue; }
+    return `nested value: ${k}`;
+  }
+  return null;
+}
+
+/** POST /api/facts per PROTOCOL 15.1 and 15.2 (or the scripted factsStatus). */
+async function handleFacts(req, res) {
+  if (req.method !== "POST") return text(res, 405, "Method not allowed");
+  const contentType = req.headers["content-type"] ?? "";
+  const record = { contentType, status: 0, body: null };
+  fake.facts.push(record);
+  if (typeof fake.scenario.factsStatus === "number") {
+    record.status = fake.scenario.factsStatus;
+    return text(res, record.status, "scripted");
+  }
+  const origin = req.headers.origin;
+  if (origin !== undefined && origin !== `http://${req.headers.host}`) { record.status = 403; return text(res, 403, "Origin not allowed"); }
+  if (req.headers["content-length"] === undefined) { record.status = 411; return text(res, 411, "Length required"); }
+  if (Number(req.headers["content-length"]) > FACTS_MAX_BYTES) { record.status = 413; return text(res, 413, "Facts too large"); }
+  if (!/^application\/json\s*(;\s*charset=utf-8\s*)?$/i.test(contentType)) {
+    record.status = 415;
+    return text(res, 415, "Content-Type must be application/json");
+  }
+  const raw = await readRaw(req);
+  let body;
+  try { body = JSON.parse(raw.toString("utf8")); } catch { record.status = 400; return text(res, 400, "Bad facts: not JSON"); }
+  record.body = body;
+  const problem = factsProblem(body);
+  if (problem) { record.status = 400; return text(res, 400, `Bad facts: ${problem}`); }
+  record.status = 200;
+  json(res, 200, { ok: true, key: `${body.source}:${body.clientId ?? req.socket.remoteAddress}`, stored: 1 });
 }
 
 function broadcast(buf) {
@@ -128,6 +195,7 @@ const server = createServer(async (req, res) => {
     });
     return;
   }
+  if (path === "/api/facts") return handleFacts(req, res);
   if (path === "/daylight-ink.apk") {
     if (!fake.scenario.apk) {
       res.writeHead(404, { "Content-Type": "text/plain", Connection: "close" });
@@ -142,11 +210,13 @@ const server = createServer(async (req, res) => {
   if (path.startsWith("/__")) {
     if (path === "/__frames") return json(res, 200, fake.frames);
     if (path === "/__dials") return json(res, 200, fake.dials);
+    if (path === "/__facts") return json(res, 200, fake.facts);
     if (path === "/__clients") return json(res, 200, { open: [...fake.sockets].filter((w) => w.readyState === w.OPEN).length });
     const body = req.method === "POST" ? await readBody(req) : {};
     if (path === "/__reset") {
       fake.frames = [];
       fake.dials = [];
+      fake.facts = [];
       fake.scenario = defaultScenario();
       return json(res, 200, { ok: true });
     }

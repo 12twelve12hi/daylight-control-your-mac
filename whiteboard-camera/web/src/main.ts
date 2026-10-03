@@ -2,6 +2,7 @@
 // Start overlay. Served by the Mac at http://<mac>:7788/ (or over adb reverse at http://localhost:7788/).
 import "./styles.css";
 import { capabilities, enterFullscreenAndWake, wakeLockHeld, type Capabilities, type StartResult } from "./caps.js";
+import { PressureTracker, buildFactsPayload, fullscreenStateOf, sendFacts, wakeLockStateOf, type FactsSendResult } from "./facts.js";
 import { Chip } from "./chip.js";
 import type { ConnectionPhase } from "./chip-state.js";
 import { CANVAS_H, CANVAS_W, InkCanvas } from "./ink.js";
@@ -78,6 +79,9 @@ let lastAck: HandshakeAck | null = null;
 let info: ApiInfo | null = null;
 let startResult: StartResult | null = null;
 const consoleFacts: string[] = [];
+const pressure = new PressureTracker();
+let factsLast: FactsSendResult | null = null;
+let factsSending = false;
 
 const client = new InkClient(socketUrl(), identity(), {
   onPhase(phase: ConnectionPhase) {
@@ -186,7 +190,7 @@ function renderCard(): void {
     const dismissed = storageGet(STORAGE_FLAG_DISMISSED) === "1";
     rows.push(`<section class="row flag" data-dismissed="${dismissed}"><h3>Better ink and the screen stays awake over Wi-Fi</h3><p>One time, in Chrome open <code id="flag-url">${flag}</code>, choose Enabled, paste <code id="flag-origin">${origin}</code>, then relaunch Chrome.</p><button type="button" id="flag-dismiss">${dismissed ? "Shown again" : "Got it"}</button></section>`);
   }
-  rows.push(`<section class="row facts"><h3>This tablet</h3><p id="facts">${factsText()}</p></section>`);
+  rows.push(`<section class="row facts"><h3>This tablet</h3><p id="facts">${factsText()}</p><button type="button" id="facts-send"${factsSending ? " disabled" : ""}>Send facts to Mac</button><p id="facts-status" role="status">${factsLast?.text ?? ""}</p></section>`);
   const html = `<div class="card-head"><h2>Daylight Whiteboard</h2><button type="button" id="card-close" aria-label="Close">Close</button></div>${rows.join("")}`;
   if (html === cardHtml) return;
   cardHtml = html;
@@ -196,6 +200,36 @@ function renderCard(): void {
     storageSet(STORAGE_FLAG_DISMISSED, storageGet(STORAGE_FLAG_DISMISSED) === "1" ? "0" : "1");
     renderCard();
   });
+  cardEl.querySelector("#facts-send")?.addEventListener("click", () => void sendFactsToMac());
+}
+
+/** "Send facts to Mac" (PROTOCOL 15): one POST to this origin; the result line is part of the card's text. */
+async function sendFactsToMac(): Promise<void> {
+  if (factsSending) return;
+  factsSending = true;
+  renderCard();
+  const payload = buildFactsPayload({
+    clientId: clientId(),
+    now: new Date(),
+    userAgent: navigator.userAgent,
+    devicePixelRatio: window.devicePixelRatio,
+    viewport: [window.innerWidth, window.innerHeight],
+    displayMode: caps.displayMode,
+    secureContext: caps.secureContext,
+    wakeLockSupported: caps.wakeLock,
+    wakeLockState: wakeLockStateOf(startResult?.wakeLockRequested ?? false, startResult?.wakeLockOk ?? false, wakeLockHeld()),
+    fullscreenState: fullscreenStateOf(startResult?.fullscreenRequested ?? false, startResult?.fullscreenOk ?? false),
+    coalescedEvents: caps.coalescedEvents,
+    rawUpdate: caps.rawUpdate,
+    predictedEvents: caps.predictedEvents,
+    firstPenPointerdown: consoleFacts.find((l) => l.startsWith("daylight-web first pen pointerdown")) ?? null,
+    pressure: pressure.range,
+    rttMs: client.stats.rttMs,
+    macBuild: info?.build ?? null,
+  });
+  factsLast = await sendFacts(payload, (url, init) => fetch(url, init));
+  factsSending = false;
+  renderCard();
 }
 
 function factsText(): string {
@@ -245,6 +279,10 @@ paper.addEventListener("pointerdown", (e) => {
   consoleFacts.push(line);
   console.info(line);
 }, true);
+// Pressure range for "Send facts to Mac"; passive and capture so the ink path never sees a difference.
+for (const type of ["pointerdown", "pointermove"] as const) {
+  paper.addEventListener(type, (e) => pressure.observe(e.pointerType, e.pressure), { capture: true, passive: true });
+}
 
 // -- debug surface for Playwright ------------------------------------------------------
 
@@ -258,6 +296,7 @@ const debug = {
   get ack() { return lastAck; },
   get info() { return info; },
   get start() { return startResult; },
+  get facts() { return factsLast; },
   get ink() { return ink.stats; },
   get client() { return client.stats; },
   get ring() {

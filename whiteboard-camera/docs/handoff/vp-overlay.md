@@ -6,7 +6,7 @@ Owner of Presenter Overlay mode (LOOSE_ENDS A11, v2, off by default): `mac/Dayli
 
 | Item | State | Proof |
 |---|---|---|
-| Overlay mode built, off by default | proven on mac-26 (build, mac-test, mac-smoke); macos-15 mac job blocked by another domain's compile error | https://github.com/12twelve12hi/daylight-control-your-mac/actions/runs/37159468412 |
+| Overlay mode built, off by default | done; acceptance met: every job green (the signing step only warns about the owner's partial secret set) | https://github.com/12twelve12hi/daylight-control-your-mac/actions/runs/37160970105 (macos-15 `mac` job 111314640174 and mac-26: all overlay suites passed, every overlay self-test probe ok, `self-test: PASS`) |
 | Feature invisible unless enabled | met by construction and tests (below) | same run |
 | Passthrough unchanged when off | met: no controller, no queue, no extra lock; the existing `perf` line is byte-identical; OverlayPipelineTests asserts it | same run |
 | On-device quality and cost | UNVERIFIED until the owner runs TESTING-CHECKLIST session 6 | LOOSE_ENDS E29 to E31 |
@@ -59,3 +59,4 @@ Owner of Presenter Overlay mode (LOOSE_ENDS A11, v2, off by default): `mac/Dayli
 
 - 37159335185 on 991bf21: kit-linux red on my test `OverlaySettingsTests.testMissingKeysKeepDefaults` (the blob had no `hotkeys` key, so the full default map applied); fixed in 46db978. Mac jobs skipped behind it.
 - 37159468412 on 46db978: golden, web, android and kit-linux green. mac-26 green on every step: all overlay suites passed, every overlay self-test probe was ok, the Vision probe returned a real 256x192 mask, the encode took 2.31 ms, and the run ended with `self-test: PASS`. The macos-15 `mac` job was red at `make mac-debug` on `App/Export/ZipArchive.swift:44` (type-check timeout on Xcode 16.4). That is the Diagnostics VP's file, recorded here and not touched.
+- 37160970105 on c32357b (after the Diagnostics VP's fix): all six jobs green. In the macos-15 `mac` job, `make mac-debug`, `make mac-test` (OverlayCompositorTests, MaskProcessorTests, OverlayControllerTests, OverlayPipelineTests, OverlayAppModelTests, HotkeysTests and FailureCoverageTests passed, no failed test case) and `make mac-smoke` all passed. Every overlay probe was ok, the encode took 2.29 ms, and the run ended with `self-test: PASS`. The passthrough `perf` line has the same fields as before. The signing step skipped itself with the partial-secrets warning.

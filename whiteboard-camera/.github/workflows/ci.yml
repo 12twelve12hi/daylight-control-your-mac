@@ -177,3 +177,48 @@ jobs:
           path: build/Daylight.dmg
           if-no-files-found: error
           compression-level: 0
+
+  # LOOSE_ENDS H2: the same build and tests on the GitHub-hosted macOS 26 image (label macos-26, GA in the
+  # actions/runner-images README, Arm64, its default Xcode). Non-blocking: continue-on-error keeps a red leg from failing
+  # the run; macos-15 above stays the required leg until this one has been green for a week. No signing step here.
+  mac-26:
+    runs-on: macos-26
+    continue-on-error: true
+    concurrency:
+      group: wbc-mac26-${{ github.ref }}
+      cancel-in-progress: false
+    timeout-minutes: 60
+    needs: [golden, web, kit-linux, android]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: actions/download-artifact@v8
+        with:
+          name: daylight-ink-debug-apk
+          path: android/app/build/outputs/apk/debug
+      - run: brew install xcodegen
+      - run: scripts/ci-env.sh
+      - run: make fetch-tools
+      - run: make embed-apk
+      - run: make web
+      - run: make mac-generate
+      - run: make kit-test
+      - run: make mac-debug
+      - run: make mac-test
+      - run: make mac-smoke
+      - uses: actions/upload-artifact@v7
+        with:
+          name: Daylight-unsigned-macos-26
+          path: build/Daylight-unsigned.zip
+          if-no-files-found: error
+          compression-level: 0
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: xcodebuild-logs-macos-26
+          path: build/xcodebuild-logs
+          if-no-files-found: ignore

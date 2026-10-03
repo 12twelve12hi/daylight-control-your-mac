@@ -14,7 +14,7 @@ public struct EngageGovernor {
     private var spring: CriticalSpring
     private var pinned = false
     private var hold: HoldMode = .auto
-    private var preferredLayout: LayoutStyle = .studioSplit
+    private var preferredLayout: LayoutStyle
     private var activeContacts: Set<UUID> = []
     private var lastActivity: Double
     private var engageStart: Double
@@ -33,6 +33,7 @@ public struct EngageGovernor {
 
     public init(config: GovernorConfig = GovernorConfig(), now: Double) {
         self.config = config
+        preferredLayout = config.preferredLayout
         spring = CriticalSpring(k: config.springK, m: 1, position: 0)
         spring.snap(to: 0, at: now)
         lastActivity = now

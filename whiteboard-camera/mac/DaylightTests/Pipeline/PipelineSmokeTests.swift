@@ -111,6 +111,32 @@ final class PipelineSmokeTests: XCTestCase {
         pipeline.shutdown()
     }
 
+    func testSettingsPreferredLayoutDrivesEngage() throws {
+        // Settings "Layout when engaging" (SPEC 5, SPEC 11 `preferredLayout`): read at launch, and a change goes through
+        // the same config path as the other governor settings (at once in PASSTHROUGH, on the next return otherwise).
+        let sink = FakeSink()
+        let capture = FakeCapture()
+        var whiteboard = Settings.defaults
+        whiteboard.preferredLayout = .whiteboardOnly
+        let pipeline = try makePipeline(sink: sink, capture: capture, settings: whiteboard)
+        pipeline.start()
+        XCTAssertEqual(pipeline.governorSnapshot.layout, .whiteboardOnly, "the launch config carries the layout")
+        pipeline.post(.engage)
+        XCTAssertTrue(waitUntil(10) { pipeline.governorSnapshot.state == .live })
+        XCTAssertEqual(pipeline.governorSnapshot.layout, .whiteboardOnly)
+        pipeline.updateSettings(Settings.defaults)
+        XCTAssertEqual(pipeline.governorSnapshot.layout, .whiteboardOnly, "mid-call the layout change waits for the return")
+        pipeline.post(.returnNow)
+        XCTAssertTrue(waitUntil(10) { pipeline.governorConfig.preferredLayout == .studioSplit }, "the pending config applies on the return")
+        XCTAssertEqual(pipeline.governorSnapshot.layout, .studioSplit)
+        pipeline.updateSettings(whiteboard)
+        XCTAssertEqual(pipeline.governorConfig.preferredLayout, .whiteboardOnly, "in PASSTHROUGH the change applies at once")
+        pipeline.post(.engage)
+        XCTAssertTrue(waitUntil(10) { pipeline.governorSnapshot.state == .live })
+        XCTAssertEqual(pipeline.governorSnapshot.layout, .whiteboardOnly)
+        pipeline.shutdown()
+    }
+
     func testCaptureWaitsForCameraAuthorization() throws {
         let sink = FakeSink()
         let capture = FakeCapture()

@@ -301,6 +301,20 @@ final class GovernorTableTests: XCTestCase {
         XCTAssertTrue(hotkey.effects.contains(.holdChanged(.auto)))
     }
 
+    func testConfigPreferredLayoutDrivesEngage() {
+        var settings = Settings.defaults
+        settings.preferredLayout = .whiteboardOnly
+        let config = GovernorConfig(settings: settings)
+        XCTAssertEqual(config.preferredLayout, .whiteboardOnly)
+        XCTAssertNotEqual(config, GovernorConfig(settings: Settings.defaults), "a layout change alone is a config change (applied in PASSTHROUGH or on the next return)")
+        var h = GovernorHarness(config: config)
+        XCTAssertEqual(h.last.layout, .whiteboardOnly)
+        let out = h.send(GovernorHarness.stylus())
+        XCTAssertEqual(out.state, .engaging)
+        XCTAssertEqual(out.layout, .whiteboardOnly, "a pen touch engages in the Settings layout")
+        XCTAssertEqual(GovernorHarness().last.layout, .studioSplit, "the default stays Studio Split")
+    }
+
     func testReturningInkWithAutoEngageOffDoesNotReengage() {
         var config = GovernorConfig()
         config.autoEngage = false

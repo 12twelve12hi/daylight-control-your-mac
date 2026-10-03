@@ -81,10 +81,12 @@ public struct GovernorConfig: Equatable {
     public var springK: Double = 1200
     public var engageOnEraser: Bool = false
     public var autoEngage: Bool = true
+    /// The layout an engage starts in until a hotkey or a hold picks another (Settings "Layout when engaging").
+    public var preferredLayout: LayoutStyle = .studioSplit
     public init() {}
 
     /// The governor settings of SPEC section 11 (`idleTimeoutSeconds`, `preWarningSeconds`, `springK`,
-    /// `engageOnEraser`, `autoEngage`), after `validated()`.
+    /// `engageOnEraser`, `autoEngage`, `preferredLayout`), after `validated()`.
     public init(settings: Settings) {
         let s = settings.validated()
         idleTimeout = Double(s.idleTimeoutSeconds)
@@ -92,5 +94,6 @@ public struct GovernorConfig: Equatable {
         springK = s.springK
         engageOnEraser = s.engageOnEraser
         autoEngage = s.autoEngage
+        preferredLayout = s.preferredLayout
     }
 }

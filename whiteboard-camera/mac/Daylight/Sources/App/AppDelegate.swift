@@ -34,6 +34,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var onboarding: OnboardingWindowController?
     private var settingsWindow: SettingsWindowController?
     private var diagnostics: DiagnosticsWindowController?
+    private lazy var diagnosticsExport = DiagnosticsExport(app: self)
     /// Component F's `MirrorController` (ARCHITECTURE 18, "B's `AppDelegate` wiring"); `mirrorController` is the same
     /// object with its concrete members (`serverPort`, `updateSettings`) for the few places that need them.
     private var mirror: MirrorControl?
@@ -153,6 +154,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.telemetry = telemetry
         model.preview = preview
         menuBar = MenuBar(model: model)
+        menuBar?.onExportDiagnostics = { [weak self] in self?.diagnosticsExport.start() }
         model.onOpenSettings = { [weak self] in self?.showSettings() }
         model.onOpenDiagnostics = { [weak self] in self?.showDiagnostics() }
         model.onSetupAgain = { [weak self] in self?.showOnboarding(force: true) }
@@ -476,6 +478,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.server = server
         server.onLog = { [weak self] line in self?.telemetry.note("server", line) }
         server.onFailed = { [weak self] failure, args in DispatchQueue.main.async { self?.model.noteFailure(failure, args) } }
+        server.factsStore = TabletFactsStore.shared
+        server.factsAllowed = { [registry = self.registry] id in registry?.isAllowed(id: id) ?? false }
         server.onReady = { [weak self] bound in
             DispatchQueue.main.async {
                 self?.model.refresh()

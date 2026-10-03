@@ -51,6 +51,7 @@ enum SelfTest {
         socketRoundTrip(device: device, report: report, perfLog: arguments.perfLog)
         vendorFacts(report: report)
         extensionFacts(report: report)
+        diagnosticsExportProbe(report: report)
         report.note(Telemetry.perfLine(PipelineStats()))
         report.note(report.failures == 0 ? "PASS" : "\(report.failures) probe(s) failed")
         fflush(stdout)
@@ -638,6 +639,73 @@ enum SelfTest {
                 report.note("extension: \(name) (Info.plist unreadable)")
             }
         }
+    }
+
+    // MARK: Diagnostics export (docs/FEEDBACK.md, PROTOCOL 15)
+
+    /// The export with the real collectors into a temp folder (never Documents) and without "Run self-test first" (no
+    /// recursion); `log show` looks back 5 minutes with a 10 s timeout so the probe stays well inside mac-smoke's
+    /// 120 s. The zip must read back and MANIFEST.txt must list every file with its size; a missing part is fine when
+    /// MANIFEST names it.
+    static func diagnosticsExportProbe(report: Report) {
+        let fm = FileManager.default
+        let folder = fm.temporaryDirectory.appendingPathComponent("daylight-selftest-export-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: folder) }
+        let home = fm.homeDirectoryForCurrentUser.path
+        let bundle = Bundle.main
+        var config = DiagnosticsExporter.Config(
+            folder: folder, clientsFile: ClientRegistry.defaultFileURL(), vendorDirectory: bundle.resourceURL?.appendingPathComponent("Vendor"),
+            selfTestExecutable: nil, home: home, keptRoots: DiagnosticsExport.keptRoots(bundlePath: bundle.bundlePath, saveDirectory: nil, home: home))
+        config.logShowLast = "5m"
+        config.logShowTimeout = 10
+        config.extensionTimeout = 10
+        // One stored sender through the pure route, as the listener would store it.
+        let store = TabletFactsStore()
+        let body = "{\"schema\":\"daylight-tablet-facts/1\",\"source\":\"web\",\"clientId\":\"6f1a2b3c-4d5e-4f60-8a9b-0c1d2e3f4a5b\",\"sentAt\":\"2026-10-03T14:05:09Z\",\"facts\":{\"viewport\":\"800x1280\",\"devicePixelRatio\":2,\"secureContext\":false,\"firstPenPointerdown\":null}}"
+        let request = HTTPRequest(method: "POST", path: ApiRoutes.factsPath, headers: ["content-type": "application/json", "content-length": "\(body.utf8.count)"])
+        let posted = ApiRoutes.facts(request, body: Array(body.utf8), remoteAddress: "127.0.0.1", now: Date(), isAllowed: { _ in false }, store: store)
+        report.check("export: POST /api/facts stores the sender", posted.status == 200 && store.count == 1, "status \(posted.status)")
+        var facts = DiagnosticsReport.Facts()
+        facts.version = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
+        facts.build = bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0"
+        facts.bundlePath = bundle.bundlePath
+        facts.tabletFacts = store.diagnosticsLines()
+        let snapshot = DiagnosticsExporter.Snapshot(
+            date: Date(), diagnosticsText: DiagnosticsReport.text(facts), settings: Settings.defaults,
+            perfLines: [Telemetry.perfLine(PipelineStats())], tabletFacts: store.all, adbSource: AdbSourceStatus.diagnostics(),
+            version: facts.version, build: facts.build, signed: bundle.object(forInfoDictionaryKey: "DaylightBuildSigned") as? Bool ?? false,
+            bundlePath: bundle.bundlePath, bundleIdentifier: bundle.bundleIdentifier ?? "unknown")
+        let exporter = DiagnosticsExporter(config: config)
+        var events: [DiagnosticsExporter.Event] = []
+        exporter.onEvent = { events.append($0) }
+        let started = Date()
+        let result = DiagnosticsExporter.queue.sync { exporter.export(snapshot, runSelfTest: false) }
+        let seconds = String(format: "%.1f", Date().timeIntervalSince(started))
+        let outcome: DiagnosticsExporter.Outcome
+        switch result {
+        case let .failure(error):
+            report.check("export: zip written to a temp folder", false, error.reason)
+            return
+        case let .success(value):
+            outcome = value
+        }
+        report.check("export: zip written to a temp folder", true, "\(outcome.url.lastPathComponent), \(outcome.files.count) files, \(outcome.bytes) bytes in \(seconds) s")
+        for (part, reason) in outcome.missing.sorted(by: { $0.key < $1.key }) { report.note("export: \(part) missing: \(reason)") }
+        for (part, from) in outcome.truncated.sorted(by: { $0.key < $1.key }) { report.note("export: \(part) truncated from \(from) bytes") }
+        do {
+            let entries = try ZipReader.entries(Data(contentsOf: outcome.url))
+            let manifest = entries.first(where: { $0.name == DiagnosticsExporter.Part.manifest.rawValue }).map { String(decoding: $0.data, as: UTF8.self) } ?? ""
+            let unlisted = entries.filter { $0.name != DiagnosticsExporter.Part.manifest.rawValue && !manifest.contains("- \($0.name) (\($0.data.count) bytes): ") }.map { $0.name }
+            let unnamedGaps = outcome.missing.keys.filter { !manifest.contains("- \($0): ") }
+            report.check("export: zip reads back (\(entries.count) entries, CRC-32 checked)", entries.map { $0.name } == outcome.files)
+            report.check("export: MANIFEST.txt lists every file with its size and names every gap", !manifest.isEmpty && unlisted.isEmpty && unnamedGaps.isEmpty, (unlisted + unnamedGaps).joined(separator: ", "))
+            let factsJSON = entries.first(where: { $0.name == DiagnosticsExporter.Part.tabletFacts.rawValue }).map { String(decoding: $0.data, as: UTF8.self) } ?? ""
+            report.check("export: tablet-facts.json holds the sender, address cut to the last octet", factsJSON.contains("x.x.x.1") && !factsJSON.contains("127.0.0.1") && factsJSON.contains("800x1280"))
+        } catch {
+            report.check("export: zip reads back", false, "\(error)")
+        }
+        let saved = events.contains { if case .saved = $0 { return true } else { return false } }
+        report.check("export: rows 44 and 45 raised", events.first == .running("collecting app facts") && saved)
     }
 
     static func runTool(_ path: String, _ arguments: [String]) -> String? {

@@ -7,6 +7,8 @@ final class MenuBar: NSObject, NSMenuDelegate {
     private let item: NSStatusItem
     private let menu = NSMenu()
     private let model: AppModel
+    /// Menu bar > Export diagnostics... (AppDelegate hands it to `DiagnosticsExport`).
+    var onExportDiagnostics: (() -> Void)?
 
     init(model: AppModel) {
         self.model = model
@@ -67,6 +69,7 @@ final class MenuBar: NSObject, NSMenuDelegate {
         preview.state = (model.preview?.isVisible ?? false) ? .on : .off
         add("Settings...", #selector(openSettings(_:)), hotkey: nil)
         add("Diagnostics...", #selector(openDiagnostics(_:)), hotkey: nil)
+        add("Export diagnostics...", #selector(exportDiagnostics(_:)), hotkey: nil)
         add("Setup again", #selector(setupAgain(_:)), hotkey: nil)
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Quit Daylight", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
@@ -142,6 +145,7 @@ final class MenuBar: NSObject, NSMenuDelegate {
     @objc private func whiteboardOnly(_ sender: Any?) { model.menuWhiteboardNow(.whiteboardOnly) }
     @objc private func openSettings(_ sender: Any?) { model.onOpenSettings?() }
     @objc private func openDiagnostics(_ sender: Any?) { model.onOpenDiagnostics?() }
+    @objc private func exportDiagnostics(_ sender: Any?) { onExportDiagnostics?() }
     @objc private func setupAgain(_ sender: Any?) { model.onSetupAgain?() }
 
     @objc private func togglePreview(_ sender: Any?) {

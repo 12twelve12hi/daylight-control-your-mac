@@ -107,7 +107,7 @@ Rows of SPEC 13.3 this component owns: 6 to 12b (activation), 13 (device not fou
 ## 6. Red CI runs caused by someone else's files
 
 - Filled in after the first runs of this component.
-- Runs 37116732142 (62fb359) and 37117466833 (e24c884), job `mac`, step `make mac-test`: five tests of this component are red for reasons inside this component (recorded with diagnoses by the integrator in LOOSE_ENDS B22), next to the three B tests of B19; `make mac-debug` compiled every Camera source. Run 37115815451 (7d5c870, this component's own push) was the first to run them.
+- Runs 37116732142 (62fb359) and 37117466833 (e24c884), job `mac`, step `make mac-test`: five tests of this component are red for reasons inside this component (recorded with diagnoses by the integrator in LOOSE_ENDS B22), next to the three B tests of B19; `make mac-debug` compiled every Camera source. Run 37115815451 (7d5c870, this component's own push) was the first to run them. Fixed by the integrator in f395315 (Integrator-sync-4, LOOSE_ENDS B24): the five tests compare the prefixed `FailureText.logLine` and `extensionListing` checks `fileExists` first.
 
 ---
 

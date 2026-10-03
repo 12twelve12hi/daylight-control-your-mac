@@ -10,10 +10,12 @@ enum OutputPoolError: Error {
 
 /// Triple-buffered 1920x1080 BGRA output frames: IOSurface-backed and Metal-compatible so the compositor writes
 /// into them and the extension reads them without a copy (research-mac-pipeline section 2 item 4).
-/// `acquire()` never blocks: a `DispatchSemaphore(value: 3)` with `wait(timeout: .now())` drops the frame when all
-/// three are busy. The semaphore is the only bound: CoreVideo's allocation threshold would also count buffers a
+/// `acquire()` never blocks: an in-flight counter under a lock refuses a fourth buffer (the caller skips the tick and
+/// counts a drop). The counter is the only bound: CoreVideo's allocation threshold would also count buffers a
 /// consumer (the sink's `CMSampleBuffer`, the preview layer) still holds after `release()` and refuse a legitimate
-/// acquire (LOOSE_ENDS B19 c), so the pool itself is left unbounded and `release()` is the contract.
+/// acquire (LOOSE_ENDS B19 c), so the pool itself is left unbounded and `release()` is the contract. A counter
+/// rather than a `DispatchSemaphore`: libdispatch aborts the process when a semaphore is deallocated below its
+/// initial value, which a pool torn down with a frame still in flight (or a test that keeps one) would trigger.
 final class OutputPool {
     static let capacity = 3
 
@@ -21,7 +23,6 @@ final class OutputPool {
     let height: Int
     let formatDescription: CMVideoFormatDescription
     private let pool: CVPixelBufferPool
-    private let semaphore = DispatchSemaphore(value: OutputPool.capacity)
     private let inFlightCount = Locked<Int>(0)
 
     init(width: Int = 1920, height: Int = 1080) throws {
@@ -52,21 +53,24 @@ final class OutputPool {
 
     /// A free buffer, or nil when all three are in flight (the caller skips this tick and counts a drop).
     func acquire() -> CVPixelBuffer? {
-        guard semaphore.wait(timeout: .now()) == .success else { return nil }
+        let admitted: Bool = inFlightCount.withLock { count in
+            guard count < OutputPool.capacity else { return false }
+            count += 1
+            return true
+        }
+        guard admitted else { return nil }
         var buffer: CVPixelBuffer?
         let status = CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &buffer)
         guard status == kCVReturnSuccess, let pb = buffer else {
-            semaphore.signal()
+            inFlightCount.withLock { $0 = max(0, $0 - 1) }
             return nil
         }
-        inFlightCount.withLock { $0 += 1 }
         return pb
     }
 
     /// Called once per acquired buffer when the GPU and the sink hand-off are done with it.
     func release(_ pixelBuffer: CVPixelBuffer) {
         inFlightCount.withLock { $0 = max(0, $0 - 1) }
-        semaphore.signal()
     }
 
     var inFlight: Int {

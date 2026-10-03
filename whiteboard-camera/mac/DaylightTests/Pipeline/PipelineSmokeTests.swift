@@ -59,7 +59,14 @@ final class PipelineSmokeTests: XCTestCase {
             XCTAssertTrue(waitUntil(1.0) { sink.pushCount >= 8 }, "composed frames flow at 30 Hz")
             XCTAssertFalse(sink.lastPixelBuffer === capture.buffer, "composed frames come from the pool, not the camera")
             XCTAssertLessThanOrEqual(pipeline.pool?.inFlight ?? 0, 3)
-            XCTAssertEqual(pipeline.stats.dropped, 0, "a prompt fake sink never causes drops")
+            // A prompt fake sink never causes back-pressure drops. The shared runner's GPU may take longer than
+            // three ticks for its very first command buffers, which the pool answers with a skipped tick by design
+            // (LOOSE_ENDS B19 d), so the first second tolerates a couple of skips and the steady state tolerates none.
+            let coldDrops = pipeline.stats.dropped
+            XCTAssertLessThanOrEqual(coldDrops, 2, "at most a couple of ticks skipped while the GPU warms up")
+            let before = sink.pushCount
+            XCTAssertTrue(waitUntil(1.0) { sink.pushCount >= before + 8 }, "frames keep flowing")
+            XCTAssertEqual(pipeline.stats.dropped, coldDrops, "no drops once the GPU is warm")
         } else {
             print("PipelineSmokeTests: no Metal device; composed frame assertions skipped")
         }

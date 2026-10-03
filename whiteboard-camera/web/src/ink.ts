@@ -197,7 +197,9 @@ export class InkCanvas {
     a.sent = 0;
     a.startedAt = -1;   // the next sample becomes the first point (delta_ms 0)
     a.lastDelta = 0;
-    a.startedLive = this.sink.sendInk(this.sink.encoder.strokeStart(a.id, toolCode(a.tool), a.color, a.baseWidth, a.last.p), a.key, 0);
+    // A START with pressure 0 is dropped by the Mac (PROTOCOL 6.3); a lifted-but-captured pen reports 0.
+    const pressure = a.last.p > 0 ? a.last.p : 0.5;
+    a.startedLive = this.sink.sendInk(this.sink.encoder.strokeStart(a.id, toolCode(a.tool), a.color, a.baseWidth, pressure), a.key, 0);
     this.stats.restarted++;
   }
 
@@ -489,6 +491,11 @@ export class InkCanvas {
     for (const s of this.committed.slice(0, this.visible)) {
       if (s.tool === "highlighter") this.drawHighlighter(s);
       else this.drawPen(s);
+    }
+    // A pen stroke still on the glass lives on the ink layer too; keep what was drawn so far.
+    const a = this.active;
+    if (a && a.tool !== "highlighter") {
+      this.drawPen({ key: a.key, tool: a.tool, color: a.color, baseWidth: a.baseWidth, points: a.points });
     }
   }
 }

@@ -463,7 +463,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         if settings.saveDirectory != previous.saveDirectory || settings.saveStrokesJSON != previous.saveStrokesJSON {
             saver?.writeJSON = settings.saveStrokesJSON
-            telemetry.note("app", "save folder changes apply after a restart")
+            if settings.saveDirectory != previous.saveDirectory {
+                saver?.setRoot(settings.saveDirectory ?? SessionSaver.defaultRoot())
+            }
         }
     }
 

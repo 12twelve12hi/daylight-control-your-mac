@@ -105,6 +105,29 @@ final class SessionSaverTests: XCTestCase {
         XCTAssertEqual(urls.count, 1, "JSON off writes only the PNG")
     }
 
+    /// APPA-05: a folder chosen in Settings applies to the next save without a restart; a save queued before the
+    /// change still lands in the old folder (io.queue order).
+    func testRootChangeAppliesToTheNextSave() throws {
+        let saver = SessionSaver(root: root, queue: queue)
+        let moved = root.appendingPathComponent("moved", isDirectory: true)
+        let start = Date(timeIntervalSince1970: 1_790_000_300)
+        let store = storeWithStroke()
+        let doc = store.document(sessionStart: start, savedAt: Date(), reason: .autosave, inkSource: .web, clientLabel: "Chrome on Daylight", app: "Daylight 0.1.0 (7)")
+        let queued = expectation(description: "queued save")
+        var before: [URL] = []
+        saver.save(doc, strokes: store, sessionStart: start, pageKey: store.pageID) { result in
+            if case let .success(urls) = result { before = urls } else { XCTFail("save failed: \(result)") }
+            queued.fulfill()
+        }
+        saver.setRoot(moved)
+        let after = save(saver, store, start: start, reason: .returned)
+        wait(for: [queued], timeout: 10)
+        XCTAssertEqual(before.first, SessionFiles.sessionDirectory(root: root, sessionStart: start).appendingPathComponent("page-01.png"), "enqueued before the change: old folder")
+        XCTAssertEqual(after.first, SessionFiles.sessionDirectory(root: moved, sessionStart: start).appendingPathComponent("page-01.png"), "the same page's next save moves to the new folder")
+        XCTAssertEqual(saver.root, moved)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: after[0].path))
+    }
+
     func testMirrorSaveName() throws {
         let saver = SessionSaver(root: root, queue: queue)
         let start = Date(timeIntervalSince1970: 1_790_000_200)

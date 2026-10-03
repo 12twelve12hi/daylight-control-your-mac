@@ -16,7 +16,6 @@ enum SessionSaverError: Error {
 /// queue: a Clear that saves and then forgets (in that program order on ink.queue) runs the write first and the forget
 /// second, and the next board drawn on the same page id gets a fresh pair (`page-01-2`) instead of overwriting.
 final class SessionSaver {
-    let root: URL
     let queue: DispatchQueue
     var writeJSON: Bool
     var calendar = Calendar(identifier: .gregorian)
@@ -27,6 +26,7 @@ final class SessionSaver {
     private var pendingWrites = 0
     private let idle = DispatchGroup()
     private var mirrorContext: CIContext?
+    private var currentRoot: URL
 
     static func defaultRoot() -> URL {
         return FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
@@ -34,9 +34,29 @@ final class SessionSaver {
     }
 
     init(root: URL = SessionSaver.defaultRoot(), queue: DispatchQueue, writeJSON: Bool = true) {
-        self.root = root
+        self.currentRoot = root
         self.queue = queue
         self.writeJSON = writeJSON
+    }
+
+    /// The folder sessions are written under (SPEC 11 `saveDirectory`); Settings can move it while the app runs.
+    var root: URL {
+        lock.lock()
+        defer { lock.unlock() }
+        return currentRoot
+    }
+
+    /// A new save folder from Settings. Queued on `queue` like the writes: every save enqueued before this call lands
+    /// in the old folder, every save after it in the new one. The page bindings point into the old folder, so they
+    /// are dropped and the next save of an open page starts a fresh pair in the new one.
+    func setRoot(_ url: URL) {
+        queue.async { [weak self] in
+            guard let self = self else { return }
+            self.lock.lock()
+            self.currentRoot = url
+            self.pageURLs.removeAll()
+            self.lock.unlock()
+        }
     }
 
     var isSaving: Bool {

@@ -1,6 +1,7 @@
 import AVFoundation
 import CoreMedia
 import CoreVideo
+import DaylightKit
 import Foundation
 
 enum CaptureEvent {
@@ -28,12 +29,29 @@ enum CaptureError: Error {
 
 /// AVCaptureSession at 1920x1080 BGRA 30 fps (research-mac-pipeline section 1). Frames are delivered on the capture
 /// queue; the delegate holds no buffer (the retention warning of AVCaptureVideoDataOutput.h).
+///
+/// Device choice (SPEC 11 `cameraUniqueID`): the owner's explicit camera while it is present, else the system's
+/// `userPreferredCamera`, else the first connected camera; evaluated live on every start and reconnect so an unplugged
+/// webcam falls back to the built-in or Continuity camera. The app's own virtual "Daylight Camera" is never a
+/// candidate (its uniqueID is the fixed device UUID of the Info.plist, SPEC 13.1 step 2): capturing it would feed
+/// Daylight's output back into itself.
 final class WebcamCapture: NSObject, CaptureSource, AVCaptureVideoDataOutputSampleBufferDelegate {
+    /// The facts the choice is made from; pure and unit-tested without a real device.
+    struct DeviceFacts: Equatable {
+        let uniqueID: String
+        let name: String
+        let isConnected: Bool
+    }
+
+    static let ownCameraName = "Daylight Camera"
+    private static let ownCameraUniqueIDs = Locked<Set<String>>([])
+
     let session = AVCaptureSession()
     let queue: DispatchQueue
     var onEvent: ((CaptureEvent) -> Void)?
-    /// The camera to use; nil means `AVCaptureDevice.userPreferredCamera`, then the first camera found.
-    var device: AVCaptureDevice?
+    var onLog: ((String) -> Void)?
+    /// Settings `cameraUniqueID`; nil means the preferred-camera rule.
+    var preferredUniqueID: String?
     private let output = AVCaptureVideoDataOutput()
     private var input: AVCaptureDeviceInput?
     private var running = false
@@ -62,20 +80,57 @@ final class WebcamCapture: NSObject, CaptureSource, AVCaptureVideoDataOutputSamp
     var isRunning: Bool { return running }
     var hasDevice: Bool { return input != nil }
 
-    /// Every camera macOS knows about (DiscoverySession with the macOS 14 device types).
+    // MARK: Device choice
+
+    /// Registers the app's own virtual camera (the Info.plist `DaylightCameraDeviceUUID`), compared case-insensitively.
+    static func excludeOwnCamera(uniqueID: String) {
+        ownCameraUniqueIDs.withLock { $0.insert(uniqueID.uppercased()) }
+    }
+
+    static func isOwnCamera(uniqueID: String, name: String) -> Bool {
+        if name == ownCameraName { return true }
+        return ownCameraUniqueIDs.withLock { $0.contains(uniqueID.uppercased()) }
+    }
+
+    static func isOwnCamera(_ device: AVCaptureDevice) -> Bool {
+        return isOwnCamera(uniqueID: device.uniqueID, name: device.localizedName)
+    }
+
+    /// Every camera macOS knows about (DiscoverySession with the macOS 14 device types), without our own.
     static func cameras() -> [AVCaptureDevice] {
         let types: [AVCaptureDevice.DeviceType] = [.builtInWideAngleCamera, .external, .continuityCamera, .deskViewCamera]
-        return AVCaptureDevice.DiscoverySession(deviceTypes: types, mediaType: .video, position: .unspecified).devices
+        return AVCaptureDevice.DiscoverySession(deviceTypes: types, mediaType: .video, position: .unspecified).devices.filter { !isOwnCamera($0) }
     }
 
-    static func camera(uniqueID: String?) -> AVCaptureDevice? {
-        if let id = uniqueID, let match = cameras().first(where: { $0.uniqueID == id }) { return match }
-        return AVCaptureDevice.userPreferredCamera ?? cameras().first
+    /// The pure rule: the chosen id while present and connected, else the system's preferred camera, else the first
+    /// connected camera; the app's own camera and disconnected devices never.
+    static func choose(preferredUniqueID: String?, systemPreferredID: String?, from devices: [DeviceFacts]) -> DeviceFacts? {
+        let usable = devices.filter { $0.isConnected && !isOwnCamera(uniqueID: $0.uniqueID, name: $0.name) }
+        if let id = preferredUniqueID, let match = usable.first(where: { $0.uniqueID == id }) { return match }
+        if let id = systemPreferredID, let match = usable.first(where: { $0.uniqueID == id }) { return match }
+        return usable.first
     }
+
+    /// The device the rule picks right now (the onboarding row's camera name; the pipeline asks its own instance).
+    static func camera(uniqueID: String?) -> AVCaptureDevice? {
+        let devices = cameras()
+        let facts = devices.map { DeviceFacts(uniqueID: $0.uniqueID, name: $0.localizedName, isConnected: $0.isConnected) }
+        guard let chosen = choose(preferredUniqueID: uniqueID, systemPreferredID: AVCaptureDevice.userPreferredCamera?.uniqueID, from: facts) else { return nil }
+        return devices.first { $0.uniqueID == chosen.uniqueID }
+    }
+
+    private func chooseDevice() -> AVCaptureDevice? {
+        guard let device = WebcamCapture.camera(uniqueID: preferredUniqueID) else { return nil }
+        if let wanted = preferredUniqueID, wanted != device.uniqueID {
+            onLog?("camera \(wanted) is not present; using \(device.localizedName)")
+        }
+        return device
+    }
+
+    // MARK: Lifecycle
 
     func start() throws {
-        let chosen = device ?? AVCaptureDevice.userPreferredCamera ?? WebcamCapture.cameras().first
-        guard let camera = chosen else { throw CaptureError.noCamera }
+        guard let camera = chooseDevice() else { throw CaptureError.noCamera }
         try configure(device: camera)
         if !session.isRunning { session.startRunning() }
         running = true
@@ -108,6 +163,7 @@ final class WebcamCapture: NSObject, CaptureSource, AVCaptureVideoDataOutputSamp
             guard session.canAddOutput(output) else { throw CaptureError.cannotAddOutput }
             session.addOutput(output)
         }
+        onLog?("capturing \(camera.localizedName) (\(camera.uniqueID))")
     }
 
     /// 30 fps when the active format allows it (checked first: an unsupported duration raises on iOS).
@@ -135,10 +191,17 @@ final class WebcamCapture: NSObject, CaptureSource, AVCaptureVideoDataOutputSamp
         onEvent?(.lost)
     }
 
+    /// `wasConnectedNotification` while the session has no input: the rule runs again, so the returning webcam or any
+    /// other present camera is re-added (row 4 "retried on wasConnectedNotification").
     private func handleRestored() {
         guard running, input == nil else { return }
-        let chosen = device ?? AVCaptureDevice.userPreferredCamera ?? WebcamCapture.cameras().first
-        guard let camera = chosen, (try? configure(device: camera)) != nil else { return }
+        guard let camera = chooseDevice() else { return }
+        do {
+            try configure(device: camera)
+        } catch {
+            onLog?("camera \(camera.localizedName) could not be added: \(error)")
+            return
+        }
         if !session.isRunning { session.startRunning() }
         onEvent?(.restored)
     }

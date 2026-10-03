@@ -171,11 +171,11 @@ final class FramePipeline: PipelineControl {
         }
     }
 
-    /// Switches the webcam (Settings `cameraUniqueID`).
-    func setCamera(_ device: AVCaptureDevice?) {
+    /// Switches the webcam (Settings `cameraUniqueID`; nil means the preferred-camera rule of SPEC 11, evaluated live).
+    func setCamera(uniqueID: String?) {
         renderQueue.async { [weak self] in
             guard let self = self, let webcam = self.capture as? WebcamCapture else { return }
-            webcam.device = device
+            webcam.preferredUniqueID = uniqueID
             if webcam.isRunning {
                 webcam.stop()
                 self.flags.withLock { $0.captureRunning = false }

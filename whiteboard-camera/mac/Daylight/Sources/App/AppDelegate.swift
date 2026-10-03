@@ -207,6 +207,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: Pipeline
 
     private func wirePipeline() {
+        // The capture must never pick the app's own virtual camera (a feedback loop); its uniqueID is the fixed UUID.
+        if let ownUUID = Bundle.main.object(forInfoDictionaryKey: "DaylightCameraDeviceUUID") as? String {
+            WebcamCapture.excludeOwnCamera(uniqueID: ownUUID)
+        }
         let sink = makeSink()
         self.sink = sink
         let pipeline: FramePipeline
@@ -221,7 +225,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.pipeline = pipeline
         pipeline.latencyProbe = arguments.latencyProbe
         let capture = WebcamCapture(queue: pipeline.captureQueue)
-        capture.device = WebcamCapture.camera(uniqueID: settingsStore.settings.cameraUniqueID)
+        capture.preferredUniqueID = settingsStore.settings.cameraUniqueID
+        capture.onLog = { [weak self] line in self?.telemetry.note("capture", line) }
         pipeline.setCaptureSource(capture)
         pipeline.onPreviewFrame = { [weak self] buffer in self?.preview.display(buffer) }
         pipeline.onFailure = { [weak self] failure, args in
@@ -422,7 +427,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         telemetry.perfLog = settings.perfLog || arguments.perfLog
         preview.floats = settings.previewFloats
         if settings.cameraUniqueID != previous.cameraUniqueID {
-            pipeline?.setCamera(WebcamCapture.camera(uniqueID: settings.cameraUniqueID))
+            pipeline?.setCamera(uniqueID: settings.cameraUniqueID)
         }
         if settings.hotkeys != previous.hotkeys, let hotkeys = hotkeys {
             for (action, binding) in settings.hotkeys where previous.hotkeys[action] != binding {

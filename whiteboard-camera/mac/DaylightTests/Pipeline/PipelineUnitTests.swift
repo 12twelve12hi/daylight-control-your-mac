@@ -129,6 +129,30 @@ final class FrameFeederTests: XCTestCase {
     }
 }
 
+/// SPEC 11 `cameraUniqueID` and the own-camera exclusion, on facts instead of real devices.
+final class WebcamChoiceTests: XCTestCase {
+    private typealias Facts = WebcamCapture.DeviceFacts
+
+    func testOwnCameraIsNeverChosenAndTheFallbacksFollowSpec11() {
+        WebcamCapture.excludeOwnCamera(uniqueID: "ab51c6ba-17fd-4a67-be3a-06a8540ba6aa")
+        let own = Facts(uniqueID: "AB51C6BA-17FD-4A67-BE3A-06A8540BA6AA", name: "Daylight Camera", isConnected: true)
+        let builtIn = Facts(uniqueID: "builtin", name: "FaceTime HD Camera", isConnected: true)
+        let external = Facts(uniqueID: "usb-1", name: "Logitech BRIO", isConnected: true)
+        let gone = Facts(uniqueID: "usb-2", name: "Old webcam", isConnected: false)
+        XCTAssertTrue(WebcamCapture.isOwnCamera(uniqueID: own.uniqueID, name: "anything"), "the fixed device UUID, case-insensitive")
+        XCTAssertTrue(WebcamCapture.isOwnCamera(uniqueID: "other", name: "Daylight Camera"))
+        XCTAssertFalse(WebcamCapture.isOwnCamera(uniqueID: "builtin", name: "FaceTime HD Camera"))
+        // The owner's explicit choice wins while it is present.
+        XCTAssertEqual(WebcamCapture.choose(preferredUniqueID: "usb-1", systemPreferredID: "builtin", from: [own, builtIn, external]), external)
+        // An unplugged choice: the system's preferred camera, then the first connected one (never a stale object).
+        XCTAssertEqual(WebcamCapture.choose(preferredUniqueID: "usb-2", systemPreferredID: "builtin", from: [own, gone, external, builtIn]), builtIn)
+        XCTAssertEqual(WebcamCapture.choose(preferredUniqueID: "usb-2", systemPreferredID: nil, from: [own, gone, external, builtIn]), external)
+        // FaceTime made Daylight Camera the system preference: Daylight must not capture itself.
+        XCTAssertEqual(WebcamCapture.choose(preferredUniqueID: nil, systemPreferredID: own.uniqueID, from: [own, builtIn]), builtIn)
+        XCTAssertNil(WebcamCapture.choose(preferredUniqueID: nil, systemPreferredID: nil, from: [own, gone]))
+    }
+}
+
 /// research-mac-pipeline 1.9: the preview never holds more than one captured buffer, however long main stalls.
 final class LatestSampleCoalescerTests: XCTestCase {
     func testOnlyTheNewestSampleReachesAStalledQueueOnce() {

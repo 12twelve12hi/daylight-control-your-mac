@@ -35,14 +35,30 @@ public enum StylusTransition: Equatable {
 /// report commits it and the edges against the previous committed sample are emitted, so a report that carries
 /// `BTN_TOOL_PEN DOWN` and `BTN_TOUCH DOWN` together yields exactly one `contactDown`. Hover (`BTN_TOOL_PEN` without
 /// `BTN_TOUCH`) and bare coordinate or pressure changes emit nothing.
+///
+/// Pressure comes from `ABS_PRESSURE`; `ABS_MT_PRESSURE` stands in while the stream has never carried
+/// `ABS_PRESSURE` (a pen multiplexed through the finger touchscreen's multitouch node). On such a node a finger also
+/// raises `BTN_TOUCH` while the pen hovers in range, so `init(node:)` additionally requires pressure above zero for
+/// a contact edge (`contactRequiresPressure`); a dedicated Wacom node keeps the plain `BTN_TOUCH` rule.
 public struct StylusContactMachine {
     public let pressureMax: Int
+    public let contactRequiresPressure: Bool
     public private(set) var committed = StylusSample()
     private var pending = StylusSample()
+    private var sawAbsPressure = false
 
-    public init(pressureMax: Int) {
+    public init(pressureMax: Int, contactRequiresPressure: Bool = false) {
         self.pressureMax = max(1, pressureMax)
+        self.contactRequiresPressure = contactRequiresPressure
     }
+
+    /// Tuned to the chosen `getevent -pl` node: its pressure range, and the pressure gate when it is multitouch.
+    public init(node: EvdevCapabilities) {
+        self.init(pressureMax: node.pressureMax, contactRequiresPressure: node.isMultitouch)
+    }
+
+    private func penContact(_ s: StylusSample) -> Bool { return s.penContact && (!contactRequiresPressure || s.pressure > 0) }
+    private func eraserContact(_ s: StylusSample) -> Bool { return s.eraserContact && (!contactRequiresPressure || s.pressure > 0) }
 
     public var current: StylusSample { return committed }
 
@@ -63,7 +79,11 @@ public struct StylusContactMachine {
         case "EV_ABS":
             guard let v = e.numericValue else { return [] }
             switch e.code {
-            case "ABS_PRESSURE": pending.pressure = min(1, max(0, Double(v) / Double(pressureMax)))
+            case "ABS_PRESSURE":
+                sawAbsPressure = true
+                pending.pressure = min(1, max(0, Double(v) / Double(pressureMax)))
+            case "ABS_MT_PRESSURE" where !sawAbsPressure:
+                pending.pressure = min(1, max(0, Double(v) / Double(pressureMax)))
             case "ABS_X": pending.x = Int(v)
             case "ABS_Y": pending.y = Int(v)
             default: break
@@ -75,11 +95,11 @@ public struct StylusContactMachine {
             let previous = committed
             committed = pending
             var out: [StylusTransition] = []
-            if committed.penContact != previous.penContact {
-                out.append(committed.penContact ? .contactDown(committed) : .contactUp(committed))
+            if penContact(committed) != penContact(previous) {
+                out.append(penContact(committed) ? .contactDown(committed) : .contactUp(committed))
             }
-            if committed.eraserContact != previous.eraserContact {
-                out.append(committed.eraserContact ? .eraserDown(committed) : .eraserUp(committed))
+            if eraserContact(committed) != eraserContact(previous) {
+                out.append(eraserContact(committed) ? .eraserDown(committed) : .eraserUp(committed))
             }
             if committed.side1 != previous.side1 {
                 out.append(committed.side1 ? .side1Down(tsUs: committed.tsUs) : .side1Up(tsUs: committed.tsUs))

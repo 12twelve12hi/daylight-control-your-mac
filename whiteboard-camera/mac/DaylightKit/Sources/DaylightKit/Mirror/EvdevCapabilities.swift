@@ -25,13 +25,33 @@ public struct EvdevCapabilities: Equatable {
         self.props = props
     }
 
-    /// `ABS_PRESSURE` maximum, or 4095 when the axis has no usable range (Wacom digitizers commonly report 4095).
+    /// The axis that carries the pen pressure: `ABS_PRESSURE` when the node has it, else `ABS_MT_PRESSURE` (a pen
+    /// multiplexed through the finger touchscreen's multitouch node), else nil.
+    public var pressureAxis: String? {
+        if abs["ABS_PRESSURE"] != nil { return "ABS_PRESSURE" }
+        if abs["ABS_MT_PRESSURE"] != nil { return "ABS_MT_PRESSURE" }
+        return nil
+    }
+
+    /// Maximum of `pressureAxis`, or 4095 when the axis has no usable range (Wacom digitizers commonly report 4095).
     public var pressureMax: Int {
-        if let range = abs["ABS_PRESSURE"], range.max > range.min { return range.max }
+        if let axis = pressureAxis, let range = abs[axis], range.max > range.min { return range.max }
         return EvdevCapabilitiesParser.defaultPressureMax
     }
 
     public var hasSideButton: Bool { return keys.contains("BTN_STYLUS") || keys.contains("BTN_STYLUS2") }
+
+    /// A multitouch node (`ABS_MT_SLOT`): the finger touchscreen, which on some tablets also carries the pen.
+    public var isMultitouch: Bool { return abs["ABS_MT_SLOT"] != nil }
+
+    /// `BTN_TOOL_PEN` plus a pressure axis: the node can report pen contact.
+    public var canReportPen: Bool { return keys.contains("BTN_TOOL_PEN") && pressureAxis != nil }
+
+    /// The name says pen: Wacom, pen, stylus or digitizer.
+    public var isNamedLikeAPen: Bool {
+        let n = name.lowercased()
+        return n.contains("wacom") || n.contains("pen") || n.contains("stylus") || n.contains("digitizer")
+    }
 }
 
 /// Parses the `getevent -pl` listing (research-scrcpy-adb section 4.2 and getevent.c `print_possible_events`):
@@ -127,14 +147,41 @@ public enum EvdevCapabilitiesParser {
         return (axis, range)
     }
 
-    /// The Wacom pen node: `BTN_TOOL_PEN` plus `ABS_PRESSURE` and no `ABS_MT_SLOT` (the finger touchscreen is a separate
-    /// multitouch node). When several match, the one whose name mentions Wacom or a pen wins, then the first.
-    public static func penNode(_ caps: [EvdevCapabilities]) -> EvdevCapabilities? {
-        let candidates = caps.filter { $0.keys.contains("BTN_TOOL_PEN") && $0.abs["ABS_PRESSURE"] != nil && $0.abs["ABS_MT_SLOT"] == nil }
-        if candidates.isEmpty { return nil }
-        if let named = candidates.first(where: { let n = $0.name.lowercased(); return n.contains("wacom") || n.contains("pen") || n.contains("stylus") || n.contains("digitizer") }) {
-            return named
+    /// Why `penNodeChoice` picked a node; the text goes into the log line next to the node.
+    public struct PenNodeChoice: Equatable {
+        public var node: EvdevCapabilities
+        public var reason: String
+        public init(node: EvdevCapabilities, reason: String) {
+            self.node = node
+            self.reason = reason
         }
-        return candidates.first
+    }
+
+    /// The pen node, ranked rather than filtered (LOOSE_ENDS D1: the DC-1's node layout is unverified). Candidates
+    /// have `BTN_TOOL_PEN` plus `ABS_PRESSURE` or `ABS_MT_PRESSURE`. A node without `ABS_MT_SLOT` (the mainline
+    /// `wacom_i2c` layout: a dedicated single-touch digitizer next to a separate finger touchscreen) wins over a
+    /// multitouch node that multiplexes the pen with the fingers; within a tier a name that mentions Wacom, pen,
+    /// stylus or digitizer wins; then listing order.
+    public static func penNodeChoice(_ caps: [EvdevCapabilities]) -> PenNodeChoice? {
+        var best: (node: EvdevCapabilities, rank: Int)?
+        for node in caps where node.canReportPen {
+            let rank = (node.isMultitouch ? 2 : 0) + (node.isNamedLikeAPen ? 0 : 1)
+            if let current = best, current.rank <= rank { continue }
+            best = (node, rank)
+        }
+        guard let chosen = best else { return nil }
+        let reason: String
+        switch chosen.rank {
+        case 0: reason = "dedicated pen node named like a pen"
+        case 1: reason = "dedicated pen node"
+        case 2: reason = "multitouch node named like a pen; the pen shares the finger touchscreen node"
+        default: reason = "multitouch node; the pen shares the finger touchscreen node"
+        }
+        return PenNodeChoice(node: chosen.node, reason: reason)
+    }
+
+    /// `penNodeChoice(_:)` without the reason.
+    public static func penNode(_ caps: [EvdevCapabilities]) -> EvdevCapabilities? {
+        return penNodeChoice(caps)?.node
     }
 }

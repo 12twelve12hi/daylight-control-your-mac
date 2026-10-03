@@ -97,6 +97,57 @@ final class StylusContactMachineTests: XCTestCase {
         XCTAssertEqual(StylusContactMachine(pressureMax: 0).pressureMax, 1, "a zero max never divides by zero")
     }
 
+    /// A pen multiplexed with the fingers on one multitouch node: a finger raises BTN_TOUCH while the pen hovers, so
+    /// with the gate on, contact needs pressure above zero as well; ABS_MT_PRESSURE is the pressure axis there.
+    func testMultitouchNodeGatesContactOnPressure() {
+        var m = StylusContactMachine(pressureMax: 1023, contactRequiresPressure: true)
+        _ = m.apply(key("BTN_TOOL_PEN", "DOWN"))
+        XCTAssertEqual(m.apply(syn(ts: 1)), [], "hover")
+        // Finger down while the pen hovers: BTN_TOUCH without pen pressure is not a contact.
+        _ = m.apply(key("BTN_TOUCH", "DOWN"))
+        _ = m.apply(abs("ABS_MT_SLOT", 0))
+        _ = m.apply(abs("ABS_MT_TRACKING_ID", 7))
+        XCTAssertEqual(m.apply(syn(ts: 2)), [])
+        _ = m.apply(key("BTN_TOUCH", "UP"))
+        _ = m.apply(abs("ABS_MT_TRACKING_ID", -1))
+        XCTAssertEqual(m.apply(syn(ts: 3)), [])
+        // Pen tip down: pressure arrives through ABS_MT_PRESSURE when the node has no ABS_PRESSURE.
+        _ = m.apply(key("BTN_TOUCH", "DOWN"))
+        _ = m.apply(abs("ABS_MT_PRESSURE", 512))
+        let down = m.apply(syn(ts: 4))
+        guard case let .contactDown(sample)? = down.first, down.count == 1 else { return XCTFail("contactDown expected, got \(down)") }
+        XCTAssertEqual(sample.pressure, 512.0 / 1023.0, accuracy: 1e-9)
+        // Lift: pressure back to zero and BTN_TOUCH up in one report.
+        _ = m.apply(abs("ABS_MT_PRESSURE", 0))
+        _ = m.apply(key("BTN_TOUCH", "UP"))
+        let up = m.apply(syn(ts: 5))
+        guard case .contactUp? = up.first, up.count == 1 else { return XCTFail("contactUp expected, got \(up)") }
+        // Pressure dropping to zero while BTN_TOUCH stays down also ends the contact on a gated machine.
+        _ = m.apply(key("BTN_TOUCH", "DOWN"))
+        _ = m.apply(abs("ABS_MT_PRESSURE", 10))
+        XCTAssertEqual(m.apply(syn(ts: 6)).count, 1)
+        _ = m.apply(abs("ABS_MT_PRESSURE", 0))
+        let out = m.apply(syn(ts: 7))
+        guard case .contactUp? = out.first, out.count == 1 else { return XCTFail("contactUp expected, got \(out)") }
+    }
+
+    func testAbsPressureWinsOverMtPressureOnceSeen() {
+        var m = StylusContactMachine(pressureMax: 4095)
+        _ = m.apply(key("BTN_TOOL_PEN", "DOWN"))
+        _ = m.apply(key("BTN_TOUCH", "DOWN"))
+        _ = m.apply(abs("ABS_PRESSURE", 2048))
+        _ = m.apply(abs("ABS_MT_PRESSURE", 5))
+        let out = m.apply(syn(ts: 1))
+        guard case let .contactDown(sample)? = out.first else { return XCTFail("contactDown expected, got \(out)") }
+        XCTAssertEqual(sample.pressure, 2048.0 / 4095.0, accuracy: 1e-9, "a finger's ABS_MT_PRESSURE never overrides the pen's ABS_PRESSURE")
+        XCTAssertFalse(m.contactRequiresPressure, "the default machine keeps the plain BTN_TOUCH rule")
+        // Without the gate BTN_TOUCH alone is a contact even at zero pressure (the dedicated Wacom node, unchanged).
+        var plain = StylusContactMachine(pressureMax: 4095)
+        _ = plain.apply(key("BTN_TOOL_PEN", "DOWN"))
+        _ = plain.apply(key("BTN_TOUCH", "DOWN"))
+        XCTAssertEqual(plain.apply(syn(ts: 1)).count, 1)
+    }
+
     func testResetReleasesEverything() {
         var m = StylusContactMachine(pressureMax: 4095)
         _ = m.apply(key("BTN_TOOL_PEN", "DOWN"))

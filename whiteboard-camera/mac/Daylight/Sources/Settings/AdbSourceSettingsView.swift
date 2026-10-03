@@ -28,7 +28,7 @@ final class AdbSourceModel: ObservableObject {
         return AdbSource.allCases.filter { $0 != .bundled || bundledAvailable }
     }
 
-    func refresh(_ settings: Settings) {
+    func refresh(_ settings: DaylightKit.Settings) {
         let request = AdbSourceRequest(source: settings.adbSource, bundledAvailable: bundledAvailable,
                                        termsAcceptedVersion: settings.adbTermsAcceptedVersion,
                                        vendorDirectory: vendorDirectory, downloader: downloader)

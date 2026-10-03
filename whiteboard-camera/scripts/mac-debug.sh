@@ -22,7 +22,14 @@ if ! grep -q 'BUILD SUCCEEDED' build/xcodebuild-logs/build-unsigned.log; then
   echo "mac-debug: CODE_SIGNING_ALLOWED=NO build failed; retrying with the ad-hoc identity (LOOSE_ENDS B1)"
   path="adhoc"
   xcodebuild "${common[@]}" CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO CODE_SIGN_STYLE=Automatic DEVELOPMENT_TEAM= PROVISIONING_PROFILE_SPECIFIER= build 2>&1 | tee build/xcodebuild-logs/build-adhoc.log | grep -E '^(error|\*\* BUILD)' || true
-  grep -q 'BUILD SUCCEEDED' build/xcodebuild-logs/build-adhoc.log || { echo "mac-debug: both build paths failed; see build/xcodebuild-logs" >&2; exit 1; }
+  if ! grep -q 'BUILD SUCCEEDED' build/xcodebuild-logs/build-adhoc.log; then
+    # The compiler's own lines (file:line: error:) reach the job log; the artifact host is not reachable from every
+    # session that reads these logs.
+    echo "mac-debug: compiler errors (first 40):" >&2
+    grep -hE ': (fatal )?error: ' build/xcodebuild-logs/build-unsigned.log build/xcodebuild-logs/build-adhoc.log | sort -u | head -40 >&2 || true
+    echo "mac-debug: both build paths failed; see build/xcodebuild-logs" >&2
+    exit 1
+  fi
 fi
 echo "mac-debug: build path that succeeded: $path" | tee build/xcodebuild-logs/build-path.txt
 app="build/DerivedData/Build/Products/Release/Daylight.app"

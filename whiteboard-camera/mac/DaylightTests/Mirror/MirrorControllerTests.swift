@@ -197,9 +197,12 @@ final class MirrorControllerTests: XCTestCase {
             installed.fulfill()
         }
         wait(for: [installed], timeout: 8)
-        XCTAssertTrue(adb.calls.contains(["-s", "JP0001", "install", "-r", apk.path]))
-        XCTAssertTrue(adb.calls.contains(["-s", "JP0001", "shell", "am", "start", "-n", "com.twelve.daylight.ink/.ui.MainActivity", "--es", "host", "100.64.0.7"]))
-        XCTAssertTrue(adb.calls.contains(["-s", "JP0001", "shell", "am", "start-foreground-service", "-n", "com.twelve.daylight.ink/.overlay.OverlayService", "--es", "pills", "top", "--es", "host", "100.64.0.7"]))
+        XCTAssertTrue(adb.calls.contains(["-s", "JP0001", "install", "-r", "-d", apk.path]))
+        // The tablet dials 127.0.0.1:7788; the Mac bound 7789 here, so the reverse maps 7788 onto it and the remembered
+        // wireless host carries the bound port (review round 1 android-09).
+        XCTAssertTrue(adb.calls.contains(["-s", "JP0001", "reverse", "tcp:7788", "tcp:7789"]))
+        XCTAssertTrue(adb.calls.contains(["-s", "JP0001", "shell", "am", "start", "-n", "com.twelve.daylight.ink/.ui.MainActivity", "--es", "host", "100.64.0.7:7789"]))
+        XCTAssertTrue(adb.calls.contains(["-s", "JP0001", "shell", "am", "start-foreground-service", "-n", "com.twelve.daylight.ink/.overlay.OverlayService", "--es", "pills", "top", "--es", "host", "100.64.0.7:7789"]))
         XCTAssertEqual(controller.status, .idle, "onboarding never starts the mirror")
     }
 

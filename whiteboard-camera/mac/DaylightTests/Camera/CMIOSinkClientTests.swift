@@ -203,15 +203,17 @@ final class CMIOSinkClientTests: XCTestCase {
         client.start()
         drain(queue)
         let holder = try QueueSink(capacity: 1)
-        let adopted = expectation(description: "adopted")
-        queue.async { client.adoptQueueForTesting(holder.queue); adopted.fulfill() }
-        wait(for: [adopted], timeout: 5)
-        XCTAssertTrue(client.isConnected)
         let feeder = SinkFeeder(sink: client)
         let buffer = try XCTUnwrap(CameraTestBuffers.make(width: 64, height: 36))
-        XCTAssertTrue(feeder.push(buffer, hostTimeNs: nil), "the adopted queue accepts one frame")
-        XCTAssertFalse(feeder.push(buffer, hostTimeNs: nil), "nobody drains it: the second push drops")
-        XCTAssertEqual(client.consecutiveDroppedFrames, 1)
+        // Adopt and push inside one block on `queue`: the re-validation timer runs on that queue too, so it cannot drop
+        // the adopted connection between these steps (run 37131914413 saw it fire inside the 0.2 s window).
+        queue.sync {
+            client.adoptQueueForTesting(holder.queue)
+            XCTAssertTrue(client.isConnected)
+            XCTAssertTrue(feeder.push(buffer, hostTimeNs: nil), "the adopted queue accepts one frame")
+            XCTAssertFalse(feeder.push(buffer, hostTimeNs: nil), "nobody drains it: the second push drops")
+            XCTAssertEqual(client.consecutiveDroppedFrames, 1)
+        }
         let waited = expectation(description: "a revalidation tick (0.2 s interval)")
         queue.asyncAfter(deadline: .now() + 0.7) { waited.fulfill() }
         wait(for: [waited], timeout: 5)

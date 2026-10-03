@@ -1,9 +1,10 @@
 import CoreMedia
 import CoreMediaIO
 import Foundation
-import os.log
+import os
 
 /// The stream Daylight.app writes into. Shape: OBS OBSCameraStreamSink.swift; queue size 1, one buffer to start.
+/// Daylight addition (SPEC C3): only a client signed as `com.twelve.daylight` may start the sink.
 final class DaylightSinkStream: NSObject, CMIOExtensionStreamSource {
     private(set) var stream: CMIOExtensionStream!
     let device: CMIOExtensionDevice
@@ -24,7 +25,7 @@ final class DaylightSinkStream: NSObject, CMIOExtensionStreamSource {
     var activeFormatIndex: Int = 0 {
         didSet {
             if activeFormatIndex >= 1 {
-                os_log(.error, "Daylight camera extension: invalid sink format index")
+                extensionLog.error("invalid sink format index \(self.activeFormatIndex)")
             }
         }
     }
@@ -64,7 +65,11 @@ final class DaylightSinkStream: NSObject, CMIOExtensionStreamSource {
     }
 
     func authorizedToStartStream(for client: CMIOExtensionClient) -> Bool {
-        // Later: only the host app may feed the sink (client.signingID == "com.twelve.daylight").
+        let signingID = client.signingID
+        guard DaylightExtensionRules.authorizesSink(signingID: signingID) else {
+            extensionLog.error("sink refused: pid=\(client.pid) signingID=\(signingID ?? "nil", privacy: .public)")
+            return false
+        }
         self.client = client
         return true
     }
@@ -75,6 +80,8 @@ final class DaylightSinkStream: NSObject, CMIOExtensionStreamSource {
         }
         if let client = client {
             deviceSource.startStreamingSink(client: client)
+        } else {
+            extensionLog.error("sink startStream without an authorized client")
         }
     }
 

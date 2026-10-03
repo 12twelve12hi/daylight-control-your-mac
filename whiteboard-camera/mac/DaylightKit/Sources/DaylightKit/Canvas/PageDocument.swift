@@ -1,7 +1,8 @@
 import Foundation
 
 /// The strokes JSON written next to each page PNG (SPEC section 12, schema `daylight-whiteboard-strokes/1`).
-/// Encode with a `JSONEncoder` whose `outputFormatting` includes `.sortedKeys` (the app configures it).
+/// Encode with a `JSONEncoder` whose `outputFormatting` is `[.sortedKeys, .withoutEscapingSlashes]` (the app configures
+/// it; without the second option Foundation writes the schema name as `daylight-whiteboard-strokes\/1`, still valid JSON).
 public struct PageDocument: Codable, Equatable {
     public static let schemaName = "daylight-whiteboard-strokes/1"
 

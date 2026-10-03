@@ -14,6 +14,14 @@ final class StrokeStoreTests: XCTestCase {
         return xs.map { SolStream.Point(x: $0.0, y: $0.1, pressure: $0.2, deltaMs: $0.3) }
     }
 
+    /// A JSON number from JSONSerialization on either platform (NSNumber on Darwin, Int or Double on Linux).
+    private func number(_ v: Any) -> Double? {
+        if let d = v as? Double { return d }
+        if let i = v as? Int { return Double(i) }
+        if let n = v as? NSNumber { return n.doubleValue }
+        return nil
+    }
+
     /// A committed two-point stroke from (x0, y0) to (x1, y1), base width 3.2.
     @discardableResult
     private func line(_ store: inout StrokeStore, _ x0: Double, _ y0: Double, _ x1: Double, _ y1: Double, pressure: Double = 1, now: Double = 1) -> UUID {
@@ -317,7 +325,7 @@ final class StrokeStoreTests: XCTestCase {
         XCTAssertEqual(doc.strokes[1].color, "#80D97706")
 
         let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]   // the app uses the same two options
         let data = try encoder.encode(doc)
         let text = String(decoding: data, as: UTF8.self)
         XCTAssertTrue(text.hasPrefix("{\"app\":\"Daylight 0.1.0 (42)\",\"canvas\":{\"dpi\":200,\"height\":1600,\"units\":\"canvas\",\"width\":1200},\"page\":{"), text)
@@ -326,15 +334,15 @@ final class StrokeStoreTests: XCTestCase {
         XCTAssertTrue(text.contains(",0],[100.5,200.25,0.2,8]]"), "the second point and the integer tMs: \(text)")
         let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any])
         let strokeObjects = try XCTUnwrap(object["strokes"] as? [[String: Any]])
-        let firstPoints = try XCTUnwrap(strokeObjects[0]["points"] as? [[Double]])
+        let firstPoints = try XCTUnwrap(strokeObjects[0]["points"] as? [[Any]])
         XCTAssertEqual(firstPoints.count, 2)
         XCTAssertEqual(firstPoints[0].count, 4, "[x, y, pressure, tMs]")
-        XCTAssertEqual(firstPoints[0][0], 10.5)
-        XCTAssertEqual(firstPoints[0][1], -3.25)
-        XCTAssertEqual(firstPoints[0][2], 186.0 / 255.0, accuracy: 1e-9)
-        XCTAssertEqual(firstPoints[0][3], 0)
-        XCTAssertEqual(firstPoints[1][3], 8)
-        XCTAssertEqual((strokeObjects[0]["baseWidth"] as? Double) ?? 0, 3.2, accuracy: 1e-9, "baseWidth is written at three decimals, not as the Float's binary value")
+        XCTAssertEqual(number(firstPoints[0][0]), 10.5)
+        XCTAssertEqual(number(firstPoints[0][1]), -3.25)
+        XCTAssertEqual(number(firstPoints[0][2]) ?? 0, 186.0 / 255.0, accuracy: 1e-9)
+        XCTAssertEqual(number(firstPoints[0][3]), 0)
+        XCTAssertEqual(number(firstPoints[1][3]), 8)
+        XCTAssertEqual(number(strokeObjects[0]["baseWidth"] ?? 0) ?? 0, 3.2, accuracy: 1e-9, "baseWidth is written at three decimals, not as the Float's binary value")
         XCTAssertTrue(text.contains("\"session\":{\"clientLabel\":\"Chrome on Daylight\",\"inkSource\":\"web\",\"reason\":\"returned\",\"saved\":\"2026-10-03T14:21:40Z\",\"started\":\"2026-10-03T14:05:09Z\"}"))
 
         let decoded = try JSONDecoder().decode(PageDocument.self, from: data)

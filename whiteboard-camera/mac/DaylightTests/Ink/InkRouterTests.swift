@@ -135,7 +135,10 @@ final class InkRouterTests: XCTestCase {
         XCTAssertEqual(router.store.committedCount, 0, "PROTOCOL 8: ink from an overlay connection is dropped")
         XCTAssertTrue(router.store.activeStrokeIDs.isEmpty)
         XCTAssertTrue(pipeline.events.isEmpty, "no governor event from overlay ink")
-        XCTAssertEqual(logs.filter { $0.contains("overlay role sent opcode") }.count, 1, "logged once per opcode")
+        XCTAssertEqual(logs.filter { $0.contains("overlay role sent opcode") }.count, 3, "logged once per opcode: START, CHUNK and COMMIT")
+        drawGoldenStroke(overlay)
+        XCTAssertEqual(logs.filter { $0.contains("overlay role sent opcode") }.count, 3, "a repeat of the same three opcodes adds no line")
+        XCTAssertEqual(router.store.committedCount, 0)
         router.handle(bytes("da0161000900000040e2cfeeb5400600ff40e2cfeeb5400600"), from: overlay, hostTimeNs: 5)
         XCTAssertEqual(pipeline.events.last, .pin(-1), "the three control messages still work")
         router.handle(bytes("da0160000800000040e2cfeeb540060040e2cfeeb5400600"), from: overlay, hostTimeNs: 6)
@@ -338,8 +341,15 @@ final class InkRouterTests: XCTestCase {
         let (connection, _) = connect(address: "127.0.0.1")
         drawGoldenStroke(connection)
         XCTAssertEqual(waitForSave { router.savePage(reason: .autosave) }, ["page-01.json", "page-01.png"])
-        XCTAssertEqual(waitForSave { router.handle(bytes(clearBytes), from: connection, hostTimeNs: 9) }, ["page-01.json", "page-01.png"], "the Clear rewrites the autosaved pair (SPEC B7: one pair per page)")
-        XCTAssertEqual(pngCount(), 1)
+        // SPEC 12: a page is dirty only when lastInkAt > savedAt, so a Clear right after the autosave writes nothing new
+        // (the pair on disk already is this board) but still breaks the page's file binding for the next board.
+        router.onSaveResult = { _ in XCTFail("the Clear after an autosave has nothing new to save") }
+        router.handle(bytes(clearBytes), from: connection, hostTimeNs: 9)
+        inkQueue.sync {}
+        ioQueue.sync {}
+        router.onSaveResult = nil
+        XCTAssertEqual(router.store.committedCount, 0)
+        XCTAssertEqual(pngCount(), 1, "SPEC B7: one pair per board")
         drawSecondStroke(connection)
         XCTAssertEqual(waitForSave { router.savePage(reason: .autosave) }, ["page-01-2.json", "page-01-2.png"], "the next board never lands on the cleared board's files")
         XCTAssertEqual(pngCount(), 2)

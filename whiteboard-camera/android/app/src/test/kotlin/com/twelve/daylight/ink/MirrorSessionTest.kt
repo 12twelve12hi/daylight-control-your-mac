@@ -140,6 +140,55 @@ class MirrorSessionTest {
     }
 
     @Test
+    fun aShareAfterCancellingTheMacsRequestStreamsAtOnce() {
+        // The Mac sends START once per peer: after Cancel, "Share screen with your Mac" must still honour it.
+        val s = session()
+        s.setUiVisible(true)
+        s.connectionAllowed()
+        s.control(start())
+        s.consentDenied()
+        assertEquals(MirrorState.CONSENT_DENIED, s.state)
+        assertTrue(s.macWantsStream)
+        assertEquals(listOf(RequestConsent, SendStatus), s.shareRequested())
+        assertEquals(listOf(CancelConsentNotification, StartEncoder(defaults), SendStatus), s.consentGranted())
+        assertEquals(MirrorState.STARTING, s.state)
+    }
+
+    @Test
+    fun aShareAfterTheOwnerStoppedStreamsAtOnceWhileTheMacStillWantsIt() {
+        val s = streaming()
+        s.userStopped()
+        assertEquals(MirrorState.PROJECTION_ENDED, s.state)
+        s.shareRequested()
+        assertEquals(listOf(CancelConsentNotification, StartEncoder(defaults), SendStatus), s.consentGranted())
+        assertEquals(MirrorState.STARTING, s.state)
+    }
+
+    @Test
+    fun aShareAfterTheMacsStopOrALostConnectionWaitsPaused() {
+        val s = streaming()
+        s.control(stop)
+        assertFalse(s.macWantsStream)
+        s.userStopped()
+        s.shareRequested()
+        assertEquals(listOf(CancelConsentNotification, SendStatus), s.consentGranted())
+        assertEquals(MirrorState.PAUSED, s.state)
+        // A lost connection forgets the wish too: the next connection's START asks again.
+        val t = streaming()
+        t.userStopped()
+        t.connectionLost()
+        t.connectionAllowed()
+        assertFalse(t.macWantsStream)
+        t.shareRequested()
+        assertEquals(listOf(CancelConsentNotification, SendStatus), t.consentGranted())
+        assertEquals(MirrorState.PAUSED, t.state)
+        // And RELEASE.
+        val r = streaming()
+        r.control(release)
+        assertFalse(r.macWantsStream)
+    }
+
+    @Test
     fun stopKeepsTheProjectionAndPauses() {
         val s = streaming()
         assertEquals(listOf(StopEncoder, SendStatus), s.control(stop))

@@ -84,6 +84,13 @@ class MirrorSession(
     /** A START arrived without a projection: stream as soon as consent is granted. */
     var startPending = false
         private set
+    /**
+     * The Mac's last command on this connection was START (cleared by STOP, RELEASE and a lost connection). The Mac
+     * sends START once per peer, so a consent the owner grants later (after a Cancel or a Stop, from "Share screen
+     * with your Mac") still streams at once (PROTOCOL 14.4: START on a tablet that holds a projection resumes).
+     */
+    var macWantsStream = false
+        private set
     private var lastStatusMs = Long.MIN_VALUE / 2
 
     private val encoderRunning: Boolean get() = state == MirrorState.STARTING || state == MirrorState.STREAMING
@@ -127,6 +134,7 @@ class MirrorSession(
      */
     fun connectionLost(): List<MirrorEffect> {
         connected = false
+        macWantsStream = false
         val out = ArrayList<MirrorEffect>()
         if (encoderRunning) {
             out.add(MirrorEffect.StopEncoder)
@@ -153,6 +161,7 @@ class MirrorSession(
         }
         val changed = p != params
         params = p
+        macWantsStream = true
         when {
             projectionHeld && state == MirrorState.STREAMING && !changed -> {}
             projectionHeld && state == MirrorState.STARTING && !changed -> {}
@@ -173,6 +182,7 @@ class MirrorSession(
     private fun stop(): List<MirrorEffect> {
         val out = ArrayList<MirrorEffect>()
         startPending = false
+        macWantsStream = false
         when {
             encoderRunning -> {
                 out.add(MirrorEffect.StopEncoder)
@@ -189,6 +199,7 @@ class MirrorSession(
     private fun release(): List<MirrorEffect> {
         val out = ArrayList<MirrorEffect>()
         startPending = false
+        macWantsStream = false
         if (encoderRunning) out.add(MirrorEffect.StopEncoder)
         if (state == MirrorState.CONSENT_NEEDED) out.add(MirrorEffect.CancelConsentNotification)
         val wasHeld = projectionHeld
@@ -214,14 +225,15 @@ class MirrorSession(
 
     /**
      * The projection was obtained (consent granted, foreground service started, `getMediaProjection` returned). With
-     * a START pending on an allowed connection the stream starts; otherwise the projection waits (PAUSED).
+     * a START pending, or the Mac's START still standing after a Cancel or a Stop ([macWantsStream]), on an allowed
+     * connection the stream starts; otherwise the projection waits (PAUSED).
      */
     fun consentGranted(): List<MirrorEffect> {
         val out = ArrayList<MirrorEffect>()
         out.add(MirrorEffect.CancelConsentNotification)
         val wasHeld = projectionHeld
         projectionHeld = true
-        if (startPending && connected && capable) {
+        if ((startPending || macWantsStream) && connected && capable) {
             startPending = false
             out.add(MirrorEffect.StartEncoder(encoderParams()))
             setState(MirrorState.STARTING, out, flagsChanged = !wasHeld)

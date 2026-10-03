@@ -269,6 +269,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         mirror.onFailure = { [weak self] failure, args in
             DispatchQueue.main.async { self?.model.noteFailure(failure, args) }
         }
+        // Row 37 is withdrawn once the USB pen watcher starts (hardening round 3, DIFF-B4).
+        mirror.onResolve = { [weak self] cases in
+            DispatchQueue.main.async { self?.model.resolve(cases) }
+        }
         mirror.onStatusChange = { [weak self] status in
             DispatchQueue.main.async {
                 self?.model.mirrorStatusText = MirrorController.describe(status)
@@ -539,6 +543,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let previous = lastApplied
         lastApplied = settings
         pipeline?.updateSettings(settings)
+        // A transport switch empties the other transport's frame slot inside `updateSettings`, so the board of the
+        // session that is ending is saved first (hardening round 3, USB-A2/B3).
+        if settings.mirrorTransport != previous.mirrorTransport { saveMirrorSessionIfNeeded() }
         mirrorController?.updateSettings(settings)
         if settings.mirrorTransport != previous.mirrorTransport, let mirror = mirrorController {
             pipeline?.setMirrorSource(mirror.activeSource)
@@ -557,6 +564,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     telemetry.note("hotkeys", "\(Hotkeys.title(action)): \(error)")
                 }
             }
+            settingsContext.hotkeyConflicts = hotkeys.conflictTexts
+        } else if settings.overlayEnabled != previous.overlayEnabled, let hotkeys = hotkeys {
+            // `Hotkeys` already (un)registered the Overlay chord through AppModel's notification, which the store
+            // publishes before `onChange`; refresh the conflict text so Settings shows a clash at once (VP Overlay
+            // request 1).
             settingsContext.hotkeyConflicts = hotkeys.conflictTexts
         }
         if settings.inkSource != previous.inkSource {

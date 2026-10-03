@@ -457,7 +457,7 @@ Backpressure (tablet): before sending a non-key, non-config packet the tablet ch
 
 | Offset | Size | Field | Value |
 |---|---|---|---|
-| 0 | 1 | state | 0 IDLE (capable, not streaming), 1 CONSENT_NEEDED (the tablet shows its "Share screen" prompt or notification), 2 STARTING, 3 STREAMING, 4 PAUSED (projection held, encoder stopped by MIRROR_CONTROL STOP), 5 CONSENT_DENIED, 6 ENCODER_UNAVAILABLE (no H.264 encoder, or configure or start failed), 7 PROJECTION_ENDED (stopped on the tablet: the notification's Stop, the system's cast control, or the app), 8 UNSUPPORTED (this build or device cannot capture) |
+| 0 | 1 | state | 0 IDLE (capable, not streaming), 1 CONSENT_NEEDED (the tablet shows its "Share screen" prompt or notification), 2 STARTING, 3 STREAMING, 4 PAUSED (projection held, encoder stopped: the Mac's STOP, a Wi-Fi drop, or the owner shared before any START), 5 CONSENT_DENIED, 6 ENCODER_UNAVAILABLE (no H.264 encoder, or configure or start failed), 7 PROJECTION_ENDED (stopped on the tablet: the notification's Stop, the system's cast control, or the app), 8 UNSUPPORTED (this build or device cannot capture) |
 | 1 | 1 | flags | bit0 projection_held; bit1 thermal_reduced (frame rate or bit rate lowered for heat); bit2 power_save (the system battery saver is on); bit3 backpressure (packets dropped since the previous report) |
 | 2 | 2 | fps_x10 | u16, access units sent in the last second times 10 |
 | 4 | 2 | width | u16, encoder output width (0 when not streaming) |
@@ -490,6 +490,8 @@ The parameter fields matter for START only; STOP, REQUEST_KEY_FRAME and RELEASE 
 | MIRROR_HELLO from a second connection | the newest stream wins; the older connection gets STOP |
 | no MIRROR_PACKET for 2 s while the last MIRROR_STATUS said STREAMING | status "stream stalled" (FailureText), REQUEST_KEY_FRAME, and again every 2 s |
 | connection closed while streaming | the source keeps the last frame, status idle; START is sent again to the next capable connection while the transport is Wi-Fi and the ink source is mirror |
+| MIRROR_STATUS changes to PAUSED on the connection the Mac would START (not one whose stream a newer MIRROR_HELLO replaced) | START again: the tablet holds the projection and waits for it |
+| decoder error | REQUEST_KEY_FRAME (at most once per second); no decodable key frame for 12 s, or the parameter sets were rejected: STOP then START (a new MIRROR_HELLO and config follow), at most once per 12 s |
 
 The tablet's encoder repeats the previous frame after 250 ms without screen updates (`MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER = 250000`), so a static screen still produces packets and the 2 s stall rule never fires on an idle page.
 

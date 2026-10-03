@@ -51,6 +51,10 @@ public enum FailureText {
         case adbChecksumMismatch            // 41
         case adbInstalledMissing            // 42
         case adbInstalledTooOld             // 43
+        case diagnosticsExportRunning       // 44
+        case diagnosticsExportSaved         // 45
+        case diagnosticsExportPartial       // 46
+        case diagnosticsExportFailed        // 47
 
         /// The SPEC 13.3 row label.
         public var row: String {
@@ -100,6 +104,10 @@ public enum FailureText {
             case .adbChecksumMismatch: return "41"
             case .adbInstalledMissing: return "42"
             case .adbInstalledTooOld: return "43"
+            case .diagnosticsExportRunning: return "44"
+            case .diagnosticsExportSaved: return "45"
+            case .diagnosticsExportPartial: return "46"
+            case .diagnosticsExportFailed: return "47"
             }
         }
     }
@@ -161,6 +169,10 @@ public enum FailureText {
         case .adbChecksumMismatch: template = "The downloaded adb did not match its checksum and was deleted. Try again, or choose Use bundled."
         case .adbInstalledMissing: template = "No installed adb found. Daylight looked in your PATH, in Homebrew (/opt/homebrew/bin, /usr/local/bin) and in the Android Studio SDK (ANDROID_HOME, ~/Library/Android/sdk)."
         case .adbInstalledTooOld: template = "The adb at <path> is version <version>. Daylight needs platform-tools 35 or newer: update it, or choose another adb source."
+        case .diagnosticsExportRunning: template = "Saving diagnostics: <step>..."
+        case .diagnosticsExportSaved: template = "Diagnostics saved as <file> in Documents > Daylight Camera. Send this file back after the test."
+        case .diagnosticsExportPartial: template = "The diagnostics file was saved without <part>: <reason>."
+        case .diagnosticsExportFailed: template = "Could not save the diagnostics file: <reason>. Use Diagnostics > Copy diagnostics instead."
         }
         var filled = args
         if c == .extensionNeedsApproval && filled.isEmpty { filled = [approvalPathModern] }
@@ -233,6 +245,10 @@ public enum FailureText {
         case .adbChecksumMismatch: template = "adb download: sha256 <got> want <want>"
         case .adbInstalledMissing: template = "adb installed: none executable in <paths>"
         case .adbInstalledTooOld: template = "adb installed: <path> version <version> below platform-tools 35"
+        case .diagnosticsExportRunning: template = "diagnostics export: <step>"
+        case .diagnosticsExportSaved: template = "diagnostics export: wrote <name> (<bytes> bytes, <n> files)"
+        case .diagnosticsExportPartial: template = "diagnostics export: <part> unavailable: <error>"
+        case .diagnosticsExportFailed: template = "diagnostics export failed: <error>"
         }
         return "failure.\(c.rawValue) (row \(c.row)): " + substitute(template, args)
     }

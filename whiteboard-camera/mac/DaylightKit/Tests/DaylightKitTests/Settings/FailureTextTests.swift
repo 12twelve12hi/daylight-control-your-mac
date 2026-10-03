@@ -1,11 +1,11 @@
 import XCTest
 import DaylightKit
 
-/// SPEC 13.3 and plan 3.4: 45 cases in row order, exact owner-facing sentences, log lines, placeholder substitution.
+/// SPEC 13.3 and plan 3.4: 49 cases in row order, exact owner-facing sentences, log lines, placeholder substitution.
 final class FailureTextTests: XCTestCase {
-    func testFortyFiveCasesInRowOrder() {
+    func testFortyNineCasesInRowOrder() {
         let names = FailureText.Case.allCases.map { $0.rawValue }
-        XCTAssertEqual(names.count, 45)
+        XCTAssertEqual(names.count, 49)
         XCTAssertEqual(names, [
             "notInApplications", "unsignedBuild", "cameraAccessDenied", "noWebcam", "webcamFormatComposed",
             "extensionMissingEntitlement", "extensionUnsupportedLocation", "extensionDamaged", "extensionSignatureInvalid",
@@ -17,11 +17,13 @@ final class FailureTextTests: XCTestCase {
             "wifiStreamConsentDenied", "wifiStreamEncoderUnavailable", "wifiStreamStalled", "wifiStreamFrameDiffEngage",
             "wifiStreamNoTablet",
             "adbTermsDeclined", "adbDownloadFailed", "adbChecksumMismatch", "adbInstalledMissing", "adbInstalledTooOld",
+            "diagnosticsExportRunning", "diagnosticsExportSaved", "diagnosticsExportPartial", "diagnosticsExportFailed",
         ])
         XCTAssertEqual(FailureText.Case.allCases.map { $0.row }, [
             "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "12b", "13", "14", "15", "16", "17", "18", "19", "20",
             "21", "22", "23", "24", "25", "26", "27", "28", "28b", "29", "30", "31", "32", "33",
             "34", "35", "36", "37", "38", "39", "40", "41", "42", "43",
+            "44", "45", "46", "47",
         ])
     }
 
@@ -34,6 +36,16 @@ final class FailureTextTests: XCTestCase {
         XCTAssertEqual(FailureText.sentence(.adbInstalledTooOld, ["/usr/local/bin/adb", "1.0.39 (29.0.6)"]), "The adb at /usr/local/bin/adb is version 1.0.39 (29.0.6). Daylight needs platform-tools 35 or newer: update it, or choose another adb source.")
         XCTAssertEqual(FailureText.logLine(.adbTermsDeclined, ["37.0.0"]), "failure.adbTermsDeclined (row 39): adb download: terms not accepted for platform-tools 37.0.0")
         XCTAssertEqual(FailureText.logLine(.adbChecksumMismatch, ["aa", "bb"]), "failure.adbChecksumMismatch (row 41): adb download: sha256 aa want bb")
+    }
+
+    /// The diagnostics export rows, every sentence exact (SPEC 13.3 rows 44 to 47).
+    func testDiagnosticsExportRowsExact() {
+        XCTAssertEqual(FailureText.sentence(.diagnosticsExportRunning, ["reading the log"]), "Saving diagnostics: reading the log...")
+        XCTAssertEqual(FailureText.sentence(.diagnosticsExportSaved, ["diagnostics-2026-10-03-14-05.zip"]), "Diagnostics saved as diagnostics-2026-10-03-14-05.zip in Documents > Daylight Camera. Send this file back after the test.")
+        XCTAssertEqual(FailureText.sentence(.diagnosticsExportPartial, ["the unified log", "log show timed out"]), "The diagnostics file was saved without the unified log: log show timed out.")
+        XCTAssertEqual(FailureText.sentence(.diagnosticsExportFailed, ["the disk is full"]), "Could not save the diagnostics file: the disk is full. Use Diagnostics > Copy diagnostics instead.")
+        XCTAssertEqual(FailureText.logLine(.diagnosticsExportSaved, ["diagnostics-2026-10-03-14-05.zip", "1024", "12"]), "failure.diagnosticsExportSaved (row 45): diagnostics export: wrote diagnostics-2026-10-03-14-05.zip (1024 bytes, 12 files)")
+        XCTAssertEqual(FailureText.logLine(.diagnosticsExportFailed, ["ENOSPC"]), "failure.diagnosticsExportFailed (row 47): diagnostics export failed: ENOSPC")
     }
 
     func testEveryCaseHasASentenceAndALogLine() {

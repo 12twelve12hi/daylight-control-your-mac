@@ -461,6 +461,10 @@ Shows: build signed or not; extension status and the two `kCMIOStreamPropertyDir
 | 41 | adb source Download, checksum mismatch | "The downloaded adb did not match its checksum and was deleted. Try again, or choose Use bundled." | `adb download: sha256 <got> want <want>` | the zip or the stored adb differs from the pinned sha256 (scripts/fetch-tools.sh) |
 | 42 | adb source Installed, none found | "No installed adb found. Daylight looked in your PATH, in Homebrew (/opt/homebrew/bin, /usr/local/bin) and in the Android Studio SDK (ANDROID_HOME, ~/Library/Android/sdk)." | `adb installed: none executable in <paths>` | install platform-tools (brew install android-platform-tools) or pick another source |
 | 43 | adb source Installed, too old | "The adb at <path> is version <version>. Daylight needs platform-tools 35 or newer: update it, or choose another adb source." | `adb installed: <path> version <version> below platform-tools 35` | the first adb found is older than platform-tools 35 (or prints no version) |
+| 44 | diagnostics export, in progress | "Saving diagnostics: <step>..." | `diagnostics export: <step>` | informational; shown in the menu while menu bar > Export diagnostics... collects (docs/FEEDBACK.md) |
+| 45 | diagnostics export, saved | "Diagnostics saved as <file> in Documents > Daylight Camera. Send this file back after the test." | `diagnostics export: wrote <name> (<bytes> bytes, <n> files)` | informational; Finder reveals the zip |
+| 46 | diagnostics export, part missing | "The diagnostics file was saved without <part>: <reason>." | `diagnostics export: <part> unavailable: <error>` | a bounded command (`log show`, `systemextensionsctl list`, the self-test) timed out or failed; the rest of the zip is complete and MANIFEST.txt names the gap |
+| 47 | diagnostics export, failed | "Could not save the diagnostics file: <reason>. Use Diagnostics > Copy diagnostics instead." | `diagnostics export failed: <error>` | the zip could not be written (disk full, Documents not writable) |
 
 `docs/TESTING-CHECKLIST.md` lists rows 1, 12, 13, 19, 21, 22, 28, 33 as the ones the owner triggers on purpose on day one.
 

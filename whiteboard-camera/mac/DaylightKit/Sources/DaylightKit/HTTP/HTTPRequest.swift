@@ -1,10 +1,11 @@
 import Foundation
 
-/// Minimal HTTP/1.1 request head parser and response builder for the Mac's listener (full version in M3).
+/// HTTP/1.1 request head parser and response builder for the Mac's listener (ARCHITECTURE section 5).
 public struct HTTPRequest: Equatable {
     public var method: String
     public var path: String
     public var query: [String: String]
+    /// Header names lower-cased; a repeated header keeps the last value.
     public var headers: [String: String]
 
     public init(method: String, path: String, query: [String: String] = [:], headers: [String: String] = [:]) {
@@ -15,16 +16,23 @@ public struct HTTPRequest: Equatable {
     }
 
     public static let webSocketGUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+    /// A head longer than this without its terminator is rejected (`HTTPError.headTooLarge`).
+    public static let maxHeadLength = 16 * 1024
 
-    /// Returns nil until the head is complete ("\r\n\r\n" seen).
+    /// Returns nil until the head is complete ("\r\n\r\n" seen); `consumed` counts the head including the terminator.
     public static func parse(_ buffer: UnsafeRawBufferPointer) throws -> (request: HTTPRequest, consumed: Int)? {
         let bytes = [UInt8](buffer)
-        guard let end = indexOfHeadEnd(bytes) else { return nil }
+        guard let end = indexOfHeadEnd(bytes) else {
+            if bytes.count > maxHeadLength { throw HTTPError.headTooLarge }
+            return nil
+        }
+        if end > maxHeadLength { throw HTTPError.headTooLarge }
         let head = String(decoding: bytes[0..<end], as: UTF8.self)
         var lines = head.components(separatedBy: "\r\n")
         guard !lines.isEmpty else { return nil }
         let requestLine = lines.removeFirst().split(separator: " ")
         guard requestLine.count >= 2 else { throw HTTPError.badRequestLine }
+        if requestLine.count >= 3 && !requestLine[2].hasPrefix("HTTP/") { throw HTTPError.badRequestLine }
         let target = String(requestLine[1])
         var path = target
         var query: [String: String] = [:]
@@ -47,6 +55,10 @@ public struct HTTPRequest: Equatable {
         return (HTTPRequest(method: String(requestLine[0]), path: path, query: query, headers: headers), end + 4)
     }
 
+    public static func parse(_ bytes: [UInt8]) throws -> (request: HTTPRequest, consumed: Int)? {
+        return try bytes.withUnsafeBytes { try parse($0) }
+    }
+
     private static func indexOfHeadEnd(_ bytes: [UInt8]) -> Int? {
         if bytes.count < 4 { return nil }
         for i in 0...(bytes.count - 4) {
@@ -56,25 +68,47 @@ public struct HTTPRequest: Equatable {
     }
 
     public var isWebSocketUpgrade: Bool {
-        return headers["upgrade"]?.lowercased() == "websocket" && headers["sec-websocket-key"] != nil
+        guard headers["upgrade"]?.lowercased() == "websocket", headers["sec-websocket-key"] != nil else { return false }
+        let connection = headers["connection"]?.lowercased() ?? ""
+        return connection.split(separator: ",").contains { $0.trimmingCharacters(in: .whitespaces) == "upgrade" }
+    }
+
+    public var webSocketKey: String? { return headers["sec-websocket-key"] }
+
+    public var webSocketVersion: Int? {
+        guard let raw = headers["sec-websocket-version"] else { return nil }
+        return Int(raw.trimmingCharacters(in: .whitespaces))
     }
 
     public var webSocketProtocols: [String] {
         guard let raw = headers["sec-websocket-protocol"] else { return [] }
-        return raw.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+        return raw.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
     }
 
     public static func statusText(_ code: Int) -> String {
         switch code {
         case 101: return "Switching Protocols"
         case 200: return "OK"
+        case 204: return "No Content"
+        case 301: return "Moved Permanently"
+        case 302: return "Found"
+        case 304: return "Not Modified"
         case 400: return "Bad Request"
+        case 403: return "Forbidden"
         case 404: return "Not Found"
+        case 405: return "Method Not Allowed"
+        case 408: return "Request Timeout"
+        case 413: return "Payload Too Large"
+        case 426: return "Upgrade Required"
+        case 429: return "Too Many Requests"
+        case 431: return "Request Header Fields Too Large"
         case 500: return "Internal Server Error"
+        case 503: return "Service Unavailable"
         default: return "Unknown"
         }
     }
 
+    /// A complete response; always `Connection: close` (the static server never keeps a connection open).
     public static func response(status: Int, headers: [(String, String)], body: [UInt8]) -> [UInt8] {
         var head = "HTTP/1.1 \(status) \(statusText(status))\r\n"
         for (name, value) in headers {
@@ -102,4 +136,5 @@ public struct HTTPRequest: Equatable {
 
 public enum HTTPError: Error, Equatable {
     case badRequestLine
+    case headTooLarge
 }

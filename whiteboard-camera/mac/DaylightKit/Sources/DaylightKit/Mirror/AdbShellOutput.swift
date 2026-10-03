@@ -33,11 +33,12 @@ public enum AdbShellOutput {
         return UInt16(value)
     }
 
-    /// Non-empty trimmed lines, CRLF tolerant (adb shell without `-T` may emit `\r\n`).
+    /// Non-empty trimmed lines, CRLF tolerant (adb shell without `-T` may emit `\r\n`; in Swift `\r\n` is one
+    /// `Character`, so the split goes by `isNewline`, never by comparing against `"\n"`).
     static func lines(_ output: String) -> [String] {
         var out: [String] = []
-        for raw in output.split(omittingEmptySubsequences: true, whereSeparator: { $0 == "\n" || $0 == "\r" }) {
-            let line = raw.trimmingCharacters(in: .whitespaces)
+        for raw in output.split(omittingEmptySubsequences: true, whereSeparator: { $0.isNewline }) {
+            let line = raw.trimmingCharacters(in: .whitespacesAndNewlines)
             if !line.isEmpty { out.append(line) }
         }
         return out

@@ -74,10 +74,9 @@ public enum EvdevCapabilitiesParser {
         var devices: [EvdevCapabilities] = []
         var current: EvdevCapabilities?
         var section = ""   // "KEY", "ABS", "PROPS" or ""
-        for rawLine in text.split(omittingEmptySubsequences: false, whereSeparator: { $0 == "\n" }) {
-            var line = Substring(rawLine)
-            if line.last == "\r" { line.removeLast() }
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
+        // `isNewline` also splits a CRLF, which Swift treats as one `Character`.
+        for rawLine in text.split(omittingEmptySubsequences: false, whereSeparator: { $0.isNewline }) {
+            let trimmed = rawLine.trimmingCharacters(in: .whitespaces)
             if trimmed.isEmpty { continue }
             if trimmed.hasPrefix("add device ") {
                 if let device = current { devices.append(device) }

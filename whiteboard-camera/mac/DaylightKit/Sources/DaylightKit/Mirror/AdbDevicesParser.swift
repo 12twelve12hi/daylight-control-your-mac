@@ -42,7 +42,7 @@ public enum AdbDevicesParser {
     /// token is located first (scanning from the end past the `key:value` fields) and everything before it is the serial.
     public static func parse(_ output: String) -> [AdbDevice] {
         var devices: [AdbDevice] = []
-        for rawLine in output.split(omittingEmptySubsequences: true, whereSeparator: { $0 == "\n" || $0 == "\r" }) {
+        for rawLine in output.split(omittingEmptySubsequences: true, whereSeparator: { $0.isNewline }) {   // CRLF is one Character
             let line = rawLine.trimmingCharacters(in: .whitespaces)
             if line.isEmpty || line.hasPrefix("*") || line.hasPrefix("adb server") || line.hasPrefix("List of devices") || line.hasPrefix("error:") { continue }
             if let device = parseLine(line) { devices.append(device) }

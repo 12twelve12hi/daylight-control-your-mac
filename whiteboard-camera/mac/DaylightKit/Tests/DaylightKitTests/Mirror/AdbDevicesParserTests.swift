@@ -14,6 +14,11 @@ final class AdbDevicesParserTests: XCTestCase {
         XCTAssertFalse(devices[0].looksLikeDaylight)
     }
 
+    func testCRLFOutputParsesLikeLF() {
+        let out = "List of devices attached\r\n0a388e93      device usb:1-1 product:razor model:Nexus_7 device:flo transport_id:1\r\n\r\n"
+        XCTAssertEqual(AdbDevicesParser.parse(out), [AdbDevice(serial: "0a388e93", state: "device", model: "Nexus_7", product: "razor", transportID: 1)], "a CRLF is one Swift Character; the splitter must still cut it")
+    }
+
     func testNoiseLinesAndSerialsWithSpaces() {
         let out = """
         * daemon not running; starting now at tcp:5037

@@ -135,6 +135,11 @@ final class EvdevCapabilitiesTests: XCTestCase {
         XCTAssertEqual(noPressure.pressureMax, EvdevCapabilitiesParser.defaultPressureMax)
     }
 
+    func testCRLFListingParsesLikeLF() {
+        let crlf = EvdevCapabilitiesTests.listing.replacingOccurrences(of: "\n", with: "\r\n")
+        XCTAssertEqual(EvdevCapabilitiesParser.parse(crlf), EvdevCapabilitiesParser.parse(EvdevCapabilitiesTests.listing), "adb shell without -T emits CRLF")
+    }
+
     func testEmptyAndGarbageInput() {
         XCTAssertEqual(EvdevCapabilitiesParser.parse("").count, 0)
         XCTAssertEqual(EvdevCapabilitiesParser.parse("error: device offline\n").count, 0)

@@ -73,13 +73,15 @@ final class MirrorControllerTests: XCTestCase {
 
     /// LOOSE_ENDS H1 seam: the controller resolves the adb source from its own settings. Download without accepted
     /// terms raises row 39 itself (the menu banner) and shows the row's sentence inside row 25 in the status, never a
-    /// Swift enum description; a missing bundled adb keeps row 25's wording and raises nothing else.
+    /// Swift enum description; a missing bundled adb keeps row 25's wording and raises nothing else. `bundledAvailable`
+    /// is set, so a DAYLIGHT_BUNDLE_ADB=0 host app (Bundled resolves as Download there) runs it the same (ADB-A5).
     func testAdbSourceFailureRaisesItsOwnRowAndAReadableStatus() {
         var settings = Settings.defaults
         settings.adbServerMode = .shared
         settings.adbSource = .download
         settings.adbTermsAcceptedVersion = nil
         let controller = MirrorController(settings: settings, vendorDirectory: vendor, pipeline: FakePipelineControl(), queue: DispatchQueue(label: "mirror-control"))
+        controller.bundledAvailable = true
         let raised = Locked<[FailureText.Case]>([])
         let row39 = expectation(description: "row 39")
         controller.onFailure = { failure, _ in
@@ -96,6 +98,7 @@ final class MirrorControllerTests: XCTestCase {
 
         settings.adbSource = .bundled
         let bundled = MirrorController(settings: settings, vendorDirectory: vendor, pipeline: FakePipelineControl(), queue: DispatchQueue(label: "mirror-control-bundled"))
+        bundled.bundledAvailable = true
         let other = Locked<[FailureText.Case]>([])
         bundled.onFailure = { failure, _ in other.withLock { $0.append(failure) } }
         let missing = vendor.appendingPathComponent(AdbClient.vendorExecutableName).path
@@ -103,6 +106,28 @@ final class MirrorControllerTests: XCTestCase {
         waitForStatus(bundled) { $0 == .error(.scrcpyServerFailed, "bundled adb missing at \(missing) (run make fetch-tools)") }
         XCTAssertEqual(other.withLock { $0 }, [], "a missing bundled adb is row 25 only, as before H1")
         bundled.stop()
+    }
+
+    /// ADB-A5: a build without a bundled adb resolves Bundled as Download, whatever the test host's Info.plist says.
+    /// Before the seam the controller read the host app's `DaylightBundlesAdb`, so this could not be expressed.
+    func testABuildWithoutBundledAdbResolvesBundledAsDownload() {
+        var settings = Settings.defaults
+        settings.adbServerMode = .shared
+        settings.adbSource = .bundled
+        settings.adbTermsAcceptedVersion = nil
+        let controller = MirrorController(settings: settings, vendorDirectory: vendor, pipeline: FakePipelineControl(), queue: DispatchQueue(label: "mirror-control-no-bundled"))
+        controller.bundledAvailable = false
+        let raised = Locked<[FailureText.Case]>([])
+        let row39 = expectation(description: "row 39")
+        controller.onFailure = { failure, _ in
+            raised.withLock { $0.append(failure) }
+            if failure == .adbTermsDeclined { row39.fulfill() }
+        }
+        controller.start()
+        wait(for: [row39], timeout: 8)
+        waitForStatus(controller) { $0 == .error(.scrcpyServerFailed, FailureText.sentence(.adbTermsDeclined)) }
+        XCTAssertEqual(raised.withLock { $0 }, [.adbTermsDeclined])
+        controller.stop()
     }
 
     /// A downloader in a temporary folder with the shipped version, and a way to "finish" its download: a fake adb
@@ -135,6 +160,7 @@ final class MirrorControllerTests: XCTestCase {
         settings.adbSource = .download
         settings.adbTermsAcceptedVersion = nil
         let controller = MirrorController(settings: settings, vendorDirectory: vendor, pipeline: FakePipelineControl(), queue: DispatchQueue(label: "mirror-control-j2"))
+        controller.bundledAvailable = true   // the final Bundled step expects "bundled adb missing" on every build (ADB-A5)
         controller.trackerTuning = (pollInterval: 0.05, useTrackSocket: false)
         let (downloader, install) = makeDownloader()
         controller.adbDownloader = downloader
@@ -385,6 +411,7 @@ final class MirrorControllerTests: XCTestCase {
         try? FileManager.default.createDirectory(at: empty, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: empty) }
         let controller = MirrorController(settings: Settings.defaults, vendorDirectory: empty, pipeline: FakePipelineControl(), queue: DispatchQueue(label: "mirror-control"))
+        controller.bundledAvailable = true   // the bundled source on every build (ADB-A5)
         controller.start()
         waitForStatus(controller) { if case .error(.scrcpyServerFailed, let detail) = $0 { return detail.contains("bundled adb missing") } else { return false } }
         XCTAssertNil(controller.latestFrameForSave())

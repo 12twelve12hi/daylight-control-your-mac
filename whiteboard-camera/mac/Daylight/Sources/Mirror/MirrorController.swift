@@ -83,6 +83,9 @@ final class MirrorController: MirrorControl {
     /// Where Download on first use installs adb (tests point it at a temporary folder) and the poll for it.
     var adbDownloader = AdbDownloader()
     var adbDownloadPollInterval = MirrorController.adbDownloadPollInterval
+    /// Whether this build ships adb (`DaylightBundlesAdb` in the host app's Info.plist). The hosted tests set it, so they
+    /// behave the same on a DAYLIGHT_BUNDLE_ADB=0 build (finder ADB-A5).
+    var bundledAvailable = AdbSourceRequest.bundleShipsAdb()
 
     /// The bound web server port for `adb reverse` (B sets it when the listener binds 7789 instead of 7788).
     var serverPort: UInt16
@@ -435,7 +438,8 @@ final class MirrorController: MirrorControl {
             client = injected
         } else {
             let chosen = self.settings
-            let request = AdbSourceRequest(source: chosen.adbSource, termsAcceptedVersion: chosen.adbTermsAcceptedVersion,
+            let request = AdbSourceRequest(source: chosen.adbSource, bundledAvailable: bundledAvailable,
+                                           termsAcceptedVersion: chosen.adbTermsAcceptedVersion,
                                            vendorDirectory: vendorDirectory, downloader: adbDownloader)
             switch AdbClient.locateExecutable(request) {
             case let .success(location):

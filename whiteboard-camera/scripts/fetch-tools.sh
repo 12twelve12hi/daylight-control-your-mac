@@ -27,6 +27,10 @@ if [[ ! -f "$out/adb" ]]; then
   cp build/tools/platform-tools/adb "$out/adb"; chmod +x "$out/adb"
   [[ -f build/tools/platform-tools/NOTICE.txt ]] && cp build/tools/platform-tools/NOTICE.txt "$out/NOTICE-platform-tools.txt"
 fi
+# Apache-2.0 section 4(a): a copy of the License ships with every redistribution of scrcpy-server and adb, and the
+# notices file carries the scrcpy attribution (SPEC 17, THIRD_PARTY_NOTICES.md). Both are committed, so no download.
+cp scripts/licenses/Apache-2.0.txt "$out/LICENSE-Apache-2.0.txt"
+cp THIRD_PARTY_NOTICES.md "$out/THIRD_PARTY_NOTICES.md"
 # Facts for LOOSE_ENDS B2 and THIRD_PARTY_NOTICES.md, kept in the xcodebuild-logs artifact.
 {
   echo "== fetch-tools: $(date -u +%Y-%m-%dT%H:%M:%SZ) scrcpy-server v${SCRCPY_VERSION}, platform-tools r${PT_VERSION}"
@@ -35,6 +39,7 @@ fi
   if command -v file >/dev/null 2>&1; then file "$out/adb"; fi
   echo "sha256 adb: $(sha256 "$out/adb")"
   echo "sha256 scrcpy-server-v${SCRCPY_VERSION}: $(sha256 "$out/scrcpy-server-v${SCRCPY_VERSION}")"
+  echo "license texts: $(ls "$out"/LICENSE-Apache-2.0.txt "$out"/THIRD_PARTY_NOTICES.md "$out"/NOTICE-platform-tools.txt 2>&1 | tr '\n' ' ')"
   [[ -f build/tools/platform-tools-listing.txt ]] && { echo "unzip -l platform-tools.zip (adb, NOTICE):"; grep -E 'platform-tools/(adb|NOTICE.txt)$' build/tools/platform-tools-listing.txt || true; }
   echo "adb --version:"; "$out/adb" --version 2>&1 || echo "(adb --version failed: $?)"
 } | tee build/xcodebuild-logs/vendor.txt

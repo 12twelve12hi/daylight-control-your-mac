@@ -127,6 +127,37 @@ final class PipelineSmokeTests: XCTestCase {
         pipeline.shutdown()
     }
 
+    func testFormatChangeMidRunLeavesZeroCopyAndComposesTheFallback() throws {
+        guard MTLCreateSystemDefaultDevice() != nil else { throw XCTSkip("no Metal device") }
+        let sink = FakeSink()
+        let capture = FakeCapture()
+        let pipeline = try makePipeline(sink: sink, capture: capture)
+        var failures: [FailureText.Case] = []
+        let lock = NSLock()
+        pipeline.onFailure = { failure, _ in
+            lock.lock()
+            failures.append(failure)
+            lock.unlock()
+        }
+        pipeline.start()
+        XCTAssertTrue(waitUntil(2) { sink.pushCount > 5 })
+        XCTAssertTrue(pipeline.stats.passthroughZeroCopy)
+        capture.switchFormat(width: 1280, height: 720)
+        XCTAssertTrue(waitUntil(2) { pipeline.stats.firstFrame?.contains("1280x720") ?? false }, "Diagnostics follows the current camera")
+        XCTAssertFalse(pipeline.stats.passthroughZeroCopy, "eligibility is re-decided per frame, not once at launch")
+        sink.resetRecording()
+        XCTAssertTrue(waitUntil(2) { sink.pushCount >= 3 })
+        let frame = sink.lastPixelBuffer!
+        XCTAssertFalse(frame === capture.currentBuffer, "the 720p buffer never reaches the 1080p sink directly")
+        XCTAssertEqual(CVPixelBufferGetWidth(frame), 1920)
+        XCTAssertEqual(CVPixelBufferGetHeight(frame), 1080)
+        lock.lock()
+        let seen = failures
+        lock.unlock()
+        XCTAssertTrue(seen.contains(.webcamFormatComposed), "row 5 is reported for the new format")
+        pipeline.shutdown()
+    }
+
     func testStateCadenceConstantsMatchSpecD47() {
         XCTAssertEqual(FramePipeline.stateIntervalAnimating, 0.1, accuracy: 1e-12, "10 Hz while ENGAGING, RETURNING or pre-warning")
         XCTAssertEqual(FramePipeline.stateIntervalLive, 1.0, accuracy: 1e-12, "1 Hz while LIVE")

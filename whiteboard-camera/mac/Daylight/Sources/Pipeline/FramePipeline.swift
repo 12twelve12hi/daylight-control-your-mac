@@ -42,7 +42,9 @@ final class FramePipeline: PipelineControl {
         var inkSource: InkSource
         var mirror: MirrorFrameSource?
         var zeroCopyEligible = true
+        /// The current camera's facts ("1920x1080 BGRA iosurface=true"), re-evaluated whenever the format changes.
         var firstFrame: String?
+        var lastFormat: (Int, Int, OSType, Bool)?
         /// Camera authorization (SPEC 13.3 row 3): false blocks capture; the app sets it from the TCC status.
         var captureAuthorized = true
     }
@@ -189,6 +191,7 @@ final class FramePipeline: PipelineControl {
                 webcam.stop()
                 self.flags.withLock { $0.captureRunning = false }
             }
+            self.flags.withLock { $0.lastFormat = nil }
             self.recomputeCapture()
         }
     }
@@ -508,16 +511,19 @@ final class FramePipeline: PipelineControl {
             let height = CVPixelBufferGetHeight(pixelBuffer)
             let fourcc = CVPixelBufferGetPixelFormatType(pixelBuffer)
             let backed = CVPixelBufferGetIOSurface(pixelBuffer) != nil
-            var eligible = true
+            // Zero-copy eligibility is decided per frame (SPEC 4, row 5): a camera switch or a reconnect can change
+            // the format at any time, and a non-1080p or non-BGRA buffer must take the composed path.
+            let eligible = backed && width == FramePipeline.outputWidth && height == FramePipeline.outputHeight && fourcc == kCVPixelFormatType_32BGRA
+            let format = (width, height, fourcc, backed)
             var firstFacts: String?
             flags.withLock { f in
-                if f.firstFrame == nil {
-                    f.zeroCopyEligible = backed && width == FramePipeline.outputWidth && height == FramePipeline.outputHeight && fourcc == kCVPixelFormatType_32BGRA
+                f.zeroCopyEligible = eligible
+                f.cameraAttached = true
+                if f.lastFormat == nil || f.lastFormat! != format {
+                    f.lastFormat = format
                     f.firstFrame = "\(width)x\(height) \(Compositor.fourcc(fourcc)) iosurface=\(backed)"
                     firstFacts = f.firstFrame
-                    f.cameraAttached = true
                 }
-                eligible = f.zeroCopyEligible
             }
             if let facts = firstFacts {
                 telemetry.note("capture", "first frame \(facts) zeroCopy=\(eligible)")
@@ -543,14 +549,21 @@ final class FramePipeline: PipelineControl {
             telemetry.end(signpost, "capture")
         case let .formatChanged(width, height, pixelFormat):
             telemetry.note("capture", "format \(width)x\(height) \(Compositor.fourcc(pixelFormat))")
+            flags.withLock { $0.lastFormat = nil }   // the next frame re-logs its facts and re-decides zero copy
         case .lost:
-            flags.withLock { $0.cameraAttached = false }
+            flags.withLock { f in
+                f.cameraAttached = false
+                f.lastFormat = nil
+            }
             cameraSlot.clear()
             telemetry.note("capture", "camera lost")
             onCameraPresence?(false)
             renderQueue.async { [weak self] in self?.publishFlagsChange() }
         case .restored:
-            flags.withLock { $0.cameraAttached = true }
+            flags.withLock { f in
+                f.cameraAttached = true
+                f.lastFormat = nil
+            }
             telemetry.note("capture", "camera restored")
             onCameraPresence?(true)
             renderQueue.async { [weak self] in self?.publishFlagsChange() }

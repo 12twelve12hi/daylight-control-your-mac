@@ -21,6 +21,14 @@ elif [[ ! -f "$webres/index.html" ]]; then
   printf '<!doctype html><meta charset="utf-8"><title>Daylight</title><p>The web whiteboard was not built into this app (run make web before make mac-generate).</p>\n' > "$webres/index.html"
   echo "mac-generate: web/dist missing, wrote a placeholder page into $webres"
 fi
+# The vendored adb + scrcpy-server folder is a folder reference too (make fetch-tools fills it in CI). When it is
+# missing, a one-line README keeps the reference resolvable so a local build without the tools still works.
+vendor="mac/Daylight/Resources/Vendor"
+if [[ ! -d "$vendor" ]]; then
+  mkdir -p "$vendor"
+  printf 'Bundled tools are missing from this build. Run make fetch-tools (needs dl.google.com and github.com).\n' > "$vendor/README.txt"
+  echo "mac-generate: $vendor missing, wrote a placeholder README.txt (mirror mode needs make fetch-tools)"
+fi
 echo "mac-generate: build $DAYLIGHT_BUILD_NUMBER, version $DAYLIGHT_MARKETING_VERSION, team '${DAYLIGHT_TEAM_ID}', identity '${DAYLIGHT_CODE_SIGN_IDENTITY}', profiles '${DAYLIGHT_APP_PROFILE}' / '${DAYLIGHT_EXT_PROFILE}'"
 xcodegen --version
 (cd mac && xcodegen generate --spec project.yml)

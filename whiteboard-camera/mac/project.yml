@@ -36,6 +36,18 @@ targets:
       - path: Daylight/Resources/web
         type: folder
         buildPhase: resources
+      # Bundled adb + scrcpy-server (make fetch-tools); copied as a folder reference to Contents/Resources/Vendor/.
+      # scripts/mac-generate.sh creates the directory with a README.txt when it is missing so the reference resolves.
+      - path: Daylight/Resources/Vendor
+        type: folder
+        buildPhase: resources
+      # Daylight Ink debug APK (make embed-apk, SPEC D43). A directory without an extension is an XcodeGen group:
+      # with optional: true a MISSING group is skipped entirely (SourceGenerator.swift:742), so a build without the
+      # APK still succeeds; a plain optional file would leave a dangling build-phase input. Its one file lands flat
+      # at Contents/Resources/DaylightInk.apk, which is where the app serves /daylight-ink.apk from.
+      - path: Daylight/Resources/Apk
+        optional: true
+        buildPhase: resources
     dependencies:
       - target: DaylightCameraExtension
       - package: DaylightKit
@@ -97,6 +109,19 @@ targets:
       properties:
         com.apple.security.app-sandbox: true
         com.apple.security.application-groups: ["$(TeamIdentifierPrefix)com.twelve.daylight"]
+  DaylightTests:
+    # macOS-only XCTest bundle hosted by Daylight.app (XcodeGen sets TEST_HOST and BUNDLE_LOADER because the
+    # target depends on the application). Component folders: Pipeline, Server, Ink, App (B), Camera (C), Mirror (F).
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: DaylightTests
+    dependencies:
+      - target: Daylight
+      - package: DaylightKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.twelve.daylight.tests
 schemes:
   Daylight:
     build:
@@ -107,3 +132,11 @@ schemes:
       config: Debug
     archive:
       config: Release
+  DaylightTests:
+    build:
+      targets:
+        DaylightTests: all
+    test:
+      config: Debug
+      targets:
+        - DaylightTests

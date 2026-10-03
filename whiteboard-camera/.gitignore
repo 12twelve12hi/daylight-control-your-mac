@@ -10,7 +10,8 @@ DerivedData/
 .gradle/
 .kotlin/
 local.properties
-mac/Vendor/
+mac/Daylight/Resources/Vendor/
+mac/Daylight/Resources/Apk/
 mac/Daylight/Resources/web/
 mac/Daylight/Info.plist
 mac/Daylight/Daylight.entitlements

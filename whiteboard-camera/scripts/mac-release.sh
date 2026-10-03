@@ -50,6 +50,15 @@ export DAYLIGHT_CODE_SIGN_IDENTITY="Developer ID Application"
 export DAYLIGHT_TEAM_ID
 # 3. Regenerate the project with the signing settings, archive, export.
 scripts/mac-generate.sh
+# The vendored adb is a Mach-O inside Resources; Xcode signs only the bundle, notarization wants every executable
+# signed with the hardened runtime and a timestamp (LOOSE_ENDS B6), so sign the source file before it is copied.
+vendor_adb="mac/Daylight/Resources/Vendor/adb"
+if [[ -f "$vendor_adb" ]]; then
+  codesign --force --options runtime --timestamp --keychain "$kc" -s "$identity" "$vendor_adb" 2>&1 | tee build/release-logs/codesign-vendor-adb.txt
+  codesign -dvv "$vendor_adb" 2>&1 | tee -a build/release-logs/codesign-vendor-adb.txt || true
+else
+  echo "mac-release: $vendor_adb not present (make fetch-tools not run); mirror mode will be unavailable in this build" | tee build/release-logs/codesign-vendor-adb.txt
+fi
 xcodebuild ONLY_ACTIVE_ARCH=NO -project mac/Daylight.xcodeproj -scheme Daylight -configuration Release \
   -destination 'generic/platform=macOS' -archivePath build/Daylight.xcarchive \
   OTHER_CODE_SIGN_FLAGS="--keychain $kc --timestamp" archive 2>&1 | tee build/release-logs/archive.log | grep -E '^(error|\*\* ARCHIVE)' || true

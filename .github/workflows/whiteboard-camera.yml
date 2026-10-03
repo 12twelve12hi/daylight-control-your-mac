@@ -5,6 +5,7 @@ name: whiteboard-camera
 on:
   push:
     branches: ['claude/**', 'master']
+    tags: ['v*']   # notarization path (SPEC D22); GitHub ignores paths: for tag pushes, which is intended
     paths:
       - 'whiteboard-camera/**'
       - '.github/workflows/whiteboard-camera.yml'
@@ -97,7 +98,7 @@ jobs:
   mac:
     runs-on: macos-15
     timeout-minutes: 60
-    needs: [golden, web, kit-linux]
+    needs: [golden, web, kit-linux, android]
     env:
       HAS_SIGNING: ${{ secrets.DAYLIGHT_DEVELOPER_ID_P12_BASE64 != '' && secrets.DAYLIGHT_APP_PROVISIONING_PROFILE_BASE64 != '' && secrets.DAYLIGHT_TEAM_ID != '' }}
       DO_NOTARIZE: ${{ (startsWith(github.ref, 'refs/tags/v') || inputs.notarize == true) && secrets.ASC_API_PRIVATE_KEY_BASE64 != '' }}
@@ -108,12 +109,19 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: whiteboard-camera/web/package-lock.json
+      - uses: actions/download-artifact@v8
+        with:
+          name: daylight-ink-debug-apk
+          path: whiteboard-camera/android/app/build/outputs/apk/debug
       - run: brew install xcodegen
       - run: scripts/ci-env.sh
+      - run: make fetch-tools
+      - run: make embed-apk
       - run: make web
       - run: make mac-generate
       - run: make kit-test
       - run: make mac-debug
+      - run: make mac-test
       - uses: actions/upload-artifact@v7
         with:
           name: Daylight-unsigned

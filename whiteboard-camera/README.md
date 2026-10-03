@@ -31,11 +31,15 @@ There is no Mac or Android SDK on the development machine; GitHub Actions is the
 | `web` | ubuntu | `make web` (npm ci, typecheck, vite build) and `make web-test` (node tests, Playwright with Chromium) |
 | `android` | ubuntu | `make android` (`./gradlew testDebugUnitTest assembleDebug`), uploads the debug APK |
 | `kit-linux` | ubuntu, `swift:6.4-noble` container | `make kit-test` (`swift test` for DaylightKit) |
-| `mac` | macos-15 | `make web`, `make mac-generate` (XcodeGen), `make kit-test`, `make mac-debug` (unsigned build, uploads `Daylight-unsigned.zip`), then `make mac-release`, which signs and notarizes only when the signing secrets exist and otherwise prints what is missing |
+| `mac` | macos-15 (needs the four jobs above) | downloads the debug APK, `make fetch-tools` (pinned adb and scrcpy-server into `Resources/Vendor`), `make embed-apk` (into `Resources/Apk`, served as `/daylight-ink.apk`), `make web`, `make mac-generate` (XcodeGen), `make kit-test`, `make mac-debug` (unsigned build, uploads `Daylight-unsigned.zip`), `make mac-test` (the macOS-only `DaylightTests` bundle hosted by Daylight.app), then `make mac-release`, which signs and notarizes only when the signing secrets exist and otherwise prints what is missing. `make mac-smoke` (`Daylight --self-test`) joins once the self-test exists |
 
-Locally, `make help` lists the targets and `make doctor` says which of them can run on this machine. `make web web-test` and `make golden-check` work anywhere with Node and Python 3; `make kit-test` needs a Swift toolchain; `make android` needs an Android SDK; the `mac-*` targets need Xcode and XcodeGen.
+A `v*` tag push runs the same workflow with the notarization path armed (it still needs the secrets). Locally, `make help` lists the targets and `make doctor` says which of them can run on this machine. `make web web-test` and `make golden-check` work anywhere with Node and Python 3; `make kit-test` needs a Swift toolchain; `make android` needs an Android SDK; the `mac-*` targets need Xcode and XcodeGen.
 
 An unsigned build can show the menu bar item and the preview window, but macOS loads a camera extension only when it is signed with a Developer ID and notarized. The owner checklist for that lives in `docs/SIGNING.md` (to be written in M1) and `docs/LOOSE_ENDS.md` item A1.
+
+## License
+
+License: to be chosen by the owner (`docs/LOOSE_ENDS.md` A14). Until then this repository carries no `LICENSE` file. Third-party components bundled by the Mac app are listed in `THIRD_PARTY_NOTICES.md`.
 
 ## Writing rules
 

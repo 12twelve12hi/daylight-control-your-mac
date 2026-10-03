@@ -215,15 +215,22 @@ final class AdbClient: AdbRunning {
         }
     }
 
+    /// How long `spawnStreaming` waits after the exit for both pipes to reach end of file before it reports the exit.
+    static let exitDrainCap: Double = 1
+
+    /// `onExit` comes after stdout and stderr reached end of file and the process exited (at most `exitDrainCap` after
+    /// the exit), so the last stderr line, the server's error, is delivered before the exit.
     func spawnStreaming(_ args: [String], onStdout: @escaping (Data) -> Void, onStderr: @escaping (Data) -> Void, onExit: @escaping (Int32) -> Void) -> AdbProcessHandle? {
         let process = makeProcess(args)
         let out = Pipe(), err = Pipe()
         process.standardOutput = out
         process.standardError = err
+        let drain = ExitDrain()
         out.fileHandleForReading.readabilityHandler = { handle in
             let data = handle.availableData
             if data.isEmpty {
                 handle.readabilityHandler = nil
+                drain.arrive(.stdoutEnd)
             } else {
                 onStdout(data)
             }
@@ -232,16 +239,23 @@ final class AdbClient: AdbRunning {
             let data = handle.availableData
             if data.isEmpty {
                 handle.readabilityHandler = nil
+                drain.arrive(.stderrEnd)
             } else {
                 onStderr(data)
             }
         }
         process.terminationHandler = { finished in
-            // Give the readability handlers their final drain, then report.
-            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.05) {
+            let status = finished.terminationStatus
+            drain.arrive(.exit)
+            // Report once both pipes reached end of file, so every byte the child wrote was delivered first; capped,
+            // because a grandchild that inherited a pipe can hold it open forever.
+            DispatchQueue.global(qos: .utility).async {
+                if !drain.wait(timeout: AdbClient.exitDrainCap) {
+                    AdbClient.log.notice("adb child exited but a pipe stayed open \(AdbClient.exitDrainCap, privacy: .public) s; reporting the exit")
+                }
                 out.fileHandleForReading.readabilityHandler = nil
                 err.fileHandleForReading.readabilityHandler = nil
-                onExit(finished.terminationStatus)
+                onExit(status)
             }
         }
         do {
@@ -253,6 +267,29 @@ final class AdbClient: AdbRunning {
             return nil
         }
         return process
+    }
+}
+
+/// The three events `spawnStreaming` waits for before `onExit`: stdout EOF, stderr EOF and the exit, each counted once.
+/// A semaphore rather than a DispatchGroup, because a group released with an unbalanced enter (a pipe that never
+/// closes) traps.
+private final class ExitDrain {
+    enum Event: Hashable { case stdoutEnd, stderrEnd, exit }
+
+    private let seen = Locked<Set<Event>>([])
+    private let done = DispatchSemaphore(value: 0)
+
+    func arrive(_ event: Event) {
+        let complete = seen.withLock { s -> Bool in
+            guard s.insert(event).inserted else { return false }
+            return s.count == 3
+        }
+        if complete { done.signal() }
+    }
+
+    /// True when all three arrived within `timeout` seconds.
+    func wait(timeout: Double) -> Bool {
+        return done.wait(timeout: .now() + timeout) == .success
     }
 }
 

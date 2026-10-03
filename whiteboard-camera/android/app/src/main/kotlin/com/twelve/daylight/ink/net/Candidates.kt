@@ -37,6 +37,8 @@ class Candidates(private val loopbackPort: Int = SolStream.DEFAULT_PORT) {
                 port = defaultPort
             }
             if (host.isEmpty() || port !in 1..65535) return null
+            // Whitespace or a percent sign (a zone id such as fe80::1%wlan0, or an escape) never parse as a URL host.
+            if (host.any { it.isWhitespace() || it == '%' }) return null
             return "ws://$host:$port/ink"
         }
     }

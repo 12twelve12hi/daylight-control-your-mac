@@ -70,6 +70,27 @@ class LinkTest {
     }
 
     @Test
+    fun pingWaitsForTheAck() {
+        val r = Recorder(); val l = link(r); l.start()
+        l.ping()
+        assertEquals(0, r.sent.size)                       // searching: no socket
+        l.dialing(r.dials.last().first)
+        l.ping()
+        assertEquals(0, r.sent.size)                       // dialing: the Mac would close 1002 on a PING before HANDSHAKE
+        l.opened(SolStream.SUBPROTOCOL)
+        assertEquals(1, r.sent.size)                       // the HANDSHAKE only
+        l.ping()
+        assertEquals(1, r.sent.size)                       // still waiting for the ACK
+        l.received(ackPending)
+        l.ping()
+        assertEquals(2, r.sent.size)                       // PENDING: a PING keeps the socket alive while the owner decides
+        assertEquals(SolStream.Op.PING, Frame(r.sent.last()).opcode)
+        l.received(ackOk)
+        l.ping()
+        assertEquals(3, r.sent.size)
+    }
+
+    @Test
     fun ackOkOpensTheInkGateAndStateFlows() {
         val r = Recorder(); val l = link(r); l.start(); open(l, r)
         l.received(ackOk)

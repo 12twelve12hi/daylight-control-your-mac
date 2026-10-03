@@ -83,5 +83,9 @@ class CandidatesTest {
         assertNull(Candidates.url(null))
         assertNull(Candidates.url("host:notaport"))
         assertNull(Candidates.url("host:70000"))
+        assertNull("a zone id never reaches OkHttp", Candidates.url("fe80::1%wlan0"))
+        assertNull(Candidates.url("[fe80::1%wlan0]:7788"))
+        assertNull(Candidates.url("my mac"))
+        assertNull(Candidates.url("192.168.1.40 :7788"))
     }
 }

@@ -189,9 +189,12 @@ class Link(
         if (phase == Phase.SEARCHING) scheduleDial(0)
     }
 
-    /** Application-level PING (PROTOCOL 6.15), every 10 s while the socket is open. */
+    /**
+     * Application-level PING (PROTOCOL 6.15), every 10 s while the socket is open and the HANDSHAKE was answered: the
+     * Mac closes 1002 "handshake expected" on anything that arrives before the HANDSHAKE, so CONNECTING sends nothing.
+     */
     fun ping() {
-        if (currentUrl == null || phase == Phase.SEARCHING) return
+        if (currentUrl == null || !(phase == Phase.PENDING || phase == Phase.LIVE)) return
         pingSequence += 1
         actions.send(encoder.ping(pingSequence, nowMs() * 1000L))
     }

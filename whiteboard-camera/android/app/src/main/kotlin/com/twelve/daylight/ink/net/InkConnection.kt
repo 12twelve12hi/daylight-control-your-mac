@@ -180,6 +180,12 @@ class InkConnection private constructor(context: Context) : LinkActions, Transpo
 
     override fun phaseChanged(phase: Phase) {
         Log.i(TAG, "phase $phase url=${link.currentUrl}")
+        // The multicast lock (devices below Tethering extension 7) is held only while the Mac is being looked for.
+        when (phase) {
+            Phase.LIVE -> discovery.setLockWanted(false)
+            Phase.SEARCHING -> discovery.setLockWanted(true)
+            else -> {}
+        }
         for (l in listeners.toList()) l.onPhase(phase)
     }
 
@@ -196,10 +202,17 @@ class InkConnection private constructor(context: Context) : LinkActions, Transpo
         close(1000, "redial")
         link.dialing(url)
         Log.i(TAG, "dial $url")
-        val request = Request.Builder()
-            .url(url)
-            .header("Sec-WebSocket-Protocol", SolStream.SUBPROTOCOL)
-            .build()
+        val request = try {
+            Request.Builder()
+                .url(url)
+                .header("Sec-WebSocket-Protocol", SolStream.SUBPROTOCOL)
+                .build()
+        } catch (e: IllegalArgumentException) {
+            // Candidates.url filters junk, but a host OkHttp cannot parse must count as a failed candidate, not a crash.
+            Log.w(TAG, "bad candidate $url: ${e.message}")
+            link.closed(failure = true)
+            return
+        }
         val listener = object : WebSocketListener() {
             private fun mine(socket: WebSocket) = socket === ws
             override fun onOpen(webSocket: WebSocket, response: Response) {

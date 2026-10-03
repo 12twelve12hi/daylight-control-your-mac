@@ -27,6 +27,7 @@ class Discovery(context: Context) {
     private val main = Handler(Looper.getMainLooper())
     private val nsd: NsdManager? = app.getSystemService(NsdManager::class.java)
     private var lock: WifiManager.MulticastLock? = null
+    private var lockWanted = true
     private var listener: NsdManager.DiscoveryListener? = null
     private var queue: DiscoveryQueue? = null
     private var onHost: ((String, String, Int) -> Unit)? = null
@@ -45,9 +46,18 @@ class Discovery(context: Context) {
                 }
                 override fun onServiceResolved(serviceInfo: NsdServiceInfo) {
                     @Suppress("DEPRECATION")
-                    val host = serviceInfo.host?.hostAddress?.substringBefore('%')
+                    val address = serviceInfo.host
                     val port = serviceInfo.port
                     main.post {
+                        if (address == null || address.isLinkLocalAddress) {
+                            // A fe80:: address needs its scope id to dial, and OkHttp cannot take one in a URL; the
+                            // legacy resolver hands out one address only, so this Mac is found again over USB or the
+                            // typed host (LOOSE_ENDS D11).
+                            Log.w(TAG, "resolved ${serviceInfo.serviceName} to unusable ${address?.hostAddress}")
+                            callback(ResolveResult.Failed(0))
+                            return@post
+                        }
+                        val host = address.hostAddress
                         if (host.isNullOrEmpty() || port <= 0) callback(ResolveResult.Failed(0))
                         else callback(ResolveResult.Resolved(host, port))
                     }
@@ -73,14 +83,7 @@ class Discovery(context: Context) {
             this.onHost?.invoke(s.name, host, port)
         }, { s, code -> Log.w(TAG, "resolve failed for ${s.name}: $code") })
         queue = q
-        val ext = Facts.tiramisuExtension()
-        if (ext < MULTICAST_LOCK_BELOW_EXTENSION) {
-            runCatching {
-                val wifi = app.getSystemService(WifiManager::class.java)
-                lock = wifi?.createMulticastLock("daylight-ink")?.apply { setReferenceCounted(false); acquire() }
-                Log.i(TAG, "multicast lock acquired (tiramisuExt=$ext)")
-            }.onFailure { Log.w(TAG, "multicast lock failed: $it") }
-        }
+        if (lockWanted) acquireLock()
         val l = object : NsdManager.DiscoveryListener {
             override fun onDiscoveryStarted(regType: String) { Log.i(TAG, "discoverServices started: $regType") }
             override fun onDiscoveryStopped(serviceType: String) { Log.i(TAG, "discovery stopped") }
@@ -121,8 +124,30 @@ class Discovery(context: Context) {
         releaseLock()
     }
 
+    /**
+     * The multicast lock costs battery while held (it keeps the Wi-Fi radio awake for every multicast frame), so the
+     * connection asks for it only while searching; discovery itself keeps running so a Mac that moves is still seen.
+     */
+    fun setLockWanted(wanted: Boolean) {
+        lockWanted = wanted
+        if (listener == null) return
+        if (wanted) acquireLock() else releaseLock()
+    }
+
+    private fun acquireLock() {
+        if (lock != null) return
+        val ext = Facts.tiramisuExtension()
+        if (ext >= MULTICAST_LOCK_BELOW_EXTENSION) return
+        runCatching {
+            val wifi = app.getSystemService(WifiManager::class.java)
+            lock = wifi?.createMulticastLock("daylight-ink")?.apply { setReferenceCounted(false); acquire() }
+            Log.i(TAG, "multicast lock acquired (tiramisuExt=$ext)")
+        }.onFailure { Log.w(TAG, "multicast lock failed: $it") }
+    }
+
     private fun releaseLock() {
         runCatching { lock?.takeIf { it.isHeld }?.release() }
+        if (lock != null) Log.i(TAG, "multicast lock released")
         lock = null
     }
 }

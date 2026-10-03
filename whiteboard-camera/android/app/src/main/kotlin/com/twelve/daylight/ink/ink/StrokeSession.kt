@@ -74,6 +74,10 @@ class StrokeSession(
     private var current: LocalStroke? = null
     /** UNDO or REDO requests sent and not yet answered by a STATE depth change (cleared by a new stroke). */
     private var pendingDepthChanges = 0
+    /** Local commits not yet reflected by a STATE whose undo depth matched ours. */
+    private var strokesSinceSync = 0
+    /** A PAGE_CHANGE was sent and no STATE has confirmed the new index yet. */
+    private var pendingPageChange = false
     private var currentStartSent = false
     private var strokeStartMs = 0L
     private var sentPoints = 0
@@ -150,6 +154,7 @@ class StrokeSession(
         while (history.size > visibleCount) history.removeAt(history.size - 1)
         history.add(s)
         visibleCount = history.size
+        strokesSinceSync += 1
         current = null
         currentStartSent = false
         sink.committed(s)
@@ -186,6 +191,7 @@ class StrokeSession(
         transport.send(encoder.clear(null))
         history.clear()
         visibleCount = 0
+        strokesSinceSync = 0
         sink.redraw(visible)
     }
 
@@ -194,37 +200,52 @@ class StrokeSession(
         if (current != null) cancel()
         pageIndex += 1
         pageId = newId()
+        pendingPageChange = true
         transport.send(encoder.pageChange(pageId, PageGeometry.CANVAS_WIDTH, PageGeometry.CANVAS_HEIGHT, pageIndex))
         history.clear()
         visibleCount = 0
+        strokesSinceSync = 0
         sink.redraw(visible)
     }
 
     /**
      * STATE arrived: redraw from the Mac's depths (the two lists hold the same strokes in the same order).
-     * A depth below ours is applied only after our own UNDO (or when the Mac's page is empty: Clear from a hotkey),
-     * because a 1 Hz STATE emitted between a STROKE_START and its COMMIT still counts the stroke as absent.
+     * STATE can be stale by one message (a 1 Hz LIVE report emitted before the Mac processed our last COMMIT or
+     * PAGE_CHANGE), so a depth below ours is applied only after our own UNDO, or while we are in sync (every local
+     * commit has been reflected by a STATE already), and a page index below one we just requested is ignored.
      */
     fun applyState(undoDepth: Int, redoDepth: Int, pageIndex: Int, strokeCount: Int = -1) {
         this.undoDepth = undoDepth
         this.redoDepth = redoDepth
-        if (pageIndex != this.pageIndex && history.isNotEmpty()) {
+        if (pageIndex != this.pageIndex) {
+            if (pendingPageChange && pageIndex < this.pageIndex) return      // stale: the Mac has not seen our PAGE_CHANGE yet
             // The Mac moved to another page (hotkey or another client): our strokes belong to the old one.
-            history.clear()
-        }
-        this.pageIndex = pageIndex
-        val macPageEmpty = undoDepth == 0 && redoDepth == 0 && strokeCount == 0
-        var newVisible = visibleCount
-        if (macPageEmpty) {
+            this.pageIndex = pageIndex
+            pendingPageChange = false
             if (current == null) history.clear()
-            newVisible = 0
+            visibleCount = 0
+            strokesSinceSync = 0
+            pendingDepthChanges = 0
+            sink.redraw(visible)
+            return
+        }
+        pendingPageChange = false
+        val inSync = strokesSinceSync == 0
+        var newVisible = visibleCount
+        if (undoDepth == visibleCount) {
+            strokesSinceSync = 0
+            pendingDepthChanges = 0
         } else if (undoDepth > visibleCount) {
             newVisible = undoDepth.coerceAtMost(history.size)
-        } else if (undoDepth < visibleCount && pendingDepthChanges > 0) {
+            strokesSinceSync = 0
+            pendingDepthChanges = 0
+        } else if (pendingDepthChanges > 0 || inSync) {
             newVisible = undoDepth.coerceAtLeast(0)
+            if (newVisible == 0 && strokeCount == 0 && current == null) history.clear()
+            strokesSinceSync = 0
+            pendingDepthChanges = 0
         }
         if (newVisible != visibleCount) {
-            pendingDepthChanges = 0
             visibleCount = newVisible
             sink.redraw(visible)
         }

@@ -51,7 +51,8 @@ class Candidates(private val loopbackPort: Int = SolStream.DEFAULT_PORT) {
         private set
 
     fun fromDiscovery(serviceName: String, host: String, port: Int) {
-        val u = url("$host:$port") ?: return
+        val h = host.trim().removePrefix("[").removeSuffix("]")
+        val u = url(if (h.contains(':')) "[$h]:$port" else "$h:$port") ?: return
         discovered.removeAll { it.first == serviceName }
         discovered.add(0, serviceName to u)
     }

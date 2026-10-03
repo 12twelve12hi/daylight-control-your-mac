@@ -403,20 +403,64 @@ class StrokeSessionStateTest {
     }
 
     @Test
-    fun ourOwnUndoIsHonouredOnceThenTheGuardIsBack() {
-        val (s, _, k) = twoStrokes()
+    fun ourOwnUndoIsHonouredEvenWhenOutOfSync() {
+        val (s, _, k) = twoStrokes()                                                    // two commits, no STATE yet
         s.undo()
         s.applyState(undoDepth = 1, redoDepth = 1, pageIndex = 0, strokeCount = 1)
         assertEquals(1, s.visibleCount)
-        k.redraws = 0
-        s.applyState(undoDepth = 0, redoDepth = 2, pageIndex = 0, strokeCount = 0)   // not asked for: the Mac cannot undo on its own
+        assertEquals(1, k.lastRedraw!!.size)
+    }
+
+    @Test
+    fun aDecreaseWhileInSyncIsTrustedAndWhileOutOfSyncIsNot() {
+        val (s, _, k) = twoStrokes()
+        s.applyState(undoDepth = 2, redoDepth = 0, pageIndex = 0, strokeCount = 2)   // in sync now
+        s.applyState(undoDepth = 1, redoDepth = 1, pageIndex = 0, strokeCount = 1)   // the Mac really has fewer
         assertEquals(1, s.visibleCount)
+        s.down(7f, 7f, 0.5f, 7); s.up()                                                 // out of sync again
+        k.redraws = 0
+        s.applyState(undoDepth = 1, redoDepth = 0, pageIndex = 0, strokeCount = 1)   // stale: our third stroke not counted yet
+        assertEquals(2, s.visibleCount)
         assertEquals(0, k.redraws)
+        s.applyState(undoDepth = 2, redoDepth = 0, pageIndex = 0, strokeCount = 2)
+        assertEquals(2, s.visibleCount)
+    }
+
+    @Test
+    fun aStaleEmptyStateAfterTheFirstCommitKeepsTheStroke() {
+        val t = FakeTransport(); val k = FakeSink()
+        val s = StrokeSession(t, Encoder { 0L }, k, frames)
+        s.setViewSize(1200, 1600)
+        s.applyState(0, 0, 0, 0)                                                        // the Mac's fresh page
+        s.down(0f, 0f, 0.5f, 0); s.up()
+        s.applyState(0, 0, 0, 0)                                                        // 1 Hz report from before the COMMIT
+        assertEquals(1, s.visibleCount)
+        assertEquals(1, s.history.size)
+        s.applyState(1, 0, 0, 1)
+        assertEquals(1, s.visibleCount)
+    }
+
+    @Test
+    fun aStalePageIndexAfterOurNewPageIsIgnoredAndTheNewPageSurvives() {
+        val (s, _, _) = twoStrokes()
+        s.applyState(2, 0, 0, 2)
+        s.newPage()                                                                     // page 1
+        s.down(3f, 3f, 0.5f, 3); s.up()
+        s.applyState(2, 0, 0, 2)                                                        // emitted before the PAGE_CHANGE arrived
+        assertEquals(1, s.pageIndex)
+        assertEquals(1, s.history.size)
+        s.applyState(1, 0, 1, 1)                                                        // the Mac is on page 1 with our stroke
+        assertEquals(1, s.visibleCount)
+        assertEquals(1, s.history.size)
+        s.applyState(0, 0, 2, 0)                                                        // somebody else turned the page
+        assertEquals(2, s.pageIndex)
+        assertEquals(0, s.history.size)
     }
 
     @Test
     fun anEmptyMacPageBlanksTheTablet() {
         val (s, _, k) = twoStrokes()
+        s.applyState(undoDepth = 2, redoDepth = 0, pageIndex = 0, strokeCount = 2)   // in sync
         s.applyState(undoDepth = 0, redoDepth = 0, pageIndex = 0, strokeCount = 0)   // Clear from the Mac hotkey
         assertEquals(0, s.visibleCount)
         assertEquals(0, s.history.size)

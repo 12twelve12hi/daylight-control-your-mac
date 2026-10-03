@@ -49,6 +49,8 @@ class CandidatesTest {
         assertEquals(listOf("ws://10.0.0.3:7788/ink", "ws://10.0.0.2:7789/ink", loop), c.all())
         c.lost("b")
         assertEquals(listOf("ws://10.0.0.3:7788/ink", loop), c.all())
+        c.fromDiscovery("v6", "fe80::1", 7790)                        // a resolved IPv6 host keeps its port
+        assertEquals("ws://[fe80::1]:7790/ink", c.all()[0])
     }
 
     @Test

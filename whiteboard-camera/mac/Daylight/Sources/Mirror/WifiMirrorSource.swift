@@ -507,6 +507,15 @@ final class WifiMirrorSource: MirrorFrameSource {
         case .paused, .projectionEnded:
             setStatus(.idle)
         }
+        // PROTOCOL 14.5: PAUSED on the connection the Mac would START means the tablet holds a projection and waits for
+        // START (the owner shared after a denial or a notification Stop, or the Mac's own STOP). `startedWith` still
+        // says START was sent, so reconcile alone would never send it again. Not for a connection whose stream another
+        // HELLO replaced (that one was STOPped on purpose; re-starting it would ping-pong with newest-HELLO-wins).
+        if s.state == .paused, streamerID == nil || streamerID == peer.id, startTarget()?.id == peer.id {
+            log("mirror stream: \(peer.label) paused with the projection held; START again")
+            peer.startedWith = nil
+            reconcile()
+        }
     }
 
     private func stalled(_ peer: Peer) {
@@ -532,6 +541,12 @@ final class WifiMirrorSource: MirrorFrameSource {
         return peers.values.filter { $0.capable }.max { ($0.order ?? 0) < ($1.order ?? 0) }
     }
 
+    /// The connection START goes to: the newest capable one that can capture. A tablet that announced UNSUPPORTED
+    /// (state 8) counts as present (no row 38) but is never started.
+    private func startTarget() -> Peer? {
+        return peers.values.filter { $0.capable && $0.lastState != .unsupported }.max { ($0.order ?? 0) < ($1.order ?? 0) }
+    }
+
     private func sortedPeers() -> [Peer] {
         return peers.values.sorted { ($0.order ?? 0) < ($1.order ?? 0) }
     }
@@ -545,8 +560,7 @@ final class WifiMirrorSource: MirrorFrameSource {
         }
         noCapableSince = nil
         noTabletReported = false
-        // A tablet that announced UNSUPPORTED (state 8) cannot capture: it counts as present (no row 38), never STARTs.
-        guard let target = peers.values.filter({ $0.capable && $0.lastState != .unsupported }).max(by: { ($0.order ?? 0) < ($1.order ?? 0) }) else { return }
+        guard let target = startTarget() else { return }
         let wanted = WifiMirrorSource.startControl(settings)
         guard target.startedWith != wanted else { return }
         send(wanted, to: target)

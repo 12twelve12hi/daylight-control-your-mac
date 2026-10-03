@@ -420,6 +420,71 @@ final class WifiMirrorSourceTests: XCTestCase {
         XCTAssertEqual(MirrorStream.State.paused.rawValue, 4)
     }
 
+    /// Finder W1: START, the owner cancels the consent dialog (row 34), then taps Share in Daylight Ink and allows it.
+    /// The tablet now holds the projection and waits in PAUSED. Before the fix the Mac only set its status to idle:
+    /// `startedWith` still matched, so START was never sent again (commands stayed `[.start]`, status `.idle`).
+    func testPausedAfterADenialAndShareGetsStartAgain() {
+        let source = makeSource()
+        source.setActive(true)
+        let (c, transport) = makeConnection()
+        feed(source, c, .status(WifiMirrorSourceTests.idle))
+        for state in [MirrorStream.State.consentNeeded, .consentDenied, .consentNeeded, .paused] {
+            feed(source, c, .status(WifiMirrorSourceTests.status(state)))
+        }
+        drain(source)
+        XCTAssertEqual(transport.commands, [.start, .start], "PAUSED with the projection held gets START again")
+        XCTAssertEqual(source.status, .connecting(serial: "DC-1"))
+        feed(source, c, .status(WifiMirrorSourceTests.status(.paused)))
+        drain(source)
+        XCTAssertEqual(transport.commands, [.start, .start], "a repeated PAUSED report is not a change")
+    }
+
+    /// Finder W1, the second path: streaming, then the notification's Stop (PROJECTION_ENDED), then Share (PAUSED).
+    func testPausedAfterAProjectionEndedGetsStartAgain() {
+        let source = makeSource()
+        source.setActive(true)
+        let (c, transport) = makeConnection()
+        feed(source, c, .status(WifiMirrorSourceTests.idle))
+        feed(source, c, .hello(deviceName: "DC-1", codecID: ScrcpyDemuxer.codecH264))
+        for state in [MirrorStream.State.starting, .streaming, .projectionEnded, .consentNeeded, .paused] {
+            feed(source, c, .status(WifiMirrorSourceTests.status(state)))
+        }
+        drain(source)
+        XCTAssertEqual(transport.commands, [.start, .start])
+    }
+
+    /// The W1 guard: a stream that a newer HELLO replaced was STOPped on purpose; its PAUSED report gets no START
+    /// (the newer connection sent HELLO without announcing, so the older one is still the newest capable).
+    func testPausedAfterNewestHelloWinsGetsNoStart() {
+        let source = makeSource()
+        source.setActive(true)
+        let (a, aTransport) = makeConnection(label: "A")
+        let (b, _) = makeConnection(label: "B")
+        feed(source, a, .status(WifiMirrorSourceTests.idle))
+        feed(source, a, .hello(deviceName: "DC-1", codecID: ScrcpyDemuxer.codecH264))
+        feed(source, a, .status(WifiMirrorSourceTests.status(.streaming)))
+        feed(source, b, .hello(deviceName: "DC-1", codecID: ScrcpyDemuxer.codecH264))
+        drain(source)
+        XCTAssertEqual(aTransport.commands, [.start, .stop])
+        feed(source, a, .status(WifiMirrorSourceTests.status(.paused)))
+        drain(source)
+        XCTAssertEqual(aTransport.commands, [.start, .stop], "no ping-pong with newest HELLO wins")
+        XCTAssertEqual(source.diagnostics["wifi.streamer"], "B")
+    }
+
+    /// After quit (RELEASE closes every capable connection) a late PAUSED report sends nothing.
+    func testPausedAfterReleaseSendsNothing() {
+        let source = makeSource()
+        source.setActive(true)
+        let (c, transport) = makeConnection()
+        feed(source, c, .status(WifiMirrorSourceTests.idle))
+        drain(source)
+        XCTAssertFalse(source.release(timeout: 0.05))
+        feed(source, c, .status(WifiMirrorSourceTests.status(.paused)))
+        drain(source)
+        XCTAssertEqual(transport.commands, [.start, .release])
+    }
+
     func testHelloWhileInactiveGetsStop() {
         let source = makeSource()
         let (c, transport) = makeConnection()

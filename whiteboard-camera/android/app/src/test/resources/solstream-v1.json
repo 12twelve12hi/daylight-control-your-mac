@@ -395,5 +395,153 @@
    "decode_only": false,
    "note": ""
   }
+ ],
+ "mirror_cases": [
+  {
+   "name": "mirror_hello",
+   "opcode": 128,
+   "direction": "c2s",
+   "fields": {
+    "device_name": "DC-1",
+    "codec_id": 1748121140
+   },
+   "hex": "da0180004400000040e2cfeeb540060044432d3100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000068323634",
+   "decode_only": false,
+   "note": "64-byte NUL-padded name then the BIG-endian codec id, exactly the scrcpy device meta and codec id"
+  },
+  {
+   "name": "mirror_packet_session",
+   "opcode": 129,
+   "direction": "c2s",
+   "fields": {
+    "kind": "session",
+    "width": 1200,
+    "height": 1600
+   },
+   "hex": "da0181000c00000040e2cfeeb540060080000000000004b000000640",
+   "decode_only": false,
+   "note": "scrcpy session packet: byte 0 bit 7 set, width and height u32 BIG-endian, no payload"
+  },
+  {
+   "name": "mirror_packet_config",
+   "opcode": 129,
+   "direction": "c2s",
+   "fields": {
+    "kind": "config",
+    "pts_us": 0,
+    "key_frame": false,
+    "annex_b": "0000000167428028da0280bf0000000168ce3c80"
+   },
+   "hex": "da0181002000000040e2cfeeb54006004000000000000000000000140000000167428028da0280bf0000000168ce3c80",
+   "decode_only": false,
+   "note": "pts_flags bit 62 = config (SPS and PPS); size u32 BIG-endian equals the Annex-B length"
+  },
+  {
+   "name": "mirror_packet_key_frame",
+   "opcode": 129,
+   "direction": "c2s",
+   "fields": {
+    "kind": "frame",
+    "pts_us": 33333,
+    "key_frame": true,
+    "annex_b": "0000000165888400ffaa"
+   },
+   "hex": "da0181001600000040e2cfeeb540060020000000000082350000000a0000000165888400ffaa",
+   "decode_only": false,
+   "note": "pts_flags bit 61 = key frame, low 61 bits PTS in microseconds"
+  },
+  {
+   "name": "mirror_packet_delta",
+   "opcode": 129,
+   "direction": "c2s",
+   "fields": {
+    "kind": "frame",
+    "pts_us": 66666,
+    "key_frame": false,
+    "annex_b": "00000001419a020c"
+   },
+   "hex": "da0181001400000040e2cfeeb5400600000000000001046a0000000800000001419a020c",
+   "decode_only": false,
+   "note": ""
+  },
+  {
+   "name": "mirror_status_streaming",
+   "opcode": 130,
+   "direction": "c2s",
+   "fields": {
+    "state": 3,
+    "flags": 1,
+    "fps_x10": 300,
+    "width": 1200,
+    "height": 1600,
+    "bitrate_bps": 7000000,
+    "sent_bps": 6543210
+   },
+   "hex": "da0182001000000040e2cfeeb540060003012c01b0044006c0cf6a006ad76300",
+   "decode_only": false,
+   "note": "STREAMING, projection_held"
+  },
+  {
+   "name": "mirror_status_consent_denied",
+   "opcode": 130,
+   "direction": "c2s",
+   "fields": {
+    "state": 5,
+    "flags": 0,
+    "fps_x10": 0,
+    "width": 0,
+    "height": 0,
+    "bitrate_bps": 7000000,
+    "sent_bps": 0
+   },
+   "hex": "da0182001000000040e2cfeeb54006000500000000000000c0cf6a0000000000",
+   "decode_only": false,
+   "note": ""
+  },
+  {
+   "name": "mirror_control_start",
+   "opcode": 113,
+   "direction": "s2c",
+   "fields": {
+    "command": 1,
+    "max_size": 1600,
+    "bitrate_bps": 7000000,
+    "max_fps": 30,
+    "key_interval_ms": 2000
+   },
+   "hex": "da0171000c00000040e2cfeeb540060001004006c0cf6a001e00d007",
+   "decode_only": false,
+   "note": ""
+  },
+  {
+   "name": "mirror_control_stop",
+   "opcode": 113,
+   "direction": "s2c",
+   "fields": {
+    "command": 0,
+    "max_size": 0,
+    "bitrate_bps": 0,
+    "max_fps": 0,
+    "key_interval_ms": 0
+   },
+   "hex": "da0171000c00000040e2cfeeb5400600000000000000000000000000",
+   "decode_only": false,
+   "note": ""
+  },
+  {
+   "name": "mirror_control_key_frame",
+   "opcode": 113,
+   "direction": "s2c",
+   "fields": {
+    "command": 2,
+    "max_size": 0,
+    "bitrate_bps": 0,
+    "max_fps": 0,
+    "key_interval_ms": 0
+   },
+   "hex": "da0171000c00000040e2cfeeb5400600020000000000000000000000",
+   "decode_only": false,
+   "note": ""
+  }
  ]
 }

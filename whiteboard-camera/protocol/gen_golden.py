@@ -62,6 +62,33 @@ add("state_passthrough_idle", 0x0070, "s2c", dict(governor=0, flags=0xB4, mode=0
     STATE.pack(0, 0xB4, 0, 2, 0.0, 0xFFFFFFFF, 0, 0, 0, 0), note="flags 0xB4 = allowed | camera_attached | sink_connected | capture_idle (bit3 clear: this client is not the active source)")
 add("ping", 0x00FE, "c2s", dict(sequence=7, client_time_us=TS), struct.pack("<QQ", 7, TS))
 add("pong", 0x00FF, "s2c", dict(sequence=7, client_time_us=TS), struct.pack("<QQ", 7, TS))
+# Mirror stream family (PROTOCOL 14): its own array so the v1 `cases` list stays unchanged.
+v1_cases = cases; cases = []
+H264 = 0x68323634
+def mpacket(pts_flags, annexb): return struct.pack(">QI", pts_flags, len(annexb)) + annexb
+CONFIG = bytes.fromhex("0000000167428028da0280bf" + "0000000168ce3c80")
+KEY = bytes.fromhex("0000000165888400ffaa")
+DELTA = bytes.fromhex("00000001419a020c")
+add("mirror_hello", 0x0080, "c2s", dict(device_name="DC-1", codec_id=H264), "DC-1".encode("utf-8").ljust(64, b"\0") + struct.pack(">I", H264),
+    note="64-byte NUL-padded name then the BIG-endian codec id, exactly the scrcpy device meta and codec id")
+add("mirror_packet_session", 0x0081, "c2s", dict(kind="session", width=1200, height=1600), struct.pack(">BxxxII", 0x80, 1200, 1600),
+    note="scrcpy session packet: byte 0 bit 7 set, width and height u32 BIG-endian, no payload")
+add("mirror_packet_config", 0x0081, "c2s", dict(kind="config", pts_us=0, key_frame=False, annex_b=CONFIG.hex()), mpacket(1 << 62, CONFIG),
+    note="pts_flags bit 62 = config (SPS and PPS); size u32 BIG-endian equals the Annex-B length")
+add("mirror_packet_key_frame", 0x0081, "c2s", dict(kind="frame", pts_us=33333, key_frame=True, annex_b=KEY.hex()), mpacket((1 << 61) | 33333, KEY),
+    note="pts_flags bit 61 = key frame, low 61 bits PTS in microseconds")
+add("mirror_packet_delta", 0x0081, "c2s", dict(kind="frame", pts_us=66666, key_frame=False, annex_b=DELTA.hex()), mpacket(66666, DELTA))
+MSTATUS = struct.Struct("<BBHHHII")
+add("mirror_status_streaming", 0x0082, "c2s", dict(state=3, flags=0x01, fps_x10=300, width=1200, height=1600, bitrate_bps=7000000, sent_bps=6543210),
+    MSTATUS.pack(3, 0x01, 300, 1200, 1600, 7000000, 6543210), note="STREAMING, projection_held")
+add("mirror_status_consent_denied", 0x0082, "c2s", dict(state=5, flags=0, fps_x10=0, width=0, height=0, bitrate_bps=7000000, sent_bps=0),
+    MSTATUS.pack(5, 0, 0, 0, 0, 7000000, 0))
+MCONTROL = struct.Struct("<BBHIHH")
+add("mirror_control_start", 0x0071, "s2c", dict(command=1, max_size=1600, bitrate_bps=7000000, max_fps=30, key_interval_ms=2000),
+    MCONTROL.pack(1, 0, 1600, 7000000, 30, 2000))
+add("mirror_control_stop", 0x0071, "s2c", dict(command=0, max_size=0, bitrate_bps=0, max_fps=0, key_interval_ms=0), MCONTROL.pack(0, 0, 0, 0, 0, 0))
+add("mirror_control_key_frame", 0x0071, "s2c", dict(command=2, max_size=0, bitrate_bps=0, max_fps=0, key_interval_ms=0), MCONTROL.pack(2, 0, 0, 0, 0, 0))
+mirror_cases = cases; cases = v1_cases
 if VERBOSE: print("\nSTATE size", STATE.size)
 if VERBOSE: print("sha1(abc)", hashlib.sha1(b"abc").hexdigest())
 key = "dGhlIHNhbXBsZSBub25jZQ=="
@@ -70,6 +97,6 @@ if VERBOSE: print("f32 3.2 ->", struct.pack("<f", 3.2).hex(), " 0.73 ->", struct
 if VERBOSE: print("q8(0.73)=", q8(0.73), "q8(0.2)=", q8(0.2))
 websocket = dict(sha1_abc=hashlib.sha1(b"abc").hexdigest(), key=key, accept=base64.b64encode(hashlib.sha1((key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode()).digest()).decode(), guid="258EAFA5-E914-47DA-95CA-C5AB0DC85B11")
 with open(OUT, "w", encoding="utf-8") as f:
-    json.dump(dict(version=1, generator="gen_golden.py", timestamp_us=TS, stroke_id=str(SID), page_id=str(PID), websocket=websocket, cases=cases), f, indent=1, ensure_ascii=False)
+    json.dump(dict(version=1, generator="gen_golden.py", timestamp_us=TS, stroke_id=str(SID), page_id=str(PID), websocket=websocket, cases=cases, mirror_cases=mirror_cases), f, indent=1, ensure_ascii=False)
     f.write("\n")
-print(f"wrote {len(cases)} cases to {OUT}")
+print(f"wrote {len(cases)} cases and {len(mirror_cases)} mirror_cases to {OUT}")

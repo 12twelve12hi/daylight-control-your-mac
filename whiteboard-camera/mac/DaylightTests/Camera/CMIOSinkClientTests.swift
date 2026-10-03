@@ -199,7 +199,19 @@ final class CMIOSinkClientTests: XCTestCase {
         let client = makeClient(queue: queue)
         var statuses: [SinkStatus] = []
         let lock = NSLock()
-        client.onStatusChange = { status in lock.lock(); statuses.append(status); lock.unlock() }
+        // Fulfilled by the status change itself (delivered on `queue`), not by a fixed window: the re-validation tick
+        // has a 0.2 s interval with 0.2 s leeway and walks the CMIO devices, which the shared runner can slow down.
+        let searchingAgain = expectation(description: "the running timer drops the stale connection and searches again")
+        searchingAgain.assertForOverFulfill = false
+        var sawConnected = false
+        client.onStatusChange = { status in
+            lock.lock()
+            statuses.append(status)
+            if status == .connected { sawConnected = true }
+            let done = sawConnected && status == .notInstalled
+            lock.unlock()
+            if done { searchingAgain.fulfill() }
+        }
         client.start()
         drain(queue)
         let holder = try QueueSink(capacity: 1)
@@ -214,9 +226,8 @@ final class CMIOSinkClientTests: XCTestCase {
             XCTAssertFalse(feeder.push(buffer, hostTimeNs: nil), "nobody drains it: the second push drops")
             XCTAssertEqual(client.consecutiveDroppedFrames, 1)
         }
-        let waited = expectation(description: "a revalidation tick (0.2 s interval)")
-        queue.asyncAfter(deadline: .now() + 0.7) { waited.fulfill() }
-        wait(for: [waited], timeout: 5)
+        wait(for: [searchingAgain], timeout: 10)
+        drain(queue)
         XCTAssertFalse(client.isConnected, "the device is not located on this Mac, so the adopted connection is stale")
         XCTAssertEqual(client.status, .notInstalled)
         lock.lock()

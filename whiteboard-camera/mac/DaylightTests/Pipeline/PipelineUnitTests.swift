@@ -151,6 +151,48 @@ final class WebcamChoiceTests: XCTestCase {
         XCTAssertEqual(WebcamCapture.choose(preferredUniqueID: nil, systemPreferredID: own.uniqueID, from: [own, builtIn]), builtIn)
         XCTAssertNil(WebcamCapture.choose(preferredUniqueID: nil, systemPreferredID: nil, from: [own, gone]))
     }
+
+    /// PIPA-02 / PIPB-01: losing the camera in use re-runs the rule without it, so a present camera takes over.
+    func testLostCameraFallsBackToAnotherPresentCamera() {
+        WebcamCapture.excludeOwnCamera(uniqueID: "ab51c6ba-17fd-4a67-be3a-06a8540ba6aa")
+        let own = Facts(uniqueID: "AB51C6BA-17FD-4A67-BE3A-06A8540BA6AA", name: "Daylight Camera", isConnected: true)
+        let builtIn = Facts(uniqueID: "builtin", name: "FaceTime HD Camera", isConnected: true)
+        // The unplugged webcam may still read as connected while its disconnect notification is delivered.
+        let lostStillListed = Facts(uniqueID: "usb-1", name: "Logitech BRIO", isConnected: true)
+        let lostGone = Facts(uniqueID: "usb-1", name: "Logitech BRIO", isConnected: false)
+        // The owner's explicit choice and the system's preference both name the lost webcam: the built-in takes over.
+        XCTAssertEqual(WebcamCapture.replacement(afterLosing: "usb-1", preferredUniqueID: "usb-1", systemPreferredID: "usb-1", from: [lostStillListed, own, builtIn]), builtIn)
+        XCTAssertEqual(WebcamCapture.replacement(afterLosing: "usb-1", preferredUniqueID: nil, systemPreferredID: nil, from: [lostGone, builtIn]), builtIn)
+        // Nothing else present: no replacement, the cream card stays (row 4).
+        XCTAssertNil(WebcamCapture.replacement(afterLosing: "usb-1", preferredUniqueID: "usb-1", systemPreferredID: nil, from: [lostStillListed]))
+        // Daylight's own camera is never the fallback.
+        XCTAssertNil(WebcamCapture.replacement(afterLosing: "usb-1", preferredUniqueID: nil, systemPreferredID: own.uniqueID, from: [lostStillListed, own]))
+    }
+}
+
+/// PIPB-04: WebcamCapture changes its session, `running` and `input` on one serial queue only. A device notification
+/// queues its work there; `stop()` from the render queue waits behind it instead of racing it.
+final class WebcamCaptureQueueTests: XCTestCase {
+    func testStopRunsOnTheSessionQueue() {
+        let capture = WebcamCapture(queue: DispatchQueue(label: "webcam-test.capture"))
+        let gate = DispatchSemaphore(value: 0)
+        let blocked = DispatchSemaphore(value: 0)
+        capture.sessionQueue.async {
+            blocked.signal()
+            gate.wait()
+        }
+        XCTAssertEqual(blocked.wait(timeout: .now() + 10), .success, "the session queue is held")
+        let stopped = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .userInitiated).async {
+            capture.stop()
+            stopped.signal()
+        }
+        XCTAssertEqual(stopped.wait(timeout: .now() + 0.3), .timedOut, "stop() waits for the work already queued on the session queue")
+        gate.signal()
+        XCTAssertEqual(stopped.wait(timeout: .now() + 10), .success, "and then runs")
+        XCTAssertFalse(capture.isRunning)
+        XCTAssertFalse(capture.hasDevice)
+    }
 }
 
 /// PIPB-05: the app assigns every pipeline callback before the first render-queue block that reads one is queued

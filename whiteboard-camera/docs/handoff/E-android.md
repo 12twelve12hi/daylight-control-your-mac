@@ -160,4 +160,4 @@ Pen to ink on the tablet: the front buffer draws the wet segment before the next
 - Local verification on this box (no Android SDK): the sources are type-checked against the Robolectric `android-all` API 33 framework jar from Maven Central with a scratch stub for `CanvasFrontBufferedRenderer` (Google Maven is blocked here), and the 67 JVM tests run with the Kotlin 2.3.10 JVM plugin before every push. The scratch harness lives outside the repository.
 - Red runs caused by someone else's files: none observed for the android job.
 
-(The green run id for the final commit is appended below once CI reports it.)
+Green runs: 37113048216 (commit 4c58a4f, all five jobs green, `android` job 111174518991 in 1 min 40 s: 67 tests, APK artifact `daylight-ink-debug-apk` 2,920,633 bytes, embedded by the `mac` job into `Daylight-unsigned.zip`, 12,962,788 bytes); 37113456015 (head 8845c42 carrying E's 9f005eb, `android` green with 70 tests; run 37113419943 for 9f005eb itself was cancelled by that newer push, as the job-level `cancel-in-progress` intends).

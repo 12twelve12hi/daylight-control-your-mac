@@ -7,11 +7,13 @@ One file per component, written by that component's agent and read by the integr
 | Component | File |
 |---|---|
 | A, DaylightKit | `docs/handoff/A-daylightkit.md` |
-| B, Daylight app core | `docs/handoff/B-app.md` |
+| B, Daylight app core | `docs/handoff/b-daylight-app-core.md` (the name the orchestrator's task text gave B; this table said `B-app.md` before Integrator-sync-2, no such file exists) |
 | C, camera extension and host sink | `docs/handoff/C-camera.md` |
-| D, web whiteboard | `docs/handoff/D-web.md` |
-| E, Android app and overlay | `docs/handoff/E-android.md` |
+| D, web whiteboard | `docs/handoff/D-web.md` (`d-web-whiteboard.md` is a one-paragraph pointer to it) |
+| E, Android app and overlay | `docs/handoff/E-android.md` (`e-android-app-and-overlay.md` is a one-paragraph pointer to it) |
 | F, mirror mode | `docs/handoff/F-mirror.md` |
+
+When the orchestrator's task text spells a different file name than this table, the agent's file wins and the integrator reads every file in this folder; the pointer files exist only so that both paths resolve.
 
 Each component owns exactly one file here. It holds, under these headings:
 

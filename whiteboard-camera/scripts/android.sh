@@ -8,5 +8,10 @@ if [[ -z "${ANDROID_HOME:-}${ANDROID_SDK_ROOT:-}" && ! -f local.properties ]]; t
   echo "android: on GitHub's ubuntu runner the SDK is preinstalled at /usr/local/lib/android/sdk." >&2
   exit 2
 fi
-./gradlew --no-daemon --stacktrace :app:testDebugUnitTest :app:assembleDebug
+# Every CI APK upgrades the previous sideload: versionCode is the run number (default 1 locally), versionName the
+# VERSION file (E handoff request 1; app/build.gradle.kts reads both properties with defaults 1 and 0.1.0).
+version_name="$(tr -d '[:space:]' < ../VERSION)"
+./gradlew --no-daemon --stacktrace \
+  -PdaylightVersionCode="${GITHUB_RUN_NUMBER:-1}" -PdaylightVersionName="$version_name" \
+  :app:testDebugUnitTest :app:assembleDebug
 ls -la app/build/outputs/apk/debug/

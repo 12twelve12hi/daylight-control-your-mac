@@ -663,7 +663,10 @@ final class FramePipeline: PipelineControl {
         publishFlagsChange()
     }
 
-    /// A 1920x1080 SurfaceCream frame for the moments without a camera picture.
+    /// A 1920x1080 SurfaceCream frame for the moments without a camera picture. Filled with `memset_pattern4`: the
+    /// per-byte Swift loop it replaces took up to about 0.9 s on the render queue in the unoptimized build on the
+    /// macos-15 runner (runs 37134646725 and 37136061242), and every frame, tick and capture decision queued behind it
+    /// waited that long.
     private func creamCardBuffer() -> CVPixelBuffer? {
         if let card = creamCard { return card }
         let attributes: [CFString: Any] = [
@@ -675,19 +678,12 @@ final class FramePipeline: PipelineControl {
         guard status == kCVReturnSuccess, let card = created else { return nil }
         CVPixelBufferLockBaseAddress(card, [])
         if let base = CVPixelBufferGetBaseAddress(card) {
-            let stride = CVPixelBufferGetBytesPerRow(card)
             let cream = Tokens.surfaceCream
-            let b = UInt8(cream.b * 255 + 0.5), g = UInt8(cream.g * 255 + 0.5), r = UInt8(cream.r * 255 + 0.5)
-            let bytes = base.assumingMemoryBound(to: UInt8.self)
-            for y in 0..<FramePipeline.outputHeight {
-                var o = y * stride
-                for _ in 0..<FramePipeline.outputWidth {
-                    bytes[o] = b
-                    bytes[o + 1] = g
-                    bytes[o + 2] = r
-                    bytes[o + 3] = 255
-                    o += 4
-                }
+            // BGRA in memory; a row's padding (bytesPerRow is a multiple of 4) gets the same pattern, which no reader sees.
+            let pattern: [UInt8] = [UInt8(cream.b * 255 + 0.5), UInt8(cream.g * 255 + 0.5), UInt8(cream.r * 255 + 0.5), 255]
+            let length = CVPixelBufferGetBytesPerRow(card) * CVPixelBufferGetHeight(card)
+            pattern.withUnsafeBytes { raw in
+                memset_pattern4(base, raw.baseAddress, length)
             }
         }
         CVPixelBufferUnlockBaseAddress(card, [])

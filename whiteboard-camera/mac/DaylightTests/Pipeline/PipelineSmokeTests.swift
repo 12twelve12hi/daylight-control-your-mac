@@ -117,13 +117,21 @@ final class PipelineSmokeTests: XCTestCase {
         let pipeline = try makePipeline(sink: sink, capture: capture)
         pipeline.setCaptureAuthorized(false)
         pipeline.start()
+        // Wait for the card itself, not a fixed 0.3 s: the card is built and pushed on the render queue, which the
+        // shared runner can hold up for longer than that (runs 37134646725 and 37136061242 asserted while the queue was
+        // still building it). Then a window in which nothing may open the camera, then a drain of the render queue,
+        // where every capture decision runs, so nothing queued by start() can still open it after the assertions.
+        XCTAssertTrue(waitUntil(10) { sink.pushCount >= 1 }, "the sink gets the cream card, never the extension placeholder")
         Thread.sleep(forTimeInterval: 0.3)
+        pipeline.renderQueue.sync {}
         XCTAssertFalse(capture.isRunning, "row 3: nothing opens the camera before access is granted")
+        XCTAssertEqual(capture.startCount, 0, "the capture source was never started")
         XCTAssertFalse(pipeline.stats.capturing)
-        XCTAssertGreaterThanOrEqual(sink.pushCount, 1, "the sink gets the cream card, never the extension placeholder")
-        XCTAssertFalse(sink.lastPixelBuffer === capture.buffer)
+        let card = try XCTUnwrap(sink.lastPixelBuffer)
+        XCTAssertFalse(card === capture.buffer)
+        XCTAssertTrue(SelfTest.matches(SelfTest.pixel(card, 100, 100), Tokens.surfaceCream), "the cream card")
         pipeline.setCaptureAuthorized(true)
-        XCTAssertTrue(waitUntil(1.0) { capture.isRunning }, "granting access opens the gate without a relaunch")
+        XCTAssertTrue(waitUntil(10) { capture.isRunning }, "granting access opens the gate without a relaunch")
         pipeline.shutdown()
     }
 

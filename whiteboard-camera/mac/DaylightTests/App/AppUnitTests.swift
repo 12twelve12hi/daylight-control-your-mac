@@ -169,6 +169,50 @@ final class AppModelMenuTests: XCTestCase {
         XCTAssertEqual(AppModel.whiteboardNowEvent(.studioSplit, snapshot: GovernorOutput(state: .returning, layout: .studioSplit)), .engage, "engage during RETURNING re-engages (SPEC D38)")
     }
 
+    /// APPA-02: the red banner follows the failure that set it and clears when the owner fixes it; row 16 is the port
+    /// line only, never a second banner with the same sentence.
+    func testBannerClearsWhenTheFailureResolves() {
+        let model = AppModel(settingsStore: SettingsStore(defaults: UserDefaults(suiteName: "banner-\(UUID().uuidString)")!, unsignedBuild: false), signed: true, version: "0", build: "0")
+        model.noteFailure(.noWebcam, [])
+        XCTAssertEqual(model.banner, "No camera found")
+        model.setCameraPresent(true)
+        XCTAssertNil(model.banner, "row 4 ends when a camera appears")
+
+        model.noteFailure(.cameraAccessDenied, [])
+        XCTAssertEqual(model.banner, "Camera access is off for Daylight.")
+        model.setCameraPresent(true)
+        XCTAssertNotNil(model.banner, "an unrelated resolution leaves it")
+        model.noteCameraGranted()
+        XCTAssertNil(model.banner)
+
+        model.noteFailure(.extensionNeedsApproval, ["System Settings"])
+        XCTAssertNotNil(model.banner)
+        model.setExtensionState(.awaitingApproval)
+        XCTAssertNotNil(model.banner)
+        model.setExtensionState(.installed)
+        XCTAssertNil(model.banner, "rows 6 to 12b end once the extension is installed")
+        model.noteFailure(.extensionNeedsReboot, [])
+        model.setExtensionState(.connected)
+        XCTAssertNil(model.banner)
+
+        model.noteFailure(.cameraAccessDenied, [])
+        model.noteFailure(.noWebcam, [])
+        model.noteCameraGranted()
+        XCTAssertEqual(model.banner, "No camera found", "resolving an older failure keeps the newer banner")
+
+        model.clearBanner()
+        model.noteFailure(.sinkStreamLayout, [])
+        XCTAssertEqual(model.visibleBanner, model.banner)
+        model.setSinkStatus(.error(.sinkStreamLayout, ""))
+        XCTAssertNotNil(model.banner)
+        XCTAssertNil(model.visibleBanner, "the status line already shows that sentence")
+
+        model.clearBanner()
+        model.noteFailure(.portInUse, ["7788", "7789"])
+        XCTAssertNil(model.banner, "the port line already says it")
+        XCTAssertEqual(model.recentFailures.last, "Port 7788 is in use. Daylight is using 7789.", "still in Diagnostics")
+    }
+
     func testCameraPermissionFollowsTheTCCStatus() {
         XCTAssertEqual(AppDelegate.cameraPermission(.authorized), .granted)
         XCTAssertEqual(AppDelegate.cameraPermission(.denied), .denied)

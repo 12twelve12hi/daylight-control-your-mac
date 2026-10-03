@@ -44,6 +44,8 @@ final class AppModel: ObservableObject {
     private var timer: Timer?
     private var nobodyTimer: Timer?
     private var failures: [String] = []
+    /// The failure whose sentence `banner` shows (nil for the USB setup text), so its resolution clears it.
+    private var bannerCase: FailureText.Case?
     private var launchedAt = Date()
 
     // Wired by AppDelegate.
@@ -117,6 +119,7 @@ final class AppModel: ObservableObject {
 
     func setExtensionState(_ state: ExtensionState) {
         extensionState = state
+        resolveExtensionFailures(state)
     }
 
     func setSinkStatus(_ status: SinkStatus) {
@@ -136,13 +139,54 @@ final class AppModel: ObservableObject {
         if !text.isEmpty {
             failures.append(text)
             if failures.count > 20 { failures.removeFirst() }
-            if failure == .saveFailed { lastSaveError = text } else { banner = text }
+            // Row 16 is already the menu's port line (`portProblem`); a banner would say it twice.
+            if failure == .saveFailed {
+                lastSaveError = text
+            } else if failure != .portInUse {
+                banner = text
+                bannerCase = failure
+            }
         }
         if failure == .noWebcam { cameraPresent = false }
     }
 
     func clearBanner() {
         banner = nil
+        bannerCase = nil
+    }
+
+    /// Clears the banner when the failure that set it is one of `cases` (the owner fixed it); a newer, unrelated
+    /// banner stays.
+    func resolve(_ cases: Set<FailureText.Case>) {
+        guard let current = bannerCase, cases.contains(current) else { return }
+        clearBanner()
+    }
+
+    /// Rows 6 to 12b end once the extension is installed; rows 13 and 14 once the sink is connected.
+    static let extensionFailures: Set<FailureText.Case> = [
+        .extensionMissingEntitlement, .extensionUnsupportedLocation, .extensionDamaged, .extensionSignatureInvalid,
+        .extensionValidationFailed, .extensionForbiddenByPolicy, .extensionNeedsApproval, .extensionNeedsReboot,
+    ]
+    static let sinkFailures: Set<FailureText.Case> = [.sinkDeviceNotFound, .sinkStreamLayout]
+
+    private func resolveExtensionFailures(_ state: ExtensionState) {
+        switch state {
+        case .installed: resolve(AppModel.extensionFailures)
+        case .connected: resolve(AppModel.extensionFailures.union(AppModel.sinkFailures))
+        default: break
+        }
+    }
+
+    /// Row 3 is over: camera access was granted (the prompt, System Settings, or found granted at launch).
+    func noteCameraGranted() {
+        resolve([.cameraAccessDenied])
+    }
+
+    /// The banner as the menu shows it: nil when the same sentence is already on the status or port line.
+    var visibleBanner: String? {
+        guard let text = banner else { return nil }
+        if sinkStatusText.contains(text) || (portProblem?.contains(text) ?? false) { return nil }
+        return text
     }
 
     /// "Set up over USB" stopped on something that is not one of the adb rows (an install or grant that failed, a build
@@ -153,6 +197,7 @@ final class AppModel: ObservableObject {
         failures.append(text)
         if failures.count > 20 { failures.removeFirst() }
         banner = text
+        bannerCase = nil
     }
 
     static func usbSetupFailedText(_ detail: String) -> String {
@@ -161,6 +206,7 @@ final class AppModel: ObservableObject {
 
     func setCameraPresent(_ present: Bool) {
         cameraPresent = present
+        if present { resolve([.noWebcam]) }
     }
 
     func noteSaved(_ urls: [URL]) {

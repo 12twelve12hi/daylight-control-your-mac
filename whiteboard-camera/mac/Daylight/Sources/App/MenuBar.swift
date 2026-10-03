@@ -35,7 +35,7 @@ final class MenuBar: NSObject, NSMenuDelegate {
         addDisabled("Daylight Camera \(model.version) (\(model.build))")
         addDisabled(statusLine())
         if let problem = model.portProblem { addDisabled("● " + problem) }
-        if let banner = model.banner { addDisabled("● " + banner) }
+        if let banner = model.visibleBanner { addDisabled("● " + banner) }
         if let error = model.lastSaveError { addDisabled("● " + error) }
         if model.nobodyConnectedYet && model.clients.isEmpty { addDisabled(FailureText.sentence(.nobodyConnected)) }
         menu.addItem(NSMenuItem.separator())

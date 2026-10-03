@@ -259,6 +259,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         switch AVCaptureDevice.authorizationStatus(for: .video) {
         case .authorized:
             onboardingModel.inputs.camera = .granted
+            model.noteCameraGranted()
             pipeline?.setCaptureAuthorized(true)
             pipeline?.start()
         case .denied, .restricted:
@@ -289,6 +290,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard let self = self else { return }
                 self.onboardingModel.inputs.camera = granted ? .granted : .denied
                 if granted {
+                    self.model.noteCameraGranted()
                     self.pipeline?.setCaptureAuthorized(true)
                     self.pipeline?.start()
                 } else {
@@ -521,6 +523,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // open the capture gate the moment access is granted.
         let permission = AppDelegate.cameraPermission(AVCaptureDevice.authorizationStatus(for: .video))
         if permission == .granted && onboardingModel.inputs.camera != .granted {
+            model.noteCameraGranted()
             pipeline?.setCaptureAuthorized(true)
             pipeline?.start()
         }

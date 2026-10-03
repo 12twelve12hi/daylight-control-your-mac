@@ -460,7 +460,7 @@ Backpressure (tablet): before sending a non-key, non-config packet the tablet ch
 | 8 | 4 | bitrate_bps | u32, configured encoder bit rate |
 | 12 | 4 | sent_bps | u32, MIRROR_PACKET bytes sent in the last second times 8 |
 
-Cadence: once right after HANDSHAKE_ACK status 0 (state 0 or 8: this announces the capability, and the Mac only ever sends MIRROR_CONTROL to a connection that announced it), on every state change, and at 1 Hz while STREAMING or PAUSED. A tablet that never sends it is treated as not capable.
+Cadence: once right after every HANDSHAKE_ACK status 0 with the CURRENT state (usually 0 IDLE; 4 PAUSED when a projection survived a Wi-Fi drop, so the next START streams with no new consent; 8 UNSUPPORTED when the tablet cannot capture). This first report announces the connection; the Mac only ever sends MIRROR_CONTROL to a connection that announced itself, and never sends START to one whose last state is 8, on every state change, and at 1 Hz while STREAMING or PAUSED. A tablet that never sends it is treated as not capable.
 
 ### 14.4 MIRROR_CONTROL (0x0071), server to client, 12 bytes, `<BBHIHH`
 

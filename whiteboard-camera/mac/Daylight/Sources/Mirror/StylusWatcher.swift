@@ -123,7 +123,6 @@ final class StylusWatcher {
                     self.penNode = pen
                     self.machine = StylusContactMachine(pressureMax: pen.pressureMax)
                     self.parser = EvdevParser()
-                    self.setStatus(.watching(path: pen.path, name: pen.name, pressureMax: pen.pressureMax))
                     self.onLog?("pen node \(pen.path) \"\(pen.name)\" pressureMax=\(pen.pressureMax) keys=\(pen.keys.sorted()) abs=\(pen.abs.keys.sorted())")
                     if !pen.hasSideButton {
                         self.onLog?("pen node reports no BTN_STYLUS or BTN_STYLUS2; the side button gestures may never fire (row 28b)")
@@ -158,6 +157,8 @@ final class StylusWatcher {
             return
         }
         self.child = child
+        // Reported only once the getevent child runs (LOOSE_ENDS I8, USB-B1): `.watching` means events can arrive.
+        if let pen = penNode { setStatus(.watching(path: pen.path, name: pen.name, pressureMax: pen.pressureMax)) }
     }
 
     private func consume(_ data: Data, generation: Int) {
@@ -250,7 +251,6 @@ final class StylusWatcher {
             if let pen = self.penNode {
                 self.machine = StylusContactMachine(pressureMax: pen.pressureMax)
                 self.parser = EvdevParser()
-                self.setStatus(.watching(path: pen.path, name: pen.name, pressureMax: pen.pressureMax))
                 self.spawn(path: pen.path, generation: generation)
             } else {
                 self.probe(generation: generation)

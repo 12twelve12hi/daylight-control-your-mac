@@ -95,11 +95,35 @@ final class StylusWatcherTests: XCTestCase {
         child.emitStdout(StylusFixtures.sideButton(true, at: 50.0))
         wait(for: [long], timeout: 5)
         // The release after a long press is silent.
-        let silent = expectation(description: "silent release")
-        silent.isInverted = true
-        watcher.onGesture = { _ in silent.fulfill() }
+        // No window: a gesture of the release would be emitted before the release's own transition (both on the
+        // stylus queue, gesture first), so once the side1Up transition arrived the release can no longer add one.
+        let late = Locked<[SideButtonGesture]>([])
+        watcher.onGesture = { gesture in late.withLock { $0.append(gesture) } }
+        let releaseSeen = expectation(description: "release processed")
+        watcher.onTransition = { if case .side1Up = $0 { releaseSeen.fulfill() } }
         child.emitStdout(StylusFixtures.sideButton(false, at: 51.0))
-        wait(for: [silent], timeout: 0.3)
+        wait(for: [releaseSeen], timeout: 5)
+        XCTAssertEqual(late.withLock { $0 }, [], "the release after a long press fires no gesture")
+        watcher.stop()
+    }
+
+    /// LOOSE_ENDS I8 (USB-B1): `.watching` is reported only once the getevent child was spawned, so a caller that
+    /// waits for it finds the child. Before the fix the status came first and the child count read in the callback
+    /// (on the stylus queue, before `spawn`) was 0.
+    func testWatchingIsReportedOnlyOnceTheGeteventChildRuns() {
+        let adb = FakeAdb()
+        let watcher = makeWatcher(listing: StylusFixtures.listingWithPen, adb: adb)
+        let watching = expectation(description: "watching")
+        let childrenAtWatching = Locked<Int?>(nil)
+        watcher.onStatus = { status in
+            if case .watching = status {
+                childrenAtWatching.withLock { $0 = adb.spawned.count }
+                watching.fulfill()
+            }
+        }
+        watcher.start()
+        wait(for: [watching], timeout: 5)
+        XCTAssertEqual(childrenAtWatching.withLock { $0 }, 1, "the getevent child exists when .watching is reported")
         watcher.stop()
     }
 
@@ -131,14 +155,17 @@ final class StylusWatcherTests: XCTestCase {
         watcher.onStatus = { if case .watching = $0 { watching.fulfill() } }
         let released = expectation(description: "contactUp on EOF")
         watcher.onTransition = { if case .contactUp = $0 { released.fulfill() } }
+        // Condition, not a 0.4 s window: the second getevent child is the restart.
+        let respawned = expectation(description: "respawned")
+        respawned.assertForOverFulfill = false
+        let spawns = Locked(0)
+        adb.onSpawn = { _, _ in if spawns.withLock({ count -> Int in count += 1; return count }) == 2 { respawned.fulfill() } }
         watcher.start()
         wait(for: [watching], timeout: 5)
         guard let child = adb.spawned.first else { return XCTFail("no child") }
         child.emitStdout(StylusFixtures.penDown(at: 1.0))
         child.exit(0)
         wait(for: [released], timeout: 5)
-        let respawned = expectation(description: "respawned")
-        DispatchQueue.global().asyncAfter(deadline: .now() + 0.4) { respawned.fulfill() }
         wait(for: [respawned], timeout: 5)
         XCTAssertGreaterThanOrEqual(adb.spawned.count, 2, "restarted after the backoff")
         XCTAssertGreaterThanOrEqual(watcher.restarts, 1)

@@ -103,16 +103,43 @@ final class InkRouterTests: XCTestCase {
         XCTAssertEqual(router.store.committedCount, 1)
     }
 
-    func testNotNowSendsDeniedAndCloses1008() {
+    func testNotNowSendsDeniedAndCloses1008ThenTheNextDialPromptsAgain() {
+        var prompted: [UUID] = []
+        router.pendingAllow = { prompted.append($0.connectionID) }
         let (connection, transport) = connect(address: "192.168.1.40")
         router.deny(connectionID: connection.id)
         XCTAssertEqual(transport.acks, [.pendingApproval, .denied])
         XCTAssertEqual(transport.closeCode, 1008)
         XCTAssertTrue(connection.isClosed)
-        // The same tablet dialling again in this session is denied without a prompt.
+        XCTAssertNil(registry.lookup(id: "6f1a2b3c-4d5e-4f60-8a9b-0c1d2e3f4a5b"), "Not now writes nothing")
+        // PROTOCOL 8: the tablet re-dials only on a tap, and that tap shows the Allow panel again (a mis-clicked
+        // Not now never locks the tablet out until a relaunch).
         let (again, transportAgain) = connect(address: "192.168.1.40")
-        XCTAssertEqual(transportAgain.acks, [.denied])
-        XCTAssertTrue(again.denied)
+        XCTAssertEqual(transportAgain.acks, [.pendingApproval])
+        XCTAssertTrue(again.pending)
+        XCTAssertFalse(again.denied)
+        XCTAssertEqual(prompted, [connection.id, again.id])
+        router.allow(connectionID: again.id)
+        XCTAssertEqual(transportAgain.acks.last, .ok)
+    }
+
+    func testOverlayRoleSendsOnlyControlMessagesAndIsNeverTheActiveSource() {
+        let (overlay, transport) = connect(address: "127.0.0.1", name: "overlay;ABC;Tablet")
+        XCTAssertEqual(transport.acks, [.ok])
+        XCTAssertTrue(overlay.allowed)
+        XCTAssertFalse(overlay.isActiveSource, "STATE bit3 stays clear for the pills")
+        XCTAssertFalse(transport.states.last!.flagSet.contains(.clientIsActiveSource))
+        var logs: [String] = []
+        router.onLog = { logs.append($0) }
+        drawGoldenStroke(overlay)
+        XCTAssertEqual(router.store.committedCount, 0, "PROTOCOL 8: ink from an overlay connection is dropped")
+        XCTAssertTrue(router.store.activeStrokeIDs.isEmpty)
+        XCTAssertTrue(pipeline.events.isEmpty, "no governor event from overlay ink")
+        XCTAssertEqual(logs.filter { $0.contains("overlay role sent opcode") }.count, 1, "logged once per opcode")
+        router.handle(bytes("da0161000900000040e2cfeeb5400600ff40e2cfeeb5400600"), from: overlay, hostTimeNs: 5)
+        XCTAssertEqual(pipeline.events.last, .pin(-1), "the three control messages still work")
+        router.handle(bytes("da0160000800000040e2cfeeb540060040e2cfeeb5400600"), from: overlay, hostTimeNs: 6)
+        XCTAssertEqual(pipeline.events.last, .returnNow)
     }
 
     func testRememberedClientNeedsNoPromptOverWiFi() {

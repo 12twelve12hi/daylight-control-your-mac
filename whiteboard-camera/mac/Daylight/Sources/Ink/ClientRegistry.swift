@@ -27,7 +27,8 @@ final class ClientRegistry {
     var onChange: (([Record]) -> Void)?
     private let lock = NSLock()
     private var records: [String: Record] = [:]
-    /// "Not now" is remembered for the running session only: the next connection prompts again.
+    /// Clients told "Not now" during this run, for Diagnostics only: the router never consults it, so the next
+    /// connection of the same tablet prompts again (PROTOCOL 8).
     private var deniedThisSession: Set<String> = []
 
     static func defaultFileURL() -> URL {
@@ -97,7 +98,8 @@ final class ClientRegistry {
         }
     }
 
-    /// "Not now": the socket is closed; nothing is written (the next connection prompts again).
+    /// "Not now": the socket is closed; nothing is written and the next connection prompts again. The id is only
+    /// remembered for Diagnostics.
     func deny(id: String) {
         lock.lock()
         deniedThisSession.insert(id)

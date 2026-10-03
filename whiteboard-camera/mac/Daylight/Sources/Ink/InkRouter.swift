@@ -160,6 +160,13 @@ final class InkRouter {
         default:
             if c.denied { c.close(code: 1008, reason: "not allowed"); return }
             guard c.allowed else { return }   // pending: decoded and dropped, STATE keeps flowing
+            if c.role == .overlay {   // PROTOCOL 8: the pills send only TOGGLE_PIN, CLEAR_CANVAS and AUTO_ENGAGE_RETURN
+                if !c.loggedUnknownOpcodes.contains(header.opcode) {
+                    c.loggedUnknownOpcodes.insert(header.opcode)
+                    onLog?("client \(c.label): overlay role sent opcode 0x\(String(header.opcode, radix: 16)); dropped")
+                }
+                return
+            }
             guard c.isActiveSource || c.role == .test else { return }   // non-active source: dropped silently
             handleInk(message, from: c, hostTimeNs: hostTimeNs, now: now)
         }
@@ -264,11 +271,9 @@ final class InkRouter {
         } else if c.isLoopback && registry.trustLoopback {
             registry.recordLoopback(id: identity.clientID, label: identity.label, role: identity.role.rawValue)
             grant(c)
-        } else if registry.isDeniedThisSession(id: identity.clientID) {
-            c.denied = true
-            c.send(.handshakeAck(width: SolStream.targetWidth, height: SolStream.targetHeight, fps: SolStream.targetFPS, status: .denied))
-            c.close(code: 1008, reason: "not allowed")
         } else {
+            // A tablet that was told "Not now" prompts again on its next dial (PROTOCOL 8: the client re-dials only
+            // on a user action), so a mis-click never locks it out until a relaunch.
             c.pending = true
             c.send(.handshakeAck(width: SolStream.targetWidth, height: SolStream.targetHeight, fps: SolStream.targetFPS, status: .pendingApproval))
             c.sendState(stateReport(for: c))
@@ -300,7 +305,7 @@ final class InkRouter {
         broadcastState()
     }
 
-    /// The owner clicked Not now.
+    /// The owner clicked Not now: ACK 2 and close 1008; nothing is written and the next dial prompts again.
     func deny(connectionID: UUID) {
         guard let c = connections[connectionID], let identity = c.identity else { return }
         registry.deny(id: identity.clientID)
@@ -334,8 +339,12 @@ final class InkRouter {
 
     private func makeActiveIfMatching(_ c: InkConnection) {
         guard let role = c.role else { return }
-        if role == .test || role == .overlay {
+        if role == .test {
             c.isActiveSource = true
+            return
+        }
+        if role == .overlay {   // the pills never draw, so STATE bit3 stays clear for them
+            c.isActiveSource = false
             return
         }
         guard role == InkRouter.role(for: activeSource) else {
@@ -354,7 +363,7 @@ final class InkRouter {
         let wanted = InkRouter.role(for: activeSource)
         var newest: InkConnection?
         for c in connections.values where c.identity != nil && !c.isClosed {
-            if c.role == .test || c.role == .overlay {
+            if c.role == .test {
                 c.isActiveSource = true
                 continue
             }

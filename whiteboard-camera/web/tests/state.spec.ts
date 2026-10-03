@@ -2,7 +2,7 @@
 // long press sends AUTO_ENGAGE_RETURN, undo/redo buttons follow depths, "Ink source is ... on the Mac"
 // when bit3 is clear.
 import { test, expect } from "@playwright/test";
-import { FakeMac, debugValue, openWhiteboard, waitForFrames } from "./pen.js";
+import { FakeMac, debugValue, inkAlphaAt, openWhiteboard, paperBox, penStroke, toPage, waitForFrames } from "./pen.js";
 
 test.beforeEach(async ({ request }) => {
   await new FakeMac(request).reset();
@@ -169,4 +169,99 @@ test("the golden STATE vectors drive the chip", async ({ page, request }) => {
   // state_passthrough_idle: PASSTHROUGH, flags 0xB4, mirror, bit3 clear.
   await fake.state({ governor: 0, flags: 0xb4, inkSource: 2 });
   await expect(chip).toHaveText("Ink source is mirror on the Mac");
+});
+
+test("a STATE older than our COMMIT does not hide the stroke we just drew; a Mac-side Clear still lands", async ({ page, request }) => {
+  const fake = new FakeMac(request);
+  await openWhiteboard(page);
+  const box = await paperBox(page);
+  await penStroke(page, [{ ...toPage(box, 100, 500), p: 0.5 }, { ...toPage(box, 300, 500), p: 0.5 }, { ...toPage(box, 500, 500), p: 0.5 }]);
+  await waitForFrames(fake, "STROKE_COMMIT");
+  expect(await debugValue<number>(page, "visibleStrokes")).toBe(1);
+  expect(await inkAlphaAt(page, 300, 500)).toBeGreaterThan(0);
+  // The Mac's periodic STATE generated before it processed the COMMIT: depths 0 / 0.
+  await fake.state({ governor: 2, flags: allowed, undoDepth: 0, redoDepth: 0, strokeCount: 0 });
+  await page.waitForTimeout(150);
+  expect(await debugValue<number>(page, "visibleStrokes")).toBe(1);
+  expect(await inkAlphaAt(page, 300, 500)).toBeGreaterThan(0);
+  expect((await debugValue<{ staleStates: number }>(page, "ink")).staleStates).toBe(1);
+  // The STATE that carries the commit.
+  await fake.state({ governor: 2, flags: allowed, undoDepth: 1, redoDepth: 0, strokeCount: 1 });
+  await page.waitForTimeout(150);
+  expect(await debugValue<number>(page, "visibleStrokes")).toBe(1);
+  // From here the depths rule as before: an undo hides it, a redo brings it back.
+  await fake.state({ governor: 2, flags: allowed, undoDepth: 0, redoDepth: 1 });
+  await expect.poll(() => debugValue<number>(page, "visibleStrokes")).toBe(0);
+  await fake.state({ governor: 2, flags: allowed, undoDepth: 1, redoDepth: 0 });
+  await expect.poll(() => debugValue<number>(page, "visibleStrokes")).toBe(1);
+
+  // A Mac-side Clear while a COMMIT is in flight: the total stops growing, so the third stale STATE applies.
+  await penStroke(page, [{ ...toPage(box, 100, 700), p: 0.5 }, { ...toPage(box, 300, 700), p: 0.5 }]);
+  await waitForFrames(fake, "STROKE_COMMIT", 2);
+  expect(await debugValue<number>(page, "visibleStrokes")).toBe(2);
+  await fake.state({ governor: 0, flags: allowed, undoDepth: 0, redoDepth: 0, strokeCount: 0 });
+  await fake.state({ governor: 0, flags: allowed, undoDepth: 0, redoDepth: 0, strokeCount: 0 });
+  await page.waitForTimeout(150);
+  expect(await debugValue<number>(page, "visibleStrokes")).toBe(2);
+  await fake.state({ governor: 0, flags: allowed, undoDepth: 0, redoDepth: 0, strokeCount: 0 });
+  await expect.poll(() => debugValue<number>(page, "visibleStrokes")).toBe(0);
+  expect(await inkAlphaAt(page, 300, 500)).toBe(0);
+});
+
+test("when the Mac holds strokes this page never saw (reload mid-session) the depths align on the newest stroke", async ({ page, request }) => {
+  const fake = new FakeMac(request);
+  await openWhiteboard(page);
+  const box = await paperBox(page);
+  await penStroke(page, [{ ...toPage(box, 100, 500), p: 0.5 }, { ...toPage(box, 300, 500), p: 0.5 }]);
+  await waitForFrames(fake, "STROKE_COMMIT");
+  // The Mac has two older strokes from before the reload plus ours: 3 / 0.
+  await fake.state({ governor: 2, flags: allowed, undoDepth: 3, redoDepth: 0, strokeCount: 3 });
+  await page.waitForTimeout(150);
+  expect(await debugValue<number>(page, "visibleStrokes")).toBe(1);
+  // One undo on the Mac hides the newest stroke, which is the one we know.
+  await fake.state({ governor: 2, flags: allowed, undoDepth: 2, redoDepth: 1, strokeCount: 2 });
+  await expect.poll(() => debugValue<number>(page, "visibleStrokes")).toBe(0);
+  expect(await inkAlphaAt(page, 200, 500)).toBe(0);
+  // Redo brings it back; the local list kept it as its redo tail.
+  await fake.state({ governor: 2, flags: allowed, undoDepth: 3, redoDepth: 0, strokeCount: 3 });
+  await expect.poll(() => debugValue<number>(page, "visibleStrokes")).toBe(1);
+  expect(await inkAlphaAt(page, 200, 500)).toBeGreaterThan(0);
+  // Two undos on the Mac: nothing of ours is left visible, nothing is forgotten.
+  await fake.state({ governor: 2, flags: allowed, undoDepth: 1, redoDepth: 2, strokeCount: 1 });
+  await expect.poll(() => debugValue<number>(page, "visibleStrokes")).toBe(0);
+  await fake.state({ governor: 2, flags: allowed, undoDepth: 3, redoDepth: 0, strokeCount: 3 });
+  await expect.poll(() => debugValue<number>(page, "visibleStrokes")).toBe(1);
+});
+
+test("the eraser only reaches visible strokes and keeps the redo tail", async ({ page, request }) => {
+  const fake = new FakeMac(request);
+  await openWhiteboard(page);
+  const box = await paperBox(page);
+  await penStroke(page, [{ ...toPage(box, 100, 400), p: 0.5 }, { ...toPage(box, 500, 400), p: 0.5 }]);   // A
+  await penStroke(page, [{ ...toPage(box, 100, 800), p: 0.5 }, { ...toPage(box, 500, 800), p: 0.5 }]);   // B
+  const starts = await waitForFrames(fake, "STROKE_START", 2);
+  await waitForFrames(fake, "STROKE_COMMIT", 2);
+  await fake.state({ governor: 2, flags: allowed, undoDepth: 2, redoDepth: 0 });
+  await fake.state({ governor: 2, flags: allowed, undoDepth: 1, redoDepth: 1 });   // B undone
+  await expect.poll(() => debugValue<number>(page, "visibleStrokes")).toBe(1);
+  await page.locator("#tool-eraser").click();
+  // Rub across where B was: nothing to erase there (it is in the redo tail), the frame carries no ids.
+  await penStroke(page, [{ ...toPage(box, 300, 700), p: 0.5 }, { ...toPage(box, 300, 900), p: 0.5 }]);
+  await waitForFrames(fake, "ERASE_STROKES", 2);
+  await page.waitForTimeout(100);
+  expect((await fake.framesNamed("ERASE_STROKES")).every((e) => (e.ids as string[]).length === 0)).toBe(true);
+  expect(await debugValue<number>(page, "visibleStrokes")).toBe(1);
+  // Rub across A: its id goes out, the local list drops it and still carries B as the redo tail.
+  await fake.reset();
+  await penStroke(page, [{ ...toPage(box, 300, 300), p: 0.5 }, { ...toPage(box, 300, 500), p: 0.5 }]);
+  const erases = await waitForFrames(fake, "ERASE_STROKES");
+  const withIds = erases.filter((e) => (e.ids as string[]).length > 0);
+  expect(withIds.length).toBe(1);
+  expect(withIds[0]!.ids).toEqual([starts[0]!.strokeId]);
+  expect(await debugValue<number>(page, "visibleStrokes")).toBe(0);
+  // The Mac redoes B: the page still knows it.
+  await fake.state({ governor: 2, flags: allowed, undoDepth: 1, redoDepth: 0 });
+  await expect.poll(() => debugValue<number>(page, "visibleStrokes")).toBe(1);
+  expect(await inkAlphaAt(page, 300, 800)).toBeGreaterThan(0);
+  expect(await inkAlphaAt(page, 300, 400)).toBe(0);
 });

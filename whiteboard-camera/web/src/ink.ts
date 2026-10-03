@@ -2,8 +2,11 @@
 // highlight (amber under the ink), ink, and a wet layer that receives the pointer events.
 // Local rendering is a preview; the Mac is the source of truth (undo and redo follow STATE depths).
 
+import { clampPressure, strokeHitsSegment, strokeWidth, type LocalPoint } from "./geometry.js";
 import { Encoder, MAX_POINTS_PER_CHUNK, newUuid16, toHex, type WirePoint } from "./protocol.js";
 import type { Tool } from "./tools.js";
+
+export { clampPressure, pointSegmentDistance, strokeHitsSegment, strokeWidth, type LocalPoint } from "./geometry.js";
 
 export const CANVAS_W = 1200;
 export const CANVAS_H = 1600;
@@ -15,16 +18,14 @@ export const ERASER_RADIUS = 12.0;
 /** pointercancel / pointerleave: COMMIT when at least this many points and older than CANCEL_MIN_MS. */
 export const CANCEL_MIN_POINTS = 2;
 export const CANCEL_MIN_MS = 80;
-
-/** Stroke width for a segment at pressure p (SPEC 6.6). */
-export function strokeWidth(baseWidth: number, pressure: number): number {
-  return baseWidth * (0.55 + 0.9 * pressure);
-}
-
-export function clampPressure(p: number): number {
-  if (!(p > 0)) return 0;
-  return p > 1 ? 1 : p;
-}
+/** PROTOCOL 6.8: ERASE_STROKES carries at most this many ids (a hint; the Mac's hit test is authoritative). */
+export const MAX_ERASE_IDS = 1024;
+/**
+ * A STATE whose depths predate a COMMIT this page just sent would make the fresh stroke vanish for one
+ * message. While a commit is in flight such STATEs are skipped, but never more than this many in a row
+ * without the Mac's total growing, so a Mac-side Clear in that window still lands within a second or two.
+ */
+export const STALE_STATE_RUN_LIMIT = 2;
 
 export interface InkSink {
   readonly encoder: Encoder;
@@ -32,12 +33,6 @@ export interface InkSink {
   sendInk(frame: ArrayBuffer, strokeKey: string, points: number): boolean;
   isLive(): boolean;
   backpressure(): "ok" | "hold" | "thin";
-}
-
-export interface LocalPoint {
-  x: number;
-  y: number;
-  p: number;
 }
 
 export interface LocalStroke {
@@ -70,6 +65,12 @@ interface ActiveErase {
   last: LocalPoint;
 }
 
+/** A pen contact that arrived with pressure 0 (LOOSE_ENDS D4): the stroke starts on its first pressured sample. */
+interface ArmedContact {
+  pointerId: number;
+  timeStamp: number;
+}
+
 export interface InkStats {
   strokes: number;
   points: number;
@@ -81,6 +82,10 @@ export interface InkStats {
   coalesced: number;
   restarted: number;
   thinned: number;
+  /** Strokes that began on a pressured sample after a pressure-0 pointerdown. */
+  armedStarts: number;
+  /** STATE messages skipped because a COMMIT of ours was still in flight. */
+  staleStates: number;
 }
 
 export class InkCanvas {
@@ -94,11 +99,15 @@ export class InkCanvas {
   private visible = 0;
   private active: ActiveStroke | null = null;
   private erasing: ActiveErase | null = null;
+  private armed: ArmedContact | null = null;
   private rafQueued = false;
   private scale = 1;
   private readonly useRawUpdate: boolean;
+  private inFlightCommits = 0;
+  private staleRun = 0;
+  private staleLastTotal = -1;
   tool: Tool = "pen";
-  readonly stats: InkStats = { strokes: 0, points: 0, ignored: 0, committed: 0, cancelled: 0, erases: 0, rawUpdates: 0, coalesced: 0, restarted: 0, thinned: 0 };
+  readonly stats: InkStats = { strokes: 0, points: 0, ignored: 0, committed: 0, cancelled: 0, erases: 0, rawUpdates: 0, coalesced: 0, restarted: 0, thinned: 0, armedStarts: 0, staleStates: 0 };
   /** Called after any local change (for autosave-style hooks and tests). */
   onChange: (() => void) | null = null;
 
@@ -163,12 +172,43 @@ export class InkCanvas {
   }
 
   /**
-   * STATE `undo_depth` / `redo_depth`: the local list and the Mac's list hold the same strokes in the
-   * same order, so the first `undoDepth` are visible and the next `redoDepth` are the redo tail.
+   * STATE `undo_depth` / `redo_depth`. In the common case the local list and the Mac's list hold the same
+   * strokes in the same order, so the first `undoDepth` are visible and the next `redoDepth` are the redo tail.
+   * Two departures from that rule: a STATE generated before the Mac saw a COMMIT of ours is skipped (see
+   * STALE_STATE_RUN_LIMIT), and when the Mac holds more strokes than this page knows (a reload mid-session,
+   * strokes from another client) the lists are aligned on their newest end instead, so an undo still hides
+   * the stroke drawn last. The suffix rule is a heuristic in mixed histories; the Mac never replays its canvas.
    */
   applyDepths(undoDepth: number, redoDepth: number): void {
-    const visible = Math.min(undoDepth, this.committed.length);
-    const keep = Math.min(this.committed.length, visible + redoDepth);
+    const macTotal = undoDepth + redoDepth;
+    if (this.inFlightCommits > 0) {
+      if (macTotal >= this.committed.length) {
+        this.inFlightCommits = 0;
+        this.staleRun = 0;
+        this.staleLastTotal = -1;
+      } else {
+        // Stale: the Mac's total is below ours. Skip it unless the total stopped growing for too long (a Mac-side
+        // Clear during the window), in which case the ordinary rule applies and the lists re-align.
+        this.staleRun = macTotal > this.staleLastTotal ? 1 : this.staleRun + 1;
+        this.staleLastTotal = macTotal;
+        if (this.staleRun <= STALE_STATE_RUN_LIMIT) {
+          this.stats.staleStates++;
+          return;
+        }
+        this.inFlightCommits = 0;
+        this.staleRun = 0;
+        this.staleLastTotal = -1;
+      }
+    }
+    let visible: number;
+    let keep: number;
+    if (macTotal > this.committed.length) {
+      visible = Math.max(0, this.committed.length - redoDepth);
+      keep = this.committed.length;
+    } else {
+      visible = Math.min(undoDepth, this.committed.length);
+      keep = Math.min(this.committed.length, visible + redoDepth);
+    }
     const changed = visible !== this.visible || keep !== this.committed.length;
     this.visible = visible;
     this.committed = this.committed.slice(0, keep);
@@ -179,28 +219,41 @@ export class InkCanvas {
   clearLocal(): void {
     this.committed = [];
     this.visible = 0;
+    this.inFlightCommits = 0;
+    this.staleRun = 0;
+    this.staleLastTotal = -1;
     this.redraw();
     this.onChange?.();
   }
 
   /**
    * Called when the connection that carried the open stroke's STROKE_START is gone: the Mac committed
-   * that stroke as it stood (SPEC D37), so the rest of the glass contact becomes a new stroke whose
-   * START is ringed in front of its points.
+   * that stroke as it stood (SPEC D37), so the rest of the glass contact becomes a new stroke. The points
+   * not yet sent stay with the contact under the new id (nothing for the old id goes into the ring, which
+   * would reach the Mac after its COMMIT and be dropped); their delta_ms are rebased so the restarted
+   * stroke starts at 0, and the new START is ringed ahead of them.
    */
   restartOpenStroke(): void {
     const a = this.active;
     if (!a || !a.startedLive) return;
-    this.flush();
     a.id = newUuid16();
     a.key = toHex(a.id);
     a.sent = 0;
-    a.startedAt = -1;   // the next sample becomes the first point (delta_ms 0)
-    a.lastDelta = 0;
+    const first = a.pending[0];
+    if (first) {
+      const base = first.deltaMs;
+      a.startedAt += base;
+      for (const pt of a.pending) pt.deltaMs -= base;
+      a.lastDelta = a.pending[a.pending.length - 1]?.deltaMs ?? 0;
+    } else {
+      a.startedAt = -1;   // the next sample becomes the first point (delta_ms 0)
+      a.lastDelta = 0;
+    }
     // A START with pressure 0 is dropped by the Mac (PROTOCOL 6.3); a lifted-but-captured pen reports 0.
-    const pressure = a.last.p > 0 ? a.last.p : 0.5;
+    const pressure = first && first.pressure > 0 ? first.pressure : a.last.p > 0 ? a.last.p : 0.5;
     a.startedLive = this.sink.sendInk(this.sink.encoder.strokeStart(a.id, toolCode(a.tool), a.color, a.baseWidth, pressure), a.key, 0);
     this.stats.restarted++;
+    if (a.pending.length > 0) this.queueFlush();
   }
 
   // -- input ------------------------------------------------------------------
@@ -219,15 +272,25 @@ export class InkCanvas {
   }
 
   private down(e: PointerEvent): void {
-    // Fingers and palms never draw and never engage; a pen with pressure 0 is a side button in the air.
+    this.armed = null;
+    // Fingers and palms never draw and never engage; a pen with pressure 0 is a side button in the air, or a
+    // digitizer whose first contact sample carries no pressure yet (LOOSE_ENDS D4): the contact is armed and
+    // becomes a stroke on its first pressured sample.
     if (e.pointerType !== "pen" || e.buttons === 0 || clampPressure(e.pressure) <= 0) {
       this.stats.ignored++;
+      if (e.pointerType === "pen" && e.buttons !== 0 && !this.active && !this.erasing) {
+        this.armed = { pointerId: e.pointerId, timeStamp: e.timeStamp };
+      }
       return;
     }
     if (this.active || this.erasing) return;   // one contact at a time
     e.preventDefault();
+    this.beginContact(e, this.canvasPoint(e), e.timeStamp);
+  }
+
+  /** Starts an erase or a stroke at `p`; `firstDownAt` is the pointerdown time (the 80 ms cancel rule). */
+  private beginContact(e: PointerEvent, p: LocalPoint, firstDownAt: number): void {
     try { this.wet.setPointerCapture(e.pointerId); } catch { /* not fatal */ }
-    const p = this.canvasPoint(e);
     if (this.tool === "eraser") {
       this.erasing = { pointerId: e.pointerId, last: p };
       this.eraseSegment(p, p);
@@ -244,7 +307,7 @@ export class InkCanvas {
       baseWidth,
       pointerId: e.pointerId,
       startedAt: e.timeStamp,
-      firstDownAt: e.timeStamp,
+      firstDownAt,
       lastDelta: 0,
       last: p,
       points: [p],
@@ -266,7 +329,7 @@ export class InkCanvas {
   }
 
   private move(e: PointerEvent): void {
-    if (this.useRawUpdate && this.active) return;   // raw updates already carried these samples
+    if (this.useRawUpdate && (this.active || this.erasing)) return;   // raw updates already carried these samples
     let events: PointerEvent[] = [e];
     if (typeof e.getCoalescedEvents === "function") {
       const c = e.getCoalescedEvents();
@@ -275,8 +338,25 @@ export class InkCanvas {
     this.sample(e, events);
   }
 
-  private sample(e: PointerEvent, events: readonly PointerEvent[]): void {
+  private sample(e: PointerEvent, samples: readonly PointerEvent[]): void {
     if (e.pointerType !== "pen") return;
+    let events: readonly PointerEvent[] = samples;
+    const armed = this.armed;
+    if (armed && !this.active && !this.erasing) {
+      if (e.pointerId !== armed.pointerId || e.buttons === 0) return;
+      // The first sample with pressure starts the contact; everything after it is ordinary motion.
+      for (let i = 0; i < events.length; i++) {
+        const ev = events[i]!;
+        const p = this.canvasPoint(ev);
+        if (p.p <= 0) continue;
+        this.armed = null;
+        this.beginContact(ev, p, armed.timeStamp);
+        this.stats.armedStarts++;
+        events = events.slice(i + 1);
+        break;
+      }
+      if (this.armed) return;
+    }
     if (this.erasing && e.pointerId === this.erasing.pointerId) {
       if (e.buttons === 0) return;
       for (const ev of events) {
@@ -303,6 +383,7 @@ export class InkCanvas {
   }
 
   private up(e: PointerEvent): void {
+    if (this.armed && e.pointerId === this.armed.pointerId) this.armed = null;
     if (this.erasing && e.pointerId === this.erasing.pointerId) { this.erasing = null; return; }
     const a = this.active;
     if (!a || e.pointerId !== a.pointerId) return;
@@ -310,6 +391,7 @@ export class InkCanvas {
   }
 
   private cancel(e: PointerEvent): void {
+    if (this.armed && e.pointerId === this.armed.pointerId) this.armed = null;
     if (this.erasing && e.pointerId === this.erasing.pointerId) { this.erasing = null; return; }
     const a = this.active;
     if (!a || e.pointerId !== a.pointerId) return;
@@ -317,17 +399,21 @@ export class InkCanvas {
   }
 
   private finish(a: ActiveStroke, cancelled: boolean, at: number): void {
-    this.flush();
+    // The tail goes out whatever the backpressure says: a COMMIT must follow every point it counts.
+    this.flush(true);
     this.active = null;
     const young = a.points.length < CANCEL_MIN_POINTS || at - a.firstDownAt <= CANCEL_MIN_MS;
     if (cancelled && young) {
       this.sink.sendInk(this.sink.encoder.strokeCancel(a.id), a.key, 0);
       this.stats.cancelled++;
+      // The wet dot or segment went to the ink layer (pen) or the wet layer (highlighter): rebuild both from the model.
       this.clearWet();
+      this.redraw();
       return;
     }
     this.sink.sendInk(this.sink.encoder.strokeCommit(a.id, a.sent), a.key, 0);
     this.stats.committed++;
+    this.inFlightCommits++;
     this.commitLocal(a);
   }
 
@@ -339,12 +425,15 @@ export class InkCanvas {
     requestAnimationFrame(() => { this.rafQueued = false; this.flush(); });
   }
 
-  /** One STROKE_CHUNK per animation frame per active stroke, with the bufferedAmount policy of ARCHITECTURE 3.4. */
-  private flush(): void {
+  /**
+   * One STROKE_CHUNK per animation frame per active stroke, with the bufferedAmount policy of ARCHITECTURE 3.4.
+   * `force` (the end of a stroke) skips the hold branch; thinning still applies.
+   */
+  private flush(force = false): void {
     const a = this.active;
     if (!a || a.pending.length === 0) return;
     const bp = this.sink.backpressure();
-    if (bp === "hold" && a.pending.length < MAX_POINTS_PER_CHUNK) { this.queueFlush(); return; }
+    if (!force && bp === "hold" && a.pending.length < MAX_POINTS_PER_CHUNK) { this.queueFlush(); return; }
     if (bp === "thin" && a.pending.length > 2) {
       const thinned: WirePoint[] = [];
       for (let i = 0; i < a.pending.length; i++) {
@@ -366,18 +455,18 @@ export class InkCanvas {
   private eraseSegment(from: LocalPoint, to: LocalPoint): void {
     const hit: LocalStroke[] = [];
     const kept: LocalStroke[] = [];
-    const visible = this.committed.slice(0, this.visible);
-    for (const s of visible) {
-      const reach = ERASER_RADIUS + strokeWidth(s.baseWidth, 1) / 2;
-      if (strokeHitsSegment(s, from, to, reach)) hit.push(s);
+    // Only visible strokes can be erased; the redo tail stays as it is (the Mac erases from its visible list too).
+    for (const s of this.committed.slice(0, this.visible)) {
+      if (strokeHitsSegment(s, from, to, ERASER_RADIUS)) hit.push(s);
       else kept.push(s);
     }
-    const ids = hit.map((s) => uuidFromHex(s.key));
+    const ids = hit.slice(0, MAX_ERASE_IDS).map((s) => uuidFromHex(s.key));
     this.sink.sendInk(this.sink.encoder.erase(from.x, from.y, to.x, to.y, ERASER_RADIUS, ids), "", 0);
     this.stats.erases++;
     if (hit.length > 0) {
       // Erased strokes leave the local list; the Mac's hit test is authoritative and STATE depths follow.
-      this.committed = kept;
+      const redoTail = this.committed.slice(this.visible);
+      this.committed = kept.concat(redoTail);
       this.visible = kept.length;
       this.redraw();
       this.onChange?.();
@@ -517,30 +606,4 @@ function uuidFromHex(hex: string): Uint8Array {
   const out = new Uint8Array(16);
   for (let i = 0; i < 16; i++) out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
   return out;
-}
-
-/** Point-to-segment distance in canvas units. */
-export function pointSegmentDistance(p: LocalPoint, a: LocalPoint, b: LocalPoint): number {
-  const dx = b.x - a.x;
-  const dy = b.y - a.y;
-  const len2 = dx * dx + dy * dy;
-  let t = 0;
-  if (len2 > 0) t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2));
-  const cx = a.x + t * dx;
-  const cy = a.y + t * dy;
-  return Math.hypot(p.x - cx, p.y - cy);
-}
-
-/** True when any point of the stroke is within `reach` of the eraser segment, or any stroke segment passes within reach of the eraser points. */
-export function strokeHitsSegment(s: LocalStroke, from: LocalPoint, to: LocalPoint, reach: number): boolean {
-  for (const q of s.points) {
-    if (pointSegmentDistance(q, from, to) <= reach) return true;
-  }
-  for (let i = 1; i < s.points.length; i++) {
-    const a = s.points[i - 1];
-    const b = s.points[i];
-    if (!a || !b) continue;
-    if (pointSegmentDistance(from, a, b) <= reach || pointSegmentDistance(to, a, b) <= reach) return true;
-  }
-  return false;
 }

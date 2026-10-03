@@ -3,7 +3,7 @@
 // COMMIT; a finger tap yields nothing; a pen mousePressed with force 0 yields nothing; hover yields
 // nothing; pointercancel after >= 2 points and > 80 ms yields COMMIT, otherwise CANCEL.
 import { test, expect } from "@playwright/test";
-import { FakeMac, type FakeFrame, debugValue, fingerDrag, fingerTap, openWhiteboard, paperBox, penCancel, penHover, penRelease, penStroke, penZeroPressureTap, recordPenPointerId, toPage, waitForFrames } from "./pen.js";
+import { FakeMac, type FakeFrame, debugValue, fingerDrag, fingerTap, inkAlphaAt, openWhiteboard, paperBox, penCancel, penHover, penMove, penRelease, penStroke, penZeroPressureTap, recordPenPointerId, toPage, waitForFrames } from "./pen.js";
 
 const STROKE_START_PAYLOAD = 31;
 const HEADER = 16;
@@ -122,11 +122,14 @@ test("pointercancel after >= 2 points and > 80 ms commits; a young cancel sends 
   await page.waitForTimeout(100);
   expect((await fake.framesNamed("STROKE_CANCEL")).length).toBe(0);
 
-  // One point, cancelled at once: STROKE_CANCEL, no COMMIT for it.
+  // One point, cancelled at once: STROKE_CANCEL, no COMMIT for it, and the wet dot leaves the ink layer.
   await fake.reset();
   const d = toPage(box, 500, 500);
   await penStroke(page, [{ ...d, p: 0.5 }], { release: false, hoverFirst: false });
+  expect(await inkAlphaAt(page, 500, 500)).toBeGreaterThan(0);
   await penCancel(page);
+  expect(await inkAlphaAt(page, 500, 500)).toBe(0);
+  expect(await inkAlphaAt(page, 260, 240)).toBeGreaterThan(0);   // the committed stroke above survived the redraw
   const cancels = await waitForFrames(fake, "STROKE_CANCEL");
   const starts = await fake.framesNamed("STROKE_START");
   expect(starts.length).toBe(1);
@@ -166,4 +169,75 @@ test("pressure above 1 is clamped before quantising (never wraps the u8)", async
   expect(start.pressure).toBe(1);
   const chunk = (await waitForFrames(fake, "STROKE_CHUNK"))[0]!;
   for (const p of chunk.points as { pressure: number }[]) expect(p.pressure).toBe(255);
+});
+
+test("a pen contact that arrives with pressure 0 starts its stroke on the first pressured sample (LOOSE_ENDS D4)", async ({ page, request }) => {
+  const fake = new FakeMac(request);
+  await openWhiteboard(page);
+  const box = await paperBox(page);
+  const a = toPage(box, 300, 900);
+  const b = toPage(box, 360, 930);
+  const c = toPage(box, 420, 970);
+  const s = await page.context().newCDPSession(page);
+  await s.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: a.x, y: a.y, pointerType: "pen", buttons: 0, force: 0 });
+  await s.send("Input.dispatchMouseEvent", { type: "mousePressed", x: a.x, y: a.y, button: "left", buttons: 1, clickCount: 1, pointerType: "pen", force: 0 });
+  await s.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: b.x, y: b.y, button: "left", buttons: 1, pointerType: "pen", force: 0.6 });
+  await s.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: c.x, y: c.y, button: "left", buttons: 1, pointerType: "pen", force: 0.7 });
+  await s.send("Input.dispatchMouseEvent", { type: "mouseReleased", x: c.x, y: c.y, button: "left", buttons: 0, clickCount: 1, pointerType: "pen", force: 0 });
+  await s.detach();
+  const commits = await waitForFrames(fake, "STROKE_COMMIT");
+  const starts = await fake.framesNamed("STROKE_START");
+  expect(starts.length).toBe(1);
+  expect(starts[0]!.pressure as number).toBeCloseTo(0.6, 5);
+  const points = (await fake.framesNamed("STROKE_CHUNK")).flatMap((ch) => ch.points as { x32: number; pressure: number; deltaMs: number }[]);
+  expect(points.length).toBe(2);
+  expect(Math.abs(points[0]!.x32 / 32 - 360)).toBeLessThan(1.5);
+  expect(points[0]!.deltaMs).toBe(0);
+  expect(commits[0]!.pointCount).toBe(2);
+  const stats = await debugValue<{ strokes: number; ignored: number; armedStarts: number; points: number }>(page, "ink");
+  expect(stats.strokes).toBe(1);
+  expect(stats.ignored).toBe(1);        // the pressure-0 pointerdown still counts for the D4 console fact
+  expect(stats.armedStarts).toBe(1);
+  expect(stats.points).toBe(2);
+  expect(await debugValue<number>(page, "visibleStrokes")).toBe(1);
+});
+
+test("the stroke tail goes out before COMMIT even while the socket asks to hold (COMMIT point_count is exact)", async ({ page, request }) => {
+  const fake = new FakeMac(request);
+  await page.addInitScript(() => {
+    // bufferedAmount above HOLD_BYTES (64 KiB) and below THIN_BYTES: the chunk flush would wait for the next frame.
+    const w = window as unknown as { __ba: number };
+    w.__ba = 0;
+    Object.defineProperty(WebSocket.prototype, "bufferedAmount", { get: () => w.__ba, configurable: true });
+  });
+  await openWhiteboard(page);
+  const box = await paperBox(page);
+  // Whole stroke under hold: nothing left on the floor.
+  await page.evaluate(() => { (window as unknown as { __ba: number }).__ba = 70_000; });
+  await penStroke(page, [{ ...toPage(box, 100, 100), p: 0.4 }, { ...toPage(box, 160, 130), p: 0.6 }, { ...toPage(box, 220, 170), p: 0.8 }]);
+  let commits = await waitForFrames(fake, "STROKE_COMMIT");
+  let chunkPoints = (await fake.framesNamed("STROKE_CHUNK")).reduce((n, ch) => n + (ch.points as unknown[]).length, 0);
+  expect(commits[0]!.pointCount).toBe(3);
+  expect(chunkPoints).toBe(3);
+  expect((await debugValue<{ points: number }>(page, "ink")).points).toBe(3);
+  // Partial: two points went out, then the hold starts, two more points, release: the held tail follows, then COMMIT 4.
+  await fake.reset();
+  await page.evaluate(() => { (window as unknown as { __ba: number }).__ba = 0; });
+  const a = toPage(box, 100, 600);
+  const b = toPage(box, 160, 630);
+  await penStroke(page, [{ ...a, p: 0.5 }, { ...b, p: 0.5 }], { release: false });
+  await waitForFrames(fake, "STROKE_CHUNK");
+  await page.evaluate(() => { (window as unknown as { __ba: number }).__ba = 70_000; });
+  const c = toPage(box, 220, 660);
+  const d = toPage(box, 280, 700);
+  await penMove(page, [{ ...c, p: 0.5 }, { ...d, p: 0.5 }]);
+  await page.waitForTimeout(100);
+  expect((await fake.framesNamed("STROKE_CHUNK")).reduce((n, ch) => n + (ch.points as unknown[]).length, 0)).toBe(2);   // held
+  await penRelease(page, d.x, d.y);
+  commits = await waitForFrames(fake, "STROKE_COMMIT");
+  chunkPoints = (await fake.framesNamed("STROKE_CHUNK")).reduce((n, ch) => n + (ch.points as unknown[]).length, 0);
+  expect(commits[0]!.pointCount).toBe(4);
+  expect(chunkPoints).toBe(4);
+  const names = (await fake.frames()).map((f) => f.name).filter((n) => n.startsWith("STROKE_"));
+  expect(names[names.length - 1]).toBe("STROKE_COMMIT");
 });

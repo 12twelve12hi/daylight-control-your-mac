@@ -97,6 +97,9 @@ test("eraser sends ERASE_STROKES with radius 12 and the ids it believes it erase
   await page.locator("#tool-eraser").click();
   await penStroke(page, [{ ...toPage(box, 600, 500), p: 0.5 }, { ...toPage(box, 600, 600), p: 0.5 }, { ...toPage(box, 600, 700), p: 0.5 }]);
   const erases = await waitForFrames(fake, "ERASE_STROKES");
+  await page.waitForTimeout(150);
+  // One frame per sample (the press and two moves): pointerrawupdate and pointermove never both carry a sample.
+  expect((await fake.framesNamed("ERASE_STROKES")).length).toBe(3);
   for (const e of erases) expect(e.radius as number).toBeCloseTo(12, 5);
   const withIds = erases.filter((e) => (e.ids as string[]).length > 0);
   expect(withIds.length).toBe(1);

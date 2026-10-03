@@ -31,6 +31,26 @@ export async function penStroke(page: Page, pts: PenPoint[], opts: { release?: b
   await s.detach();
 }
 
+/** More pen samples while pressed (for strokes started with release: false). */
+export async function penMove(page: Page, pts: PenPoint[]): Promise<void> {
+  const s = await cdp(page);
+  for (const q of pts) {
+    await s.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: q.x, y: q.y, button: "left", buttons: 1, pointerType: "pen", force: q.p });
+  }
+  await s.detach();
+}
+
+/** The alpha of the ink layer at a canvas-unit coordinate (0 = nothing drawn there). */
+export async function inkAlphaAt(page: Page, cx: number, cy: number, layer = "ink"): Promise<number> {
+  return page.evaluate(([x, y, cls]) => {
+    const c = document.querySelector<HTMLCanvasElement>(`#paper .${cls}`)!;
+    const ctx = c.getContext("2d")!;
+    const px = Math.round(((x as number) / 1200) * c.width);
+    const py = Math.round(((y as number) / 1600) * c.height);
+    return ctx.getImageData(px, py, 1, 1).data[3]!;
+  }, [cx, cy, layer] as const);
+}
+
 /** Pen release at a point (for strokes started with release: false). */
 export async function penRelease(page: Page, x: number, y: number): Promise<void> {
   const s = await cdp(page);

@@ -18,6 +18,7 @@
   "include": [
     "src/protocol.ts",
     "src/ring.ts",
+    "src/geometry.ts",
     "src/chip-state.ts",
     "tests/unit"
   ]

@@ -24,15 +24,43 @@ final class Compositor {
         case none
     }
 
+    /// What the Presenter Overlay cutout needs beyond `frame.overlay` (SPEC 6.7): the processed person mask (nil
+    /// draws the camera rectangle through a 1x1 white mask), the halo colour and the halo radius in mask texels.
+    struct OverlayInput {
+        var mask: MTLTexture?
+        var haloColor: RGBA
+        var haloRadius: Float
+
+        init(mask: MTLTexture? = nil, haloColor: RGBA = OverlayLayout.haloColor, haloRadius: Float = Compositor.defaultHaloRadius) {
+            self.mask = mask
+            self.haloColor = haloColor
+            self.haloRadius = haloRadius
+        }
+    }
+
+    /// Matches `OverlayUniforms` in OverlayShaders.metal (a float4 then four floats, 32 bytes).
+    struct OverlayUniforms {
+        var haloColor: SIMD4<Float>
+        var maskStrength: Float
+        var opacity: Float
+        var haloRadius: Float
+        var haloEnabled: Float
+    }
+
+    /// The amber outline's distance from the person, in mask texels.
+    static let defaultHaloRadius: Float = 3
+
     struct Inputs {
         var presenter: CVPixelBuffer?
         var canvas: CanvasInput
         var frame: StudioLayout.Frame
+        var overlay: OverlayInput?
 
-        init(presenter: CVPixelBuffer?, canvas: CanvasInput, frame: StudioLayout.Frame) {
+        init(presenter: CVPixelBuffer?, canvas: CanvasInput, frame: StudioLayout.Frame, overlay: OverlayInput? = nil) {
             self.presenter = presenter
             self.canvas = canvas
             self.frame = frame
+            self.overlay = overlay
         }
     }
 
@@ -41,6 +69,13 @@ final class Compositor {
     private let texturedPipeline: MTLRenderPipelineState
     private let canvasPipeline: MTLRenderPipelineState
     private let solidPipeline: MTLRenderPipelineState
+    private let library: MTLLibrary
+    /// Created on the first overlay frame, so a library without `daylight_overlay` never breaks the other pipelines.
+    private var overlayPipeline: MTLRenderPipelineState?
+    private var overlayPipelineFailed = false
+    private var whiteMask: MTLTexture?
+    /// Called once when the overlay pipeline cannot be created (the cutout is then drawn as a plain rectangle).
+    var onOverlayUnavailable: ((String) -> Void)?
     private var textureCache: CVMetalTextureCache?
     /// CVMetalTextureCache.h: `CVMetalTextureCacheFlush` "must be made periodically"; once per second of frames, on
     /// the render queue (never from the Metal completion thread, which may run while a texture is being created).
@@ -56,6 +91,7 @@ final class Compositor {
         guard let queue = device.makeCommandQueue() else { throw CompositorError.commandQueue }
         commandQueue = queue
         guard let library = device.makeDefaultLibrary() else { throw CompositorError.library }
+        self.library = library
         func function(_ name: String) throws -> MTLFunction {
             guard let f = library.makeFunction(name: name) else { throw CompositorError.function(name) }
             return f
@@ -178,6 +214,29 @@ final class Compositor {
             drawSolid(encoder, rect: divider, color: frame.dividerColor, alpha: frame.dividerAlpha)
         }
 
+        // 4. Presenter Overlay cutout (SPEC 6.7): the camera picture through the person mask, over the board.
+        if let cutout = frame.overlay, let presenter = inputs.presenter, let pair = presenterTexture(cache: cache, pixelBuffer: presenter) {
+            retained.append(pair.0)
+            let overlay = inputs.overlay ?? OverlayInput()
+            if let pipeline = overlayPipelineState(), let mask = overlay.mask ?? whiteMaskTexture() {
+                retained.append(mask as AnyObject)
+                encoder.setRenderPipelineState(pipeline)
+                encoder.setFragmentTexture(pair.1, index: 0)
+                encoder.setFragmentTexture(mask, index: 1)
+                var uniforms = OverlayUniforms(
+                    haloColor: Compositor.float4(overlay.haloColor, alpha: 1),
+                    maskStrength: Float(min(max(cutout.maskStrength, 0), 1)),
+                    opacity: Float(min(max(cutout.opacity, 0), 1)),
+                    haloRadius: overlay.haloRadius,
+                    haloEnabled: cutout.halo ? 1 : 0)
+                encoder.setFragmentBytes(&uniforms, length: MemoryLayout<OverlayUniforms>.stride, index: 0)
+            } else {
+                encoder.setRenderPipelineState(texturedPipeline)
+                encoder.setFragmentTexture(pair.1, index: 0)
+            }
+            drawQuad(encoder, dest: cutout.dest, uv: cutout.uv)
+        }
+
         encoder.endEncoding()
         commandBuffer.addCompletedHandler { buffer in
             _ = retained
@@ -197,6 +256,53 @@ final class Compositor {
         }
         _ = done.wait(timeout: .now() + 5)
         return gpu
+    }
+
+    // MARK: Overlay
+
+    /// The blended `daylight_overlay` pipeline, created on first use; nil (reported once) when it cannot be made.
+    private func overlayPipelineState() -> MTLRenderPipelineState? {
+        if let pipeline = overlayPipeline { return pipeline }
+        if overlayPipelineFailed { return nil }
+        do {
+            guard let vertex = library.makeFunction(name: "daylight_vertex") else { throw CompositorError.function("daylight_vertex") }
+            guard let fragment = library.makeFunction(name: "daylight_overlay") else { throw CompositorError.function("daylight_overlay") }
+            // Colour blends sourceAlpha / oneMinusSourceAlpha like the solid pipeline; the target's alpha is kept (the
+            // frame stays opaque where the cutout is clear).
+            let descriptor = MTLRenderPipelineDescriptor()
+            descriptor.label = "overlay"
+            descriptor.vertexFunction = vertex
+            descriptor.fragmentFunction = fragment
+            if let attachment = descriptor.colorAttachments[0] {
+                attachment.pixelFormat = .bgra8Unorm
+                attachment.isBlendingEnabled = true
+                attachment.rgbBlendOperation = .add
+                attachment.alphaBlendOperation = .add
+                attachment.sourceRGBBlendFactor = .sourceAlpha
+                attachment.destinationRGBBlendFactor = .oneMinusSourceAlpha
+                attachment.sourceAlphaBlendFactor = .zero
+                attachment.destinationAlphaBlendFactor = .one
+            }
+            let pipeline = try device.makeRenderPipelineState(descriptor: descriptor)
+            overlayPipeline = pipeline
+            return pipeline
+        } catch {
+            overlayPipelineFailed = true
+            onOverlayUnavailable?("overlay pipeline unavailable: \(error)")
+            return nil
+        }
+    }
+
+    /// A 1x1 r8 texture holding 1: the mask of the camera rectangle.
+    private func whiteMaskTexture() -> MTLTexture? {
+        if let mask = whiteMask { return mask }
+        let descriptor = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .r8Unorm, width: 1, height: 1, mipmapped: false)
+        descriptor.usage = [.shaderRead]
+        guard let texture = device.makeTexture(descriptor: descriptor) else { return nil }
+        var white: UInt8 = 255
+        texture.replace(region: MTLRegionMake2D(0, 0, 1, 1), mipmapLevel: 0, withBytes: &white, bytesPerRow: 1)
+        whiteMask = texture
+        return texture
     }
 
     // MARK: Geometry helpers

@@ -47,6 +47,9 @@ final class FramePipeline: PipelineControl {
         var lastFormat: (Int, Int, OSType, Bool)?
         /// Camera authorization (SPEC 13.3 row 3): false blocks capture; the app sets it from the TCC status.
         var captureAuthorized = true
+        /// Presenter Overlay (SPEC 6.7): exists only while `Settings.overlayEnabled`. Read with the flags the capture
+        /// and render paths already copy, so a disabled overlay costs no extra lock.
+        var overlay: OverlayController?
     }
     private let flags: Locked<Flags>
     /// A governor config changed while the board was up; applied on the next return to PASSTHROUGH.
@@ -90,6 +93,8 @@ final class FramePipeline: PipelineControl {
     var onCameraPresence: ((Bool) -> Void)?
     var onFailure: ((FailureText.Case, [String]) -> Void)?
     var latencyProbe = false
+    /// The person segmentation engine a new OverlayController gets (tests inject fakes before enabling Overlay).
+    var makeOverlayEngine: () -> PersonMaskEngine = { VisionPersonEngine() }
 
     init(sink: VirtualCameraSink, settings: Settings, telemetry: Telemetry, device: MTLDevice? = MTLCreateSystemDefaultDevice(), capture: CaptureSource? = nil, now: Double = CACurrentMediaTime()) throws {
         let validated = settings.validated()
@@ -117,6 +122,8 @@ final class FramePipeline: PipelineControl {
         self.capture = capture
         clock.onTick = { [weak self] now in self?.tick(now: now) }
         compositor?.onConversionFallback = { [weak self] text in self?.telemetry.note("pipeline", text) }
+        compositor?.onOverlayUnavailable = { [weak self] text in self?.telemetry.note("overlay", text) }
+        if validated.overlayEnabled { applyOverlaySetting(validated) }
         if let capture = capture {
             capture.onEvent = { [weak self] event in self?.handleCapture(event) }
         }
@@ -279,7 +286,36 @@ final class FramePipeline: PipelineControl {
             }
         }
         flags.withLock { $0.inkSource = validated.inkSource }
+        applyOverlaySetting(validated)
         renderQueue.async { [weak self] in self?.publishFlagsChange() }
+    }
+
+    /// Presenter Overlay lifetime (SPEC 6.7): a controller exists only while `overlayEnabled` and a Metal device does;
+    /// turning the setting off releases it (its queue, Vision and textures go with it).
+    private func applyOverlaySetting(_ validated: Settings) {
+        guard validated.overlayEnabled, let device = device, compositor != nil else {
+            let old = flags.withLock { (f: inout Flags) -> OverlayController? in
+                let current = f.overlay
+                f.overlay = nil
+                return current
+            }
+            if old != nil { telemetry.note("overlay", "overlay off") }
+            return
+        }
+        if let existing = flags.withLock({ $0.overlay }) {
+            existing.update(settings: validated)
+            return
+        }
+        do {
+            let controller = try OverlayController(device: device, settings: validated, telemetry: telemetry, engine: makeOverlayEngine())
+            controller.onFailure = { [weak self] failure, args in self?.onFailure?(failure, args) }
+            flags.withLock { $0.overlay = controller }
+            telemetry.note("overlay", "overlay on (quality \(validated.overlayQuality.rawValue))")
+        } catch {
+            let args = ["0", "\(error)"]
+            telemetry.note("overlay", FailureText.logLine(.overlayFallback, args))
+            onFailure?(.overlayFallback, args)
+        }
     }
 
     /// A fresh governor in PASSTHROUGH with the new config; `hold(camera)` is the only hold state PASSTHROUGH can
@@ -340,7 +376,12 @@ final class FramePipeline: PipelineControl {
         switch out.state {
         case .passthrough: s.mode = "passthrough"
         case .engaging: s.mode = "engaging"
-        case .live: s.mode = out.layout == .whiteboardOnly ? "whiteboard" : "split"
+        case .live:
+            switch out.layout {
+            case .whiteboardOnly: s.mode = "whiteboard"
+            case .studioSplit: s.mode = "split"
+            case .overlay: s.mode = (f.overlay.map { !$0.isFellBack } ?? false) ? "overlay" : "split"
+            }
         case .returning: s.mode = "returning"
         }
         s.fps = c.fps
@@ -357,6 +398,11 @@ final class FramePipeline: PipelineControl {
         s.cameraAttached = f.cameraAttached
         s.sinkConnected = f.sinkConnected
         return s
+    }
+
+    /// The Presenter Overlay controller, nil while Overlay is off (Diagnostics and tests).
+    var overlayController: OverlayController? {
+        return flags.withLock { $0.overlay }
     }
 
     /// The flags every STATE carries (bits 4 to 7); the router adds the per-client bits.
@@ -461,14 +507,25 @@ final class FramePipeline: PipelineControl {
                 canvas = .none
             }
         }
-        let frame = StudioLayout.frame(progress: out.progress, layout: out.layout, orientation: orientation, canvasAspect: aspect, breath: out.breath)
+        // Overlay draws only with a controller that has not fallen back; otherwise Studio Split (SPEC 6.7).
+        var overlayInput: Compositor.OverlayInput?
+        var overlayFrame: StudioLayout.Frame?
+        if out.layout == .overlay, let controller = f.overlay {
+            let result = controller.renderInput(now: now)
+            if !result.fellBack {
+                overlayFrame = OverlayLayout.frame(progress: out.progress, orientation: orientation, canvasAspect: aspect, breath: out.breath, config: controller.layoutConfig)
+                overlayInput = result.input
+            }
+        }
+        let layout: LayoutStyle = out.layout == .overlay ? .studioSplit : out.layout
+        let frame = overlayFrame ?? StudioLayout.frame(progress: out.progress, layout: layout, orientation: orientation, canvasAspect: aspect, breath: out.breath)
         guard let target = pool.acquire() else {
             counters.withLock { $0.dropped += 1 }
             telemetry.end(signpost, "composite")
             return
         }
         let presenter = cameraSlot.take()?.buffer
-        let inputs = Compositor.Inputs(presenter: presenter, canvas: canvas, frame: frame)
+        let inputs = Compositor.Inputs(presenter: presenter, canvas: canvas, frame: frame, overlay: overlayInput)
         let progress = out.progress
         compositor.render(inputs, into: target) { [weak self] gpuSeconds in
             guard let self = self else { return }
@@ -566,7 +623,9 @@ final class FramePipeline: PipelineControl {
             let eligible = FramePipeline.isZeroCopyEligible(pixelBuffer)
             let format = (width, height, fourcc, backed)
             var firstFacts: String?
+            var overlay: OverlayController?
             flags.withLock { f in
+                overlay = f.overlay
                 f.zeroCopyEligible = eligible
                 f.cameraAttached = true
                 if f.lastFormat == nil || f.lastFormat! != format {
@@ -584,6 +643,10 @@ final class FramePipeline: PipelineControl {
             }
             cameraSlot.publish(pixelBuffer, hostTimeNs: hostTimeNs)
             let state = governor.withLock { $0.state }
+            // Presenter Overlay: only with a controller, only while the board is up in the Overlay layout.
+            if let overlay = overlay, state != .passthrough, governor.withLock({ $0.layout }) == .overlay {
+                overlay.offer(pixelBuffer, hostTimeNs: hostTimeNs)
+            }
             if state == .passthrough {
                 if eligible {
                     let pushSignpost = telemetry.begin("sink.push")
@@ -766,6 +829,11 @@ final class FramePipeline: PipelineControl {
         timer.setEventHandler { [weak self] in
             guard let self = self else { return }
             self.telemetry.emit(self.stats)
+            if self.telemetry.perfLog, let overlay = self.flags.withLock({ $0.overlay }) {
+                let line = overlay.perfLine(now: CACurrentMediaTime())
+                if let sink = self.telemetry.sink { sink(line) } else { print(line) }
+                self.telemetry.remember(line)
+            }
         }
         perfTimer = timer
         timer.activate()

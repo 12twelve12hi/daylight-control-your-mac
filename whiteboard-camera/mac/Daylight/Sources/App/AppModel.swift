@@ -47,6 +47,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var nobodyConnectedYet = false
     @Published private(set) var cameraPresent = true
     @Published var mirrorStatusText = "mirror mode not available in this build"
+    /// Row 48: Overlay fell back to Studio Split; the menu shows its sentence until Overlay is toggled in Settings.
+    @Published private(set) var overlayFellBack = false
 
     let settingsStore: SettingsStore
     let signed: Bool
@@ -58,6 +60,8 @@ final class AppModel: ObservableObject {
     /// The failure whose sentence `banner` shows (nil for the USB setup text), so its resolution clears it.
     private var bannerCase: FailureText.Case?
     private var launchedAt = Date()
+    private var settingsObserver: AnyCancellable?
+    private var lastOverlayEnabled: Bool
 
     // Wired by AppDelegate.
     var pipeline: FramePipeline?
@@ -79,6 +83,22 @@ final class AppModel: ObservableObject {
         self.signed = signed
         self.version = version
         self.build = build
+        lastOverlayEnabled = settingsStore.settings.overlayEnabled
+        settingsObserver = settingsStore.$settings.sink { [weak self] settings in self?.overlaySettingMayHaveChanged(settings) }
+    }
+
+    /// Main thread (the store publishes on every Settings change). Toggling Overlay clears the row 48 menu line and
+    /// tells `Hotkeys` to register or unregister the Overlay chord.
+    private func overlaySettingMayHaveChanged(_ settings: Settings) {
+        guard settings.overlayEnabled != lastOverlayEnabled else { return }
+        lastOverlayEnabled = settings.overlayEnabled
+        overlayFellBack = false
+        NotificationCenter.default.post(name: Hotkeys.overlayEnabledChanged, object: nil, userInfo: ["enabled": settings.overlayEnabled])
+    }
+
+    /// The disabled menu line while Overlay has fallen back (row 48), nil otherwise.
+    var overlayFallbackLine: String? {
+        return overlayFellBack ? FailureText.sentence(.overlayFallback) : nil
     }
 
     var settings: Settings { return settingsStore.settings }
@@ -153,7 +173,10 @@ final class AppModel: ObservableObject {
             // Row 16 is already the menu's port line (`portProblem`); a banner would say it twice.
             if failure == .saveFailed {
                 lastSaveError = text
-            } else if failure != .portInUse {
+            } else if failure == .overlayFallback {
+                // Row 48 has its own menu line (`overlayFallbackLine`); row 49 is for Diagnostics only.
+                overlayFellBack = true
+            } else if failure != .portInUse && failure != .overlayLowCoverage {
                 banner = text
                 bannerCase = failure
             }
@@ -290,6 +313,8 @@ final class AppModel: ObservableObject {
         case .keep: pin()
         case .clear: clear()
         case .camera: returnToCamera()
+        case .overlay:
+            if settings.overlayEnabled { whiteboardNow(.overlay) }
         }
     }
 

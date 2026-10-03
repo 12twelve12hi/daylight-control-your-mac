@@ -20,9 +20,19 @@ final class Hotkeys {
     /// `kEventHotKeyExclusive` (CarbonEvents.h, `1 << 0`): without it `RegisterEventHotKey` never reports a chord
     /// another application holds (both apps simply receive it), so "Already used by another app" could never be true.
     static let exclusiveOption: OptionBits = 1
+    /// Posted on main by `AppModel` when `Settings.overlayEnabled` changes; `userInfo["enabled"]` is the new Bool.
+    static let overlayEnabledChanged = Notification.Name("com.twelve.daylight.overlayEnabledChanged")
 
     var onAction: ((HotkeyAction) -> Void)?
-    private(set) var bindings: [HotkeyAction: HotkeyBinding]
+    /// Every binding the settings carry, the Overlay one included even while Overlay is off.
+    private var allBindings: [HotkeyAction: HotkeyBinding]
+    /// The bindings in effect: `.overlay` only while `overlayEnabled` (SPEC 6.7, registered only while enabled).
+    var bindings: [HotkeyAction: HotkeyBinding] {
+        return overlayEnabled ? allBindings : allBindings.filter { $0.key != .overlay }
+    }
+    /// `Settings.overlayEnabled`; follows `overlayEnabledChanged`.
+    private(set) var overlayEnabled: Bool
+    private var overlayObserver: NSObjectProtocol?
     private var references: [HotkeyAction: EventHotKeyRef] = [:]
     private var handler: EventHandlerRef?
     /// Actions whose chord could not be registered, with the reason the Settings window shows.
@@ -47,10 +57,17 @@ final class Hotkeys {
     }
 
     init(settings: Settings) {
-        bindings = settings.validated().hotkeys
+        let validated = settings.validated()
+        allBindings = validated.hotkeys
+        overlayEnabled = validated.overlayEnabled
+        overlayObserver = NotificationCenter.default.addObserver(forName: Hotkeys.overlayEnabledChanged, object: nil, queue: nil) { [weak self] note in
+            guard let enabled = note.userInfo?["enabled"] as? Bool else { return }
+            self?.setOverlayEnabled(enabled)
+        }
     }
 
     deinit {
+        if let observer = overlayObserver { NotificationCenter.default.removeObserver(observer) }
         unregisterAll()
         if let handler = handler { RemoveEventHandler(handler) }
     }
@@ -127,16 +144,39 @@ final class Hotkeys {
         case .keep: return "Keep whiteboard"
         case .clear: return "Clear"
         case .camera: return "Camera"
+        case .overlay: return "Overlay"
         }
     }
 
     // MARK: Registration
 
+    /// Registers or unregisters the Overlay hotkey when the setting changes (main thread). Before `registerAll` has
+    /// run (no handler yet) only the flag changes.
+    func setOverlayEnabled(_ enabled: Bool) {
+        guard enabled != overlayEnabled else { return }
+        overlayEnabled = enabled
+        if enabled {
+            guard handler != nil, let binding = allBindings[.overlay] else { return }
+            do {
+                try register(.overlay, binding: binding)
+            } catch {
+                conflicts[.overlay] = (error as? HotkeyError) ?? .registration(.overlay, -1)
+            }
+        } else {
+            if let reference = references[.overlay] {
+                UnregisterEventHotKey(reference)
+                references[.overlay] = nil
+            }
+            conflicts[.overlay] = nil
+        }
+    }
+
     /// Registers every binding; conflicts are collected in `conflicts` and the rest still work.
     func registerAll() {
         installHandlerIfNeeded()
+        let active = bindings
         for action in HotkeyAction.allCases {
-            guard let binding = bindings[action] else { continue }
+            guard let binding = active[action] else { continue }
             do {
                 try register(action, binding: binding)
             } catch {
@@ -158,7 +198,9 @@ final class Hotkeys {
             UnregisterEventHotKey(existing)
             references[action] = nil
         }
-        bindings[action] = binding
+        allBindings[action] = binding
+        // The Overlay chord is stored while Overlay is off but registered only once it is turned on.
+        if action == .overlay && !overlayEnabled { return }
         installHandlerIfNeeded()
         do {
             try register(action, binding: binding)
@@ -167,8 +209,9 @@ final class Hotkeys {
             throw error
         }
         // A chord freed by this rebind may unblock an action that was reported as its duplicate.
+        let active = bindings
         for other in HotkeyAction.allCases where other != action && conflicts[other] != nil && references[other] == nil {
-            if let otherBinding = bindings[other] { try? register(other, binding: otherBinding) }
+            if let otherBinding = active[other] { try? register(other, binding: otherBinding) }
         }
     }
 

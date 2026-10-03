@@ -647,7 +647,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         onboardingModel.inputs.usbDevice = mirror?.devices.first(where: { $0.isUSB })?.serial
         onboardingModel.inputs.mirrorFrames = (mirror?.latestFrameForSave()) != nil
         onboardingModel.inputs.loginItemEnabled = settingsStore.launchAtLogin
-        onboardingModel.inputs.hotkeyLines = HotkeyAction.allCases.compactMap { action in
+        onboardingModel.inputs.hotkeyLines = HotkeyAction.allCases.filter { $0 != .overlay || s.overlayEnabled }.compactMap { action in
             guard let binding = s.hotkeys[action] else { return nil }
             return "\(Hotkeys.describe(binding)) \(Hotkeys.title(action))"
         }

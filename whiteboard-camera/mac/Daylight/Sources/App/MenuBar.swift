@@ -39,6 +39,7 @@ final class MenuBar: NSObject, NSMenuDelegate {
         if let problem = model.portProblem { addDisabled("● " + problem) }
         if let banner = model.visibleBanner { addDisabled("● " + banner) }
         if let error = model.lastSaveError { addDisabled("● " + error) }
+        if let fallback = model.overlayFallbackLine { addDisabled("● " + fallback) }
         if model.nobodyConnectedYet && model.clients.isEmpty { addDisabled(FailureText.sentence(.nobodyConnected)) }
         menu.addItem(NSMenuItem.separator())
         for (index, line) in model.addressLines.enumerated() {
@@ -64,6 +65,9 @@ final class MenuBar: NSObject, NSMenuDelegate {
         add("Camera", #selector(camera(_:)), hotkey: .camera)
         add("Whiteboard now (Studio Split)", #selector(studioSplit(_:)), hotkey: .studioSplit)
         add("Whiteboard now (Whiteboard Only)", #selector(whiteboardOnly(_:)), hotkey: .whiteboardOnly)
+        if model.settings.overlayEnabled {
+            add("Whiteboard now (Overlay)", #selector(overlay(_:)), hotkey: .overlay)
+        }
         menu.addItem(NSMenuItem.separator())
         let preview = add("Preview window", #selector(togglePreview(_:)), hotkey: nil)
         preview.state = (model.preview?.isVisible ?? false) ? .on : .off
@@ -81,7 +85,12 @@ final class MenuBar: NSObject, NSMenuDelegate {
         switch g.state {
         case .passthrough: state = "Camera"
         case .engaging: state = "Engaging"
-        case .live: state = g.layout == .whiteboardOnly ? "Whiteboard Only" : "Studio Split"
+        case .live:
+            switch g.layout {
+            case .whiteboardOnly: state = "Whiteboard Only"
+            case .studioSplit: state = "Studio Split"
+            case .overlay: state = model.overlayFellBack ? "Studio Split" : "Overlay"
+            }
         case .returning: state = "Returning"
         }
         if g.pinned { state += ", pinned" }
@@ -143,6 +152,7 @@ final class MenuBar: NSObject, NSMenuDelegate {
     @objc private func camera(_ sender: Any?) { model.returnToCamera() }
     @objc private func studioSplit(_ sender: Any?) { model.menuWhiteboardNow(.studioSplit) }
     @objc private func whiteboardOnly(_ sender: Any?) { model.menuWhiteboardNow(.whiteboardOnly) }
+    @objc private func overlay(_ sender: Any?) { model.menuWhiteboardNow(.overlay) }
     @objc private func openSettings(_ sender: Any?) { model.onOpenSettings?() }
     @objc private func openDiagnostics(_ sender: Any?) { model.onOpenDiagnostics?() }
     @objc private func exportDiagnostics(_ sender: Any?) { onExportDiagnostics?() }

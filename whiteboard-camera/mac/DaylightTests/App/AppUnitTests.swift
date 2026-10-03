@@ -45,6 +45,25 @@ final class HotkeysTests: XCTestCase {
         XCTAssertTrue(hotkeys.conflicts.isEmpty)
     }
 
+    func testOverlayHotkeyOnlyWhileOverlayIsEnabled() {
+        XCTAssertNil(Hotkeys(settings: Settings.defaults).bindings[.overlay], "Overlay is off by default: no Overlay chord")
+        var enabled = Settings.defaults
+        enabled.overlayEnabled = true
+        let hotkeys = Hotkeys(settings: enabled)
+        XCTAssertEqual(hotkeys.bindings.count, 6)
+        XCTAssertEqual(hotkeys.bindings[.overlay], HotkeyBinding(keyCode: 0x1F, modifiers: HotkeyBinding.defaultModifiers), "Ctrl+Opt+Cmd+O")
+        XCTAssertEqual(Hotkeys.describe(hotkeys.bindings[.overlay]!), "Ctrl+Opt+Cmd+O")
+        XCTAssertEqual(Hotkeys.title(.overlay), "Overlay")
+        // Nothing is registered here (no registerAll), so toggling only changes the bindings in effect.
+        hotkeys.setOverlayEnabled(false)
+        XCTAssertEqual(hotkeys.bindings.count, 5)
+        hotkeys.setOverlayEnabled(true)
+        XCTAssertEqual(hotkeys.bindings.count, 6)
+        // AppModel's notification (posted with the default, off, so a hosting app's hotkeys stay as they are).
+        NotificationCenter.default.post(name: Hotkeys.overlayEnabledChanged, object: nil, userInfo: ["enabled": false])
+        XCTAssertFalse(hotkeys.overlayEnabled)
+    }
+
     func testDuplicateChordIsReportedAsAnotherDaylightAction() {
         var bindings = Settings.defaults.hotkeys
         XCTAssertNil(Hotkeys.duplicate(of: .clear, binding: bindings[.clear]!, in: bindings), "the defaults are distinct")
@@ -244,8 +263,8 @@ final class AppModelMenuTests: XCTestCase {
 
 /// SPEC B6: every failure row has one case; the rows B shows map to their exact sentences.
 final class FailureCoverageTests: XCTestCase {
-    func testFortyNineCasesAndTheRowsBTriggers() {
-        XCTAssertEqual(FailureText.Case.allCases.count, 49)
+    func testFiftyOneCasesAndTheRowsBTriggers() {
+        XCTAssertEqual(FailureText.Case.allCases.count, 51)
         for c in FailureText.Case.allCases where c != .bonjourRenamed {
             XCTAssertFalse(FailureText.sentence(c).isEmpty, "\(c) has owner text")
             XCTAssertFalse(FailureText.logLine(c).isEmpty)
@@ -259,6 +278,8 @@ final class FailureCoverageTests: XCTestCase {
         XCTAssertEqual(FailureText.sentence(.saveFailed, ["disk full"]), "Could not save the whiteboard: disk full")
         XCTAssertEqual(FailureText.sentence(.captureIdle), "Webcam capture is paused because no app is viewing Daylight Camera (LED off). It restarts within a second when a call starts.")
         XCTAssertEqual(FailureText.logLine(.captureIdle), "failure.captureIdle (row 33): capture stopped: viewers=0 preview=hidden")
+        XCTAssertEqual(FailureText.sentence(.overlayFallback), "Overlay mode could not find you in the camera picture, so Daylight is showing Studio Split. Turn Overlay off and on in Settings > Overlay to try again.")
+        XCTAssertEqual(FailureText.sentence(.overlayLowCoverage), "Overlay is showing your whole camera picture because it cannot separate you from the background (too dark, or nobody in view).")
         XCTAssertEqual(AllowClientPanel.prompt(label: "Mike's DC-1", address: "192.168.1.40"), "Allow 'Mike's DC-1' to draw on Daylight Camera? It connected from 192.168.1.40.")
     }
 

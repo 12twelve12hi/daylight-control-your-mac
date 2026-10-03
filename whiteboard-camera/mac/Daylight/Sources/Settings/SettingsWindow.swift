@@ -35,6 +35,7 @@ struct SettingsView: View {
             hotkeysTab.tabItem { Text("Hotkeys") }
             networkTab.tabItem { Text("Network") }
             mirrorTab.tabItem { Text("Mirror") }
+            overlayTab.tabItem { Text("Overlay") }
             savingTab.tabItem { Text("Saving") }
             advancedTab.tabItem { Text("Advanced") }
             diagnosticsTab.tabItem { Text("Diagnostics") }
@@ -59,6 +60,7 @@ struct SettingsView: View {
             Picker("Layout when engaging", selection: $store.settings.preferredLayout) {
                 Text("Studio Split").tag(LayoutStyle.studioSplit)
                 Text("Whiteboard Only").tag(LayoutStyle.whiteboardOnly)
+                if store.settings.overlayEnabled { Text("Overlay").tag(LayoutStyle.overlay) }
             }
             Toggle("Engage on pen contact", isOn: $store.settings.autoEngage)
             Stepper("Return to camera after \(store.settings.idleTimeoutSeconds) s", value: $store.settings.idleTimeoutSeconds, in: Settings.idleTimeoutRange, step: 5)
@@ -78,7 +80,7 @@ struct SettingsView: View {
     private var hotkeysTab: some View {
         Form {
             Text("Click a field, then press the new chord (at least one modifier).").foregroundColor(.secondary)
-            ForEach(HotkeyAction.allCases, id: \.self) { action in
+            ForEach(HotkeyAction.allCases.filter { $0 != .overlay || store.settings.overlayEnabled }, id: \.self) { action in
                 HStack {
                     Text(title(action)).frame(width: 160, alignment: .leading)
                     HotkeyRecorder(binding: Binding(
@@ -99,6 +101,7 @@ struct SettingsView: View {
         case .keep: return "Keep whiteboard (Pin)"
         case .clear: return "Clear"
         case .camera: return "Camera"
+        case .overlay: return "Overlay"
         }
     }
 
@@ -199,6 +202,51 @@ struct SettingsView: View {
                     }
                 }
             }
+        }
+        .padding()
+    }
+
+    // MARK: Overlay
+
+    /// Presenter Overlay (SPEC 6.7, SPEC 11 overlay keys). Scrolls inside the fixed 560 by 520 window like the Mirror tab.
+    private var overlayTab: some View {
+        ScrollView {
+            overlayForm
+        }
+    }
+
+    private var overlayForm: some View {
+        Form {
+            Toggle("Enable overlay mode", isOn: $store.settings.overlayEnabled)
+            Group {
+                Picker("Segmentation quality", selection: $store.settings.overlayQuality) {
+                    Text("Fast").tag(OverlayQuality.fast)
+                    Text("Balanced").tag(OverlayQuality.balanced)
+                    Text("Accurate").tag(OverlayQuality.accurate)
+                }
+                HStack {
+                    Text(String(format: "Smoothing %.2f", store.settings.overlaySmoothing)).frame(width: 200, alignment: .leading)
+                    Slider(value: $store.settings.overlaySmoothing, in: Settings.overlaySmoothingRange)
+                }
+                Stepper("Edge softness \(store.settings.overlayFeather)", value: $store.settings.overlayFeather, in: Settings.overlayFeatherRange)
+                Toggle("Amber outline", isOn: $store.settings.overlayHalo)
+                HStack {
+                    Text("Size \(Int((store.settings.overlayScale * 100).rounded())) % of picture height").frame(width: 200, alignment: .leading)
+                    Slider(value: $store.settings.overlayScale, in: Settings.overlayScaleRange)
+                }
+                Picker("Position", selection: $store.settings.overlayPosition) {
+                    Text("Bottom right").tag(OverlayPosition.bottomRight)
+                    Text("Bottom left").tag(OverlayPosition.bottomLeft)
+                    Text("Top right").tag(OverlayPosition.topRight)
+                    Text("Top left").tag(OverlayPosition.topLeft)
+                }
+                HStack {
+                    Text("Opacity \(Int((store.settings.overlayOpacity * 100).rounded())) %").frame(width: 200, alignment: .leading)
+                    Slider(value: $store.settings.overlayOpacity, in: Settings.overlayOpacityRange)
+                }
+            }
+            .disabled(!store.settings.overlayEnabled)
+            Text("Overlay shows the whiteboard full frame with you cut out of your background in a corner; if you cannot be found it shows Studio Split.").font(.footnote).foregroundColor(.secondary)
         }
         .padding()
     }

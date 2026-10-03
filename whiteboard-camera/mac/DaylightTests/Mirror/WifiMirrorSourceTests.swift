@@ -411,8 +411,16 @@ final class WifiMirrorSourceTests: XCTestCase {
         feed(source, paused, .status(WifiMirrorSourceTests.status(.paused)))
         drain(source)
         XCTAssertEqual(pausedTransport.commands, [.start])
-        // UNSUPPORTED (8): connected but cannot mirror, row 35, never START, even as the newest connection.
+        // UNSUPPORTED (8): connected but cannot mirror, never START, even as the newest connection. While another
+        // connection can capture, its status stays (finder W3); row 35 appears once no other connection is left.
         let (old, oldTransport) = makeConnection(role: .overlay, label: "old build")
+        feed(source, old, .status(WifiMirrorSourceTests.status(.unsupported)))
+        drain(source)
+        XCTAssertTrue(oldTransport.sent.isEmpty)
+        XCTAssertEqual(source.status, .connecting(serial: "paused"))
+        ink.sync { source.forget(paused) }
+        feed(source, old, .status(WifiMirrorSourceTests.status(.unsupported)))
+        feed(source, old, .status(WifiMirrorSourceTests.status(.idle)))
         feed(source, old, .status(WifiMirrorSourceTests.status(.unsupported)))
         drain(source)
         XCTAssertTrue(oldTransport.sent.isEmpty)
@@ -533,6 +541,10 @@ final class WifiMirrorSourceTests: XCTestCase {
         feed(source, c, .status(WifiMirrorSourceTests.status(.encoderUnavailable)))   // state 6
         drain(source)
         XCTAssertEqual(source.status, .error(.wifiStreamEncoderUnavailable, "DC-1"))
+        // State 8 is row 35 only when no other connection can capture (finder W3): DC-1 goes first.
+        ink.sync { source.forget(c) }
+        drain(source)
+        XCTAssertEqual(source.status, .idle, "the closed connection's row no longer applies")
         let (d, _) = makeConnection(label: "old build")
         feed(source, d, .status(WifiMirrorSourceTests.status(.unsupported)))   // state 8
         drain(source)
@@ -544,5 +556,29 @@ final class WifiMirrorSourceTests: XCTestCase {
         XCTAssertEqual(MirrorStream.State.consentDenied.rawValue, 5)
         XCTAssertEqual(MirrorStream.State.encoderUnavailable.rawValue, 6)
         XCTAssertEqual(MirrorStream.State.unsupported.rawValue, 8)
+    }
+
+    /// Finder W3: A was started and waits for consent; a newer connection B that cannot capture (UNSUPPORTED) took
+    /// over the status, so A's later CONSENT_DENIED was ignored. Before the fix the status stayed row 35 naming B and
+    /// the failures were [row 35] only.
+    func testUnsupportedNewerConnectionDoesNotHideTheStartedOnesState() {
+        let source = makeSource()
+        let failures = Locked<[(FailureText.Case, [String])]>([])
+        source.onFailure = { f, args in failures.withLock { $0.append((f, args)) } }
+        source.setActive(true)
+        let (a, aTransport) = makeConnection(label: "A")
+        let (b, bTransport) = makeConnection(label: "B")
+        feed(source, a, .status(WifiMirrorSourceTests.idle))
+        feed(source, a, .status(WifiMirrorSourceTests.status(.consentNeeded)))
+        feed(source, b, .status(WifiMirrorSourceTests.status(.unsupported)))
+        drain(source)
+        XCTAssertEqual(aTransport.commands, [.start])
+        XCTAssertTrue(bTransport.sent.isEmpty)
+        XCTAssertEqual(source.status, .connecting(serial: "A, waiting for consent on the tablet"))
+        feed(source, a, .status(WifiMirrorSourceTests.status(.consentDenied)))
+        drain(source)
+        XCTAssertEqual(source.status, .error(.wifiStreamConsentDenied, "A"))
+        XCTAssertEqual(failures.withLock { $0 }.map { $0.0 }, [.wifiStreamConsentDenied])
+        XCTAssertEqual(failures.withLock { $0 }.first?.1, ["A"])
     }
 }

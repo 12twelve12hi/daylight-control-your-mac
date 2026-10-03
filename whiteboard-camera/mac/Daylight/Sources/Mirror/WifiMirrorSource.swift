@@ -386,12 +386,17 @@ final class WifiMirrorSource: MirrorFrameSource {
             releaseFlush = rest.isEmpty ? nil : (flush.done, rest)
             if rest.isEmpty { flush.done.signal() }
         }
+        guard peers[c.id] != nil else { return }
+        let wasStatusTarget = statusTarget()?.id == c.id
         guard let peer = peers.removeValue(forKey: c.id) else { return }
         if streamerID == peer.id {
             streamerID = nil
             log("mirror stream: \(peer.label) closed while streaming; the last frame stays")
             mirrorQueue.async { [weak self] in self?.endEngage() }
             if active { setStatus(.idle) }
+        } else if wasStatusTarget, active {
+            // Its row 34 or 35 (or "waiting for consent") no longer applies; reconcile picks the next connection.
+            setStatus(.idle)
         }
         updatePeerDiag()
         if active { reconcile() }
@@ -467,7 +472,7 @@ final class WifiMirrorSource: MirrorFrameSource {
     private func statusFrom(_ peer: Peer, _ s: MirrorStream.Status) {
         let changed = peer.lastState != s.state
         peer.lastState = s.state
-        let isTarget = peer.id == streamerID || peer.id == newestCapable()?.id
+        let isTarget = peer.id == statusTarget()?.id
         if isTarget {
             diagBox.withLock { d in
                 var flags: [String] = []
@@ -539,6 +544,14 @@ final class WifiMirrorSource: MirrorFrameSource {
 
     private func newestCapable() -> Peer? {
         return peers.values.filter { $0.capable }.max { ($0.order ?? 0) < ($1.order ?? 0) }
+    }
+
+    /// The connection whose MIRROR_STATUS drives the status: the streamer, else the start target. Only when no
+    /// connection can capture does an UNSUPPORTED one report (row 35), so a newer connection that cannot capture never
+    /// hides the consent or encoder state of the one the Mac started (finder W3).
+    private func statusTarget() -> Peer? {
+        if let id = streamerID, let streamer = peers[id] { return streamer }
+        return startTarget() ?? newestCapable()
     }
 
     /// The connection START goes to: the newest capable one that can capture. A tablet that announced UNSUPPORTED

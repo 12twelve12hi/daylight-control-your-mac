@@ -23,6 +23,10 @@ final class WifiMirrorSource: MirrorFrameSource {
     static let latencyWeight: Double = 0.1
     /// Quit waits at most this long for RELEASE to reach the network stack (LOOSE_ENDS J3).
     static let releaseFlushTimeout: Double = 0.3
+    /// A decode error requests a key frame at most this often (PROTOCOL 14.5, decoder error row).
+    static let keyFrameRequestInterval: Double = 1
+    /// STOP then START after rejected parameter sets at most this often (the row 27 interval).
+    static let restartInterval: Double = H264Decoder.keyFrameRestartSeconds
 
     enum EngageSource: String {
         case pen = "pen (USB getevent)"
@@ -161,6 +165,8 @@ final class WifiMirrorSource: MirrorFrameSource {
     private var releaseFlush: (done: DispatchSemaphore, ids: Set<UUID>)?
     private var timer: DispatchSourceTimer?
     private var sessionSize: (w: Int, h: Int)?
+    /// Counts MIRROR_HELLOs that started a stream; results from the decode side carry it (finder W7).
+    private var streamGeneration: UInt64 = 0
 
     // mirror.queue state
     private var decoder: H264Decoder?
@@ -171,6 +177,10 @@ final class WifiMirrorSource: MirrorFrameSource {
     private var submitTime: Double = 0
     private var streamLabel = ""
     private var decodeErrorLogged = false
+    /// The stream generation the current decoder belongs to.
+    private var decoderGeneration: UInt64 = 0
+    private var lastKeyFrameRequestAt: Double?
+    private var lastRestartAt: Double?
 
     private let statusBox = Locked<MirrorStatus>(.idle)
     private let diagBox = Locked(Diag())
@@ -473,8 +483,10 @@ final class WifiMirrorSource: MirrorFrameSource {
         log("mirror stream: MIRROR_HELLO from \(peer.label) (\(deviceName))")
         diagBox.withLock { $0.deviceName = deviceName }
         updatePeerDiag()
+        streamGeneration += 1
         let label = peer.label
-        mirrorQueue.async { [weak self] in self?.resetDecoder(label: label) }
+        let generation = streamGeneration
+        mirrorQueue.async { [weak self] in self?.resetDecoder(label: label, generation: generation) }
         setStatus(.connecting(serial: peer.label))
     }
 
@@ -567,8 +579,9 @@ final class WifiMirrorSource: MirrorFrameSource {
     }
 
     /// Called on ink.queue when a frame decoded while the status was not "mirroring" (first frame, after a stall).
-    private func frameArrived(width: Int, height: Int) {
-        guard active, let id = streamerID, let peer = peers[id] else { return }
+    /// A frame of an earlier stream (decoded after the next HELLO was handled) is ignored (finder W7).
+    private func frameArrived(width: Int, height: Int, generation: UInt64) {
+        guard active, generation == streamGeneration, let id = streamerID, let peer = peers[id] else { return }
         peer.stalled = false
         sessionSize = (width, height)
         setStatus(.mirroring(serial: peer.label, width: width, height: height))
@@ -612,6 +625,22 @@ final class WifiMirrorSource: MirrorFrameSource {
         target.startedWith = wanted
         if case .mirroring = status, streamerID == target.id { return }
         setStatus(.connecting(serial: target.label))
+    }
+
+    /// A decode error on the current stream (ink.queue): ask the streamer for a key frame.
+    private func requestKeyFrame(generation: UInt64) {
+        guard active, generation == streamGeneration, let id = streamerID, let peer = peers[id] else { return }
+        send(.requestKeyFrame, to: peer)
+    }
+
+    /// Row 27 over Wi-Fi (ink.queue): STOP then START the streamer, which answers with a new MIRROR_HELLO and config,
+    /// and the decoder is built again.
+    private func restartStream(generation: UInt64, reason: String) {
+        guard active, generation == streamGeneration, let id = streamerID, let peer = peers[id] else { return }
+        log("mirror stream: \(reason); STOP then START to \(peer.label) (row 27)")
+        send(.stop, to: peer)
+        peer.startedWith = nil
+        reconcile()
     }
 
     /// MIRROR_CONTROL, only to a connection that announced itself with MIRROR_STATUS (PROTOCOL 14.3).
@@ -669,12 +698,14 @@ final class WifiMirrorSource: MirrorFrameSource {
 
     // MARK: Decode (mirror.queue)
 
-    private func resetDecoder(label: String) {
+    private func resetDecoder(label: String, generation: UInt64) {
         decoder?.invalidate()
-        let decoder = H264Decoder(queue: mirrorQueue)
+        let decoder = H264Decoder(queue: mirrorQueue, clock: clock)
         decoder.onLog = { [weak self] line in self?.log(line) }
         decoder.onFrame = { [weak self] buffer, pts in self?.frameDecoded(buffer, ptsUs: pts) }
         self.decoder = decoder
+        decoderGeneration = generation
+        lastKeyFrameRequestAt = nil
         streamLabel = label
         decodeErrorLogged = false
         endEngage()
@@ -700,6 +731,13 @@ final class WifiMirrorSource: MirrorFrameSource {
                 try decoder.setParameterSets(sps: sets.sps, pps: sets.pps)
             } catch {
                 decodeFailed(error, label: label)
+                // The tablet sends config once per encoder start: without a new one every frame fails (.noFormat).
+                let now = clock()
+                if lastRestartAt.map({ now - $0 >= WifiMirrorSource.restartInterval }) ?? true {
+                    lastRestartAt = now
+                    decoder.resetKeyFrameWait()
+                    restart(reason: "parameter sets rejected (\(error))")
+                }
             }
         case let .frame(ptsUs, keyFrame, annexB):
             guard let decoder = decoder else { return }
@@ -709,7 +747,19 @@ final class WifiMirrorSource: MirrorFrameSource {
             } catch {
                 decodeFailed(error, label: label)
             }
+            let now = clock()
+            if decoder.shouldRestartServer(now: now) {
+                decoder.resetKeyFrameWait()
+                lastRestartAt = now
+                restart(reason: "no decodable key frame for \(Int(H264Decoder.keyFrameRestartSeconds)) s")
+            }
         }
+    }
+
+    /// Hands a row 27 restart of the current stream to ink.queue (mirror.queue).
+    private func restart(reason: String) {
+        let generation = decoderGeneration
+        inkQueue.async { [weak self] in self?.restartStream(generation: generation, reason: reason) }
     }
 
     private func decodeFailed(_ error: Error, label: String) {
@@ -718,9 +768,25 @@ final class WifiMirrorSource: MirrorFrameSource {
             decodeErrorLogged = true
             log(FailureText.logLine(.decoderError, ["\(error)"]))
         }
+        let generation = decoderGeneration
+        var wantsKeyFrame = false
+        if let decodeError = error as? H264DecoderError {
+            switch decodeError {
+            case .decode, .output:
+                // PROTOCOL 14.5: drop until a key frame and ask for one now, not at the next periodic IDR.
+                let now = clock()
+                if lastKeyFrameRequestAt.map({ now - $0 >= WifiMirrorSource.keyFrameRequestInterval }) ?? true {
+                    lastKeyFrameRequestAt = now
+                    wantsKeyFrame = true
+                }
+            default:
+                break
+            }
+        }
         inkQueue.async { [weak self] in
-            guard let self = self, self.active else { return }
+            guard let self = self, self.active, generation == self.streamGeneration else { return }
             self.setStatus(.error(.decoderError, "\(error)"))
+            if wantsKeyFrame { self.requestKeyFrame(generation: generation) }
         }
     }
 
@@ -739,7 +805,8 @@ final class WifiMirrorSource: MirrorFrameSource {
         if case .mirroring = status { mirroring = true }
         if !mirroring {
             let size = slot.sessionSize
-            inkQueue.async { [weak self] in self?.frameArrived(width: size.w, height: size.h) }
+            let generation = decoderGeneration
+            inkQueue.async { [weak self] in self?.frameArrived(width: size.w, height: size.h, generation: generation) }
         }
         if let geometry = slot.latest() {
             engage(buffer: buffer, uv: geometry.uv, orientation: geometry.orientation, now: now)

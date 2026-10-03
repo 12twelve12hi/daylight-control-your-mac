@@ -615,4 +615,96 @@ final class WifiMirrorSourceTests: XCTestCase {
         drain(source)
         XCTAssertNotEqual(source.diagnostics["wifi.streamSize"], "1600x1200")
     }
+
+    // MARK: Decode recovery (finder W4) and stream generations (finder W7)
+
+    /// Finder W4(b): parameter sets the decoder rejects left every later frame failing with `.noFormat` and the picture
+    /// black, because the tablet sends config only once per encoder start. Before the fix the commands stayed
+    /// [.start]. Rejected sets now get STOP then START (a new HELLO and config follow), at most once per 12 s.
+    func testRejectedParameterSetsRestartTheStream() {
+        XCTAssertEqual(WifiMirrorSource.restartInterval, 12)
+        let source = makeSource()
+        source.setActive(true)
+        let (c, transport) = makeConnection()
+        now.withLock { $0 = 100 }
+        feed(source, c, .status(WifiMirrorSourceTests.idle))
+        feed(source, c, .hello(deviceName: "DC-1", codecID: ScrcpyDemuxer.codecH264))
+        feed(source, c, .packet(.session(width: 1200, height: 1600)))
+        let noSets: [UInt8] = [0, 0, 0, 1, 0x65, 0x88, 0x84, 0x00]   // a config packet without SPS or PPS
+        feed(source, c, .packet(.media(ptsFlags: ScrcpyDemuxer.flagConfig, annexB: noSets)))
+        drain(source)
+        XCTAssertEqual(transport.commands, [.start, .stop, .start])
+        XCTAssertEqual(source.status, .connecting(serial: "DC-1"))
+        feed(source, c, .packet(.media(ptsFlags: ScrcpyDemuxer.flagConfig, annexB: noSets)))
+        drain(source)
+        XCTAssertEqual(transport.commands, [.start, .stop, .start], "at most once per 12 s")
+    }
+
+    /// Finder W4: frames that never decode (here: no config at all, `.noFormat`) restart the stream after 12 s
+    /// without a decodable key frame, like row 27 over USB. Before the fix `.noFormat` never armed the wait and the
+    /// Wi-Fi path never consulted it: commands stayed [.start].
+    func testNoDecodableFrameForTwelveSecondsRestartsTheStream() {
+        let source = makeSource()
+        source.setActive(true)
+        let (c, transport) = makeConnection()
+        now.withLock { $0 = 100 }
+        feed(source, c, .status(WifiMirrorSourceTests.idle))
+        feed(source, c, .hello(deviceName: "DC-1", codecID: ScrcpyDemuxer.codecH264))
+        feed(source, c, .packet(.session(width: 1200, height: 1600)))
+        let delta: [UInt8] = [0, 0, 0, 1, 0x41, 0x9A, 0x02, 0x0C]
+        feed(source, c, .packet(.media(ptsFlags: 0, annexB: delta)))
+        drain(source)
+        XCTAssertEqual(source.status, .error(.decoderError, "\(H264DecoderError.noFormat)"))
+        now.withLock { $0 = 111.9 }
+        feed(source, c, .packet(.media(ptsFlags: 33_333, annexB: delta)))
+        drain(source)
+        XCTAssertEqual(transport.commands, [.start], "not before 12 s")
+        now.withLock { $0 = 112 }
+        feed(source, c, .packet(.media(ptsFlags: 66_666, annexB: delta)))
+        drain(source)
+        XCTAssertEqual(transport.commands, [.start, .stop, .start])
+        XCTAssertEqual(source.status, .connecting(serial: "DC-1"))
+    }
+
+    /// Finder W7: a frame of the previous stream that decodes after the next HELLO was handled set `.mirroring` with
+    /// the old size, and the new stream's frames never corrected it. The mirror queue is held so stream A's key frame
+    /// decodes after HELLO B. Before the fix the status was `.mirroring(B, 320, 240)` (A's session size).
+    func testAFrameOfThePreviousStreamDoesNotSetTheNewStreamsSize() throws {
+        let stream = try H264DecoderTests.fixture("testsrc-320x240-6f")
+        let sets = AnnexB.parameterSets(stream)
+        let probe = H264Decoder(queue: DispatchQueue(label: "probe"))
+        do {
+            try probe.setParameterSets(sps: [sets.sps[0]], pps: [sets.pps[0]])
+        } catch {
+            throw XCTSkip("no H.264 decoder on this runner (\(error))")
+        }
+        probe.invalidate()
+        let source = makeSource()
+        source.setActive(true)
+        let (a, _) = makeConnection(label: "A")
+        let (b, _) = makeConnection(label: "B")
+        let config: [UInt8] = [0, 0, 0, 1] + sets.sps[0] + [0, 0, 0, 1] + sets.pps[0]
+        let key = H264DecoderTests.accessUnits(stream)[0]
+        XCTAssertTrue(key.keyFrame)
+        feed(source, a, .status(WifiMirrorSourceTests.idle))
+        feed(source, b, .status(WifiMirrorSourceTests.idle))
+        drain(source)
+        let gate = DispatchSemaphore(value: 0)
+        source.mirrorQueue.async { gate.wait() }
+        feed(source, a, .hello(deviceName: "DC-1", codecID: ScrcpyDemuxer.codecH264))
+        feed(source, a, .packet(.session(width: 320, height: 240)))
+        feed(source, a, .packet(.media(ptsFlags: ScrcpyDemuxer.flagConfig, annexB: config)))
+        feed(source, a, .packet(.media(ptsFlags: ScrcpyDemuxer.flagKeyFrame, annexB: key.annexB)))
+        // Once A's frame decoded, let ink.queue handle what it posted before B's decoder is built (deterministic order).
+        let ink = self.ink
+        source.mirrorQueue.async { ink.sync {} }
+        feed(source, b, .hello(deviceName: "DC-1", codecID: ScrcpyDemuxer.codecH264))
+        feed(source, b, .packet(.session(width: 240, height: 320)))
+        feed(source, b, .packet(.media(ptsFlags: ScrcpyDemuxer.flagConfig, annexB: config)))
+        feed(source, b, .packet(.media(ptsFlags: ScrcpyDemuxer.flagKeyFrame, annexB: key.annexB)))
+        gate.signal()
+        drain(source)
+        XCTAssertEqual(source.frameCount, 2, "both key frames decoded")
+        XCTAssertEqual(source.status, .mirroring(serial: "B", width: 240, height: 320))
+    }
 }

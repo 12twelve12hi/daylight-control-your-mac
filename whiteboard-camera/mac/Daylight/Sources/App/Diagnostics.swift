@@ -34,7 +34,14 @@ enum DiagnosticsReport {
         let p = f.pipeline
         lines.append("capture: \(p.capturing ? "running" : "stopped") viewers=\(p.viewers) preview-or-sink rule: \(p.captureIdleReason ?? "active")")
         if let first = p.firstFrame { lines.append("first frame: \(first) zeroCopy=\(p.passthroughZeroCopy)") }
-        if !p.passthroughZeroCopy, let first = p.firstFrame { lines.append(FailureText.sentence(.webcamFormatComposed).replacingOccurrences(of: "1280x720 NV12", with: first)) }
+        if !p.passthroughZeroCopy, let first = p.firstFrame {
+            // firstFrame reads "<w>x<h> <fourcc> iosurface=<bool>" (FramePipeline); row 5 wants the first three facts.
+            let parts = first.split(separator: " ")
+            let dims = parts.first.map { $0.split(separator: "x") } ?? []
+            if dims.count == 2, parts.count >= 2 {
+                lines.append(FailureText.sentence(.webcamFormatComposed, [String(dims[0]), String(dims[1]), String(parts[1])]))
+            }
+        }
         if p.captureIdleReason != nil { lines.append(FailureText.sentence(.captureIdle)) }
         lines.append("pipeline: mode=\(p.mode) fps=\(String(format: "%.1f", p.fps)) cpu_ms=\(String(format: "%.3f", p.cpuMsPerFrame)) gpu_ms=\(String(format: "%.3f", p.gpuMsPerFrame)) dropped=\(p.dropped) inFlight=\(p.inFlight) pushed=\(p.pushed)")
         lines.append("governor: \(f.governor.state) progress=\(String(format: "%.3f", f.governor.progress)) pinned=\(f.governor.pinned) hold=\(f.governor.hold) layout=\(f.governor.layout) msToReturn=\(f.governor.msToReturn)")

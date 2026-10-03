@@ -20,6 +20,7 @@ import android.provider.Settings
 import android.util.DisplayMetrics
 import android.util.Log
 import android.view.Display
+import com.twelve.daylight.ink.net.HolderRoles
 import com.twelve.daylight.ink.prefs.Prefs
 import com.twelve.daylight.ink.protocol.MirrorControl
 import com.twelve.daylight.ink.protocol.MirrorFraming
@@ -51,7 +52,7 @@ interface MirrorUplink {
 class MirrorController(context: Context, private val uplink: MirrorUplink) {
     companion object {
         const val TAG = "DaylightInk.mirror"
-        const val HOLDER = "screen"
+        const val HOLDER = HolderRoles.SCREEN
         const val CHANNEL_STREAM = "mirror"
         const val CHANNEL_REQUEST = "mirror-request"
         const val NOTIFICATION_REQUEST = 3

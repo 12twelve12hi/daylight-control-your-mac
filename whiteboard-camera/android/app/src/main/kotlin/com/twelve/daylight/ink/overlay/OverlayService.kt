@@ -22,6 +22,7 @@ import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
 import android.widget.Toast
+import com.twelve.daylight.ink.net.HolderRoles
 import com.twelve.daylight.ink.net.Identity
 import com.twelve.daylight.ink.net.InkConnection
 import com.twelve.daylight.ink.net.Phase
@@ -49,7 +50,7 @@ class OverlayService : Service(), InkConnection.Listener {
         const val EXTRA_PILLS = "pills"
         const val EXTRA_HOST = "host"
         const val ACTION_STOP = "com.twelve.daylight.ink.STOP_PILLS"
-        const val HOLDER = "overlay"
+        const val HOLDER = HolderRoles.PILLS
     }
 
     private var windowContext: Context? = null

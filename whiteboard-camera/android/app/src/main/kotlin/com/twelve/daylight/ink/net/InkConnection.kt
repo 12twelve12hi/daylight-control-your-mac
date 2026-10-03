@@ -125,8 +125,9 @@ class InkConnection private constructor(context: Context) : LinkActions, Transpo
         }
     }
 
+    /** The role for the holders; a downgrade that would end a running screen share waits ([HolderRoles]). */
     private fun applyIdentity() {
-        val role = if (holders.values.any { it == Identity.ROLE_INK }) Identity.ROLE_INK else Identity.ROLE_OVERLAY
+        val role = HolderRoles.role(holders, link.role, link.phase == Phase.LIVE)
         link.configure(role, prefs.clientId, prefs.deviceName)
     }
 
@@ -205,6 +206,8 @@ class InkConnection private constructor(context: Context) : LinkActions, Transpo
                 mirror.connectionLost()
             }
         }
+        // The socket is gone anyway: a deferred downgrade to overlay applies to the next dial (no close while SEARCHING).
+        if (phase == Phase.SEARCHING && holders.isNotEmpty()) applyIdentity()
         for (l in listeners.toList()) l.onPhase(phase)
     }
 

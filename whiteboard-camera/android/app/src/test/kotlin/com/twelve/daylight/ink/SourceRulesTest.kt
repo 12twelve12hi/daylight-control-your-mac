@@ -33,7 +33,9 @@ class SourceRulesTest {
         assertTrue(read("overlay/OverlayService.kt").contains("conn.acquire(HOLDER, Identity.ROLE_OVERLAY)"))
         val conn = read("net/InkConnection.kt")
         assertTrue(conn.contains("link.configure(role, prefs.clientId, prefs.deviceName)"))
-        assertTrue(conn.contains("}) Identity.ROLE_INK else Identity.ROLE_OVERLAY"))
+        assertTrue(conn.contains("val role = HolderRoles.role(holders, link.role, link.phase == Phase.LIVE)"))
+        assertTrue(conn.contains("if (phase == Phase.SEARCHING && holders.isNotEmpty()) applyIdentity()"))
+        assertTrue(read("net/HolderRoles.kt").contains("}) Identity.ROLE_INK else Identity.ROLE_OVERLAY"))
         assertTrue(read("ui/MainActivity.kt").contains("conn.acquire(HOLDER, Identity.ROLE_INK)"))
     }
 

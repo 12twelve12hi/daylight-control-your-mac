@@ -116,6 +116,9 @@ targets:
     platform: macOS
     sources:
       - path: DaylightTests
+      # Component C's pure extension rules (Foundation only) compile into the test bundle too, so SPEC C3's numbers are
+      # asserted directly instead of by a source-text check (C handoff request 1).
+      - path: DaylightCameraExtension/Sources/ExtensionRules.swift
     dependencies:
       - target: Daylight
       - package: DaylightKit

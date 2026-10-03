@@ -33,8 +33,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var onboarding: OnboardingWindowController?
     private var settingsWindow: SettingsWindowController?
     private var diagnostics: DiagnosticsWindowController?
-    /// Component F's `MirrorController` conforms to this; nil until it is constructed here.
+    /// Component F's `MirrorController` (ARCHITECTURE 18, "B's `AppDelegate` wiring"); `mirrorController` is the same
+    /// object with its concrete members (`serverPort`, `updateSettings`) for the few places that need them.
     private var mirror: MirrorControl?
+    private var mirrorController: MirrorController?
+    /// Component C: the camera extension installer and the queue the sink client runs on.
+    private var installer: ExtensionInstaller?
+    private var installerStatus: ExtensionInstaller.Status = .unknown
+    private let cameraQueue = DispatchQueue(label: "com.twelve.daylight.camera", qos: .userInitiated)
     private var mirrorSessionStart: Date?
     private var lastApplied: Settings
     private var onboardingTimer: Timer?
@@ -80,6 +86,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         wirePipeline()
+        wireInstaller()
+        wireMirror()
         wireInkPath()
         wireServer()
         wireHotkeys()
@@ -104,12 +112,96 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return .terminateNow
     }
 
-    // MARK: Sink (component C lands here)
+    // MARK: Sink and installer (component C)
 
+    /// `signed ? CMIOSinkClient : PreviewOnlySink` (IMPLEMENTATION-PLAN 3.2, C handoff request 2). The UUIDs come from
+    /// the Info.plist keys `project.yml` writes into both bundles; a signed build without them falls back to the preview.
     private func makeSink() -> VirtualCameraSink {
-        // When component C is in the tree: `signed ? CMIOSinkClient(deviceUUID:sinkUUID:queue:) : PreviewOnlySink()`
-        // with the UUIDs from Info.plist (IMPLEMENTATION-PLAN 3.2). Until then the preview window is the output.
-        return UnwiredSink()
+        guard signed else { return PreviewOnlySink() }
+        let bundle = Bundle.main
+        guard let deviceString = bundle.object(forInfoDictionaryKey: "DaylightCameraDeviceUUID") as? String,
+              let sinkString = bundle.object(forInfoDictionaryKey: "DaylightCameraSinkUUID") as? String,
+              let deviceUUID = UUID(uuidString: deviceString),
+              let sinkUUID = UUID(uuidString: sinkString) else {
+            telemetry.note("camera", "Info.plist lacks DaylightCameraDeviceUUID or DaylightCameraSinkUUID; preview-only sink")
+            return PreviewOnlySink()
+        }
+        return CMIOSinkClient(deviceUUID: deviceUUID, sinkUUID: sinkUUID, queue: cameraQueue)
+    }
+
+    /// Submits the activation request as early as possible (SPEC 13.3 rows 6 to 12b). Delegate callbacks arrive on
+    /// the main queue; the status is forwarded to the sink client (row 13 wording) and to the onboarding step.
+    private func wireInstaller() {
+        let installer = ExtensionInstaller()
+        self.installer = installer
+        installer.onChange = { [weak self] status in
+            DispatchQueue.main.async { self?.installerChanged(status) }
+        }
+        installer.activate()
+    }
+
+    private func installerChanged(_ status: ExtensionInstaller.Status) {
+        installerStatus = status
+        (sink as? CMIOSinkClient)?.noteExtensionStatus(status)
+        if let failure = ExtensionInstaller.failure(for: status) {
+            model.noteFailure(failure.0, failure.1)
+        }
+        if let sink = sink { sinkStatusChanged(sink.status) }
+    }
+
+    /// The onboarding step from the installer's view and the sink's view: connected wins, then what the installer
+    /// said (C handoff request 2 mapping), then the sink status alone.
+    static func extensionState(signed: Bool, installer: ExtensionInstaller.Status, sink: SinkStatus, bundlePath: String) -> ExtensionState {
+        if !signed { return .unsignedBuild }
+        if case .connected = sink { return .connected }
+        switch installer {
+        case .needsApproval: return .awaitingApproval
+        case .activating: return .activating
+        case .installed: return .installed
+        case .needsReboot: return .needsReboot
+        case let .failed(code, message): return .failed(ExtensionInstaller.failureCase(for: code) ?? .extensionDamaged, message)
+        case .notInApplications: return .failed(.notInApplications, bundlePath)
+        case .unsignedBuild: return .unsignedBuild
+        case .unknown, .notInstalled:
+            switch sink {
+            case .notInstalled: return .notInstalled
+            case .awaitingApproval: return .awaitingApproval
+            case .installed: return .installed
+            case .connected: return .connected
+            case let .error(failure, detail): return .failed(failure, detail)
+            }
+        }
+    }
+
+    // MARK: Mirror (component F)
+
+    /// Constructs the facade (F handoff request 1): the pipeline samples `mirror.source`, pen events reach the
+    /// governor through `post`, status and failures hop to main. Started only while the ink source is Mirror.
+    private func wireMirror() {
+        guard let pipeline = pipeline else { return }
+        let vendor = Bundle.main.resourceURL?.appendingPathComponent("Vendor")
+            ?? Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/Vendor")
+        let controlQueue = DispatchQueue(label: "com.twelve.daylight.mirror.control", qos: .userInitiated)
+        let mirror = MirrorController(settings: settingsStore.settings, vendorDirectory: vendor, pipeline: pipeline, queue: controlQueue)
+        mirror.onLog = { [weak self] line in self?.telemetry.note("mirror", line) }
+        mirror.onFailure = { [weak self] failure, args in
+            DispatchQueue.main.async { self?.model.noteFailure(failure, args) }
+        }
+        mirror.onStatusChange = { [weak self] status in
+            DispatchQueue.main.async {
+                self?.model.mirrorStatusText = MirrorController.describe(status)
+                var mirroring = false
+                if case .mirroring = status { mirroring = true }
+                self?.settingsContext.mirrorAvailable = mirroring
+            }
+        }
+        mirror.source.onGovernorEvent = { [weak pipeline] event in pipeline?.post(event) }
+        pipeline.setMirrorSource(mirror.source)
+        mirrorController = mirror
+        self.mirror = mirror
+        model.mirror = mirror
+        model.mirrorStatusText = MirrorController.describe(mirror.status)
+        if settingsStore.settings.inkSource == .mirror { mirror.start() }
     }
 
     // MARK: Pipeline
@@ -189,18 +281,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         var connected = false
         if case .connected = status { connected = true }
         pipeline?.setSinkConnected(connected)
-        let state: ExtensionState
-        if !signed {
-            state = .unsignedBuild
-        } else {
-            switch status {
-            case .notInstalled: state = .notInstalled
-            case .awaitingApproval: state = .awaitingApproval
-            case .installed: state = .installed
-            case .connected: state = .connected
-            case let .error(failure, detail): state = .failed(failure, detail)
-            }
-        }
+        let state = AppDelegate.extensionState(signed: signed, installer: installerStatus, sink: status, bundlePath: Bundle.main.bundlePath)
         model.setExtensionState(state)
         onboardingModel.inputs.extensionState = state
     }
@@ -292,6 +373,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.main.async {
                 self?.model.refresh()
                 self?.onboardingModel.inputs.webURL = LocalAddresses.primaryURL(port: bound)
+                self?.mirrorController?.serverPort = bound
                 if bound != port { self?.model.noteFailure(.portInUse, ["\(port)", "\(bound)"]) }
             }
         }
@@ -335,6 +417,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let previous = lastApplied
         lastApplied = settings
         pipeline?.updateSettings(settings)
+        mirrorController?.updateSettings(settings)
         inkQueue.async { [weak self] in self?.router?.updateSettings(settings) }
         telemetry.perfLog = settings.perfLog || arguments.perfLog
         preview.floats = settings.previewFloats
@@ -428,11 +511,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func wireOnboardingActions() {
         var actions = OnboardingModel.Actions()
         actions.requestCamera = { [weak self] in self?.requestCameraAccess() }
-        actions.installExtension = { [weak self] in self?.telemetry.note("app", "Install requested; the camera extension installer is component C") }
+        actions.installExtension = { [weak self] in self?.installer?.activate() }
         actions.openApprovalPane = { [weak self] in self?.openSystemSettings() }
         actions.checkAgain = { [weak self] in
-            guard let self = self, let sink = self.sink else { return }
-            self.sinkStatusChanged(sink.status)
+            guard let self = self else { return }
+            // A second activation request of an approved extension completes at once (C handoff request 2).
+            self.installer?.activate()
+            if let sink = self.sink { self.sinkStatusChanged(sink.status) }
             self.refreshOnboardingInputs()
         }
         actions.revealInFinder = { NSWorkspace.shared.activateFileViewerSelecting([Bundle.main.bundleURL]) }
@@ -474,14 +559,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         onboardingModel.actions = actions
     }
 
-    /// Camera Extensions pane on macOS 15+ (UNVERIFIED URL, LOOSE_ENDS E13); the camera privacy pane for row 3.
+    /// The camera privacy pane for row 3; otherwise the installer's Camera Extensions pane (macOS 15 and later first,
+    /// Privacy & Security below; UNVERIFIED URLs, LOOSE_ENDS E13). The onboarding row already spells the text path.
     private func openSystemSettings() {
-        let candidates: [String]
         if onboardingModel.inputs.camera == .denied {
-            candidates = ["x-apple.systempreferences:com.apple.preference.security?Privacy_Camera"]
-        } else {
-            candidates = ["x-apple.systempreferences:com.apple.LoginItems-Settings.extension", "x-apple.systempreferences:com.apple.preference.security"]
+            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera") {
+                NSWorkspace.shared.open(url)
+            }
+            return
         }
+        if let installer = installer {
+            if !installer.openApprovalPane() {
+                telemetry.note("app", "System Settings did not open; approve the extension under \(installer.approvalPathText)")
+            }
+            return
+        }
+        let candidates = [ExtensionInstaller.modernApprovalPaneURL, ExtensionInstaller.legacyApprovalPaneURL]
         for candidate in candidates {
             if let url = URL(string: candidate), NSWorkspace.shared.open(url) { return }
         }

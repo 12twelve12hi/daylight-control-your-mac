@@ -158,7 +158,7 @@ enum SelfTest {
 
     static func socketRoundTrip(device: MTLDevice?, report: Report, perfLog: Bool) {
         let telemetry = Telemetry(perfLog: perfLog)
-        let sink = UnwiredSink()
+        let sink = PreviewOnlySink()
         let pipeline: FramePipeline
         do {
             pipeline = try FramePipeline(sink: sink, settings: Settings.defaults, telemetry: telemetry, device: device, capture: nil)

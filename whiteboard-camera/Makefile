@@ -3,7 +3,7 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
-.PHONY: help web web-test android kit-test mac-generate mac-debug mac-test mac-smoke mac-release fetch-tools embed-apk ci ci-linux ci-mac golden golden-check doctor clean
+.PHONY: help web web-test android kit-test mac-generate mac-debug mac-test mac-smoke mac-release fetch-tools embed-apk ci ci-linux ci-mac golden golden-check scripts-check doctor clean
 
 help: ## list targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-14s %s\n", $$1, $$2}'
@@ -32,7 +32,7 @@ mac-test: ## xcodebuild test, scheme DaylightTests (macOS-only XCTest bundle hos
 mac-smoke: ## run the Release Daylight binary with --self-test --perf-log under a 120 s timeout (macOS, after mac-debug; SPEC 16 B1)
 	scripts/mac-smoke.sh
 
-mac-release: ## archive + export signed with Developer ID + notarize when the signing env is set; otherwise explains and exits 0 (macOS)
+mac-release: ## CI target: archive + export signed with Developer ID, notarize on request; exits 0 without secrets, 1 on a partial set (macOS, needs the eight secrets in the env)
 	scripts/mac-release.sh
 
 fetch-tools: ## download pinned adb platform-tools + scrcpy-server with sha256 check into mac/Daylight/Resources/Vendor (CI/mac only)
@@ -47,10 +47,13 @@ golden: ## regenerate protocol/golden/solstream-v1.json and copy it into the thr
 golden-check: ## regenerate to a temp file and diff all four copies
 	scripts/check-golden.sh
 
+scripts-check: ## bash tests for the script gates (mac-release secrets gate, ci-env DEVELOPER_DIR, license text); runs on Linux
+	scripts/scripts-check.sh
+
 doctor: ## print which tools exist here and which targets can run
 	scripts/ci-env.sh
 
-ci-linux: golden-check web web-test kit-test android ## what the Linux jobs run
+ci-linux: golden-check scripts-check web web-test kit-test android ## what the Linux jobs run
 
 ci-mac: fetch-tools embed-apk web mac-generate kit-test mac-debug mac-test mac-smoke mac-release ## what the macOS job runs
 

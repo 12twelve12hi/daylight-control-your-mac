@@ -332,8 +332,10 @@ final class DiagnosticsExporter {
             return missing(part, "\(tool) timed out after \(Int(timeout)) s")
         }
         if let status = result.exitStatus, status != 0, !keepOnFailure {
-            let first = result.text.split(separator: "\n").first.map(String.init) ?? ""
-            return missing(part, "\(tool) exited with status \(status)\(first.isEmpty ? "" : ": " + redactor.redact(String(first.prefix(200))))")
+            let first: String = result.text.split(separator: "\n").first.map(String.init) ?? ""
+            var reason = "\(tool) exited with status \(status)"
+            if !first.isEmpty { reason += ": " + redactor.redact(String(first.prefix(200))) }
+            return missing(part, reason)
         }
         // Bounded before the line cut and the redaction (a runner that ignored maxBytes must not cost a 10 MiB pass).
         let pre = DiagnosticsExporter.bound(result.output, cap: part.cap, keepTail: part.keepsTail)

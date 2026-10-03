@@ -215,7 +215,9 @@ final class WebServer {
         guard let store = factsStore else { return HTTPResponse.text(404, "Not found") }
         let allowed = factsAllowed ?? { _ in false }
         let response = ApiRoutes.facts(request, body: body, remoteAddress: remoteAddress, now: Date(), isAllowed: allowed, store: store)
-        onLog?("facts from \(remoteAddress): \(response.status)\(response.status == 200 ? "" : " " + String(decoding: response.body, as: UTF8.self))")
+        var line = "facts from \(remoteAddress): \(response.status)"
+        if response.status != 200 { line += " " + String(decoding: response.body, as: UTF8.self) }
+        onLog?(line)
         return response
     }
 

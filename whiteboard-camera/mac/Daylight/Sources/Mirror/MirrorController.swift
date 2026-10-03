@@ -433,8 +433,8 @@ final class MirrorController: MirrorControl {
         if let injected = injectedAdb {
             client = injected
         } else {
-            let settings = self.settings
-            let request = AdbSourceRequest(source: settings.adbSource, termsAcceptedVersion: settings.adbTermsAcceptedVersion,
+            let chosen = self.settings
+            let request = AdbSourceRequest(source: chosen.adbSource, termsAcceptedVersion: chosen.adbTermsAcceptedVersion,
                                            vendorDirectory: vendorDirectory, downloader: adbDownloader)
             switch AdbClient.locateExecutable(request) {
             case let .success(location):

@@ -87,7 +87,12 @@ const client = new InkClient(socketUrl(), identity(), {
     // would make the Mac save a page the owner never saw; the depths come back with the next STATE.
     toolbar.setLive(phase === "live");
     if (phase !== "live") { ink.restartOpenStroke(); toolbar.setDepths(0, 0); }
+    // The ring replays right after this, in order: an open stroke's START reaches this connection too.
+    if (phase === "live") ink.markLive();
     if (phase === "live" && !lastState) toolbar.setDepths(0, 0);
+  },
+  onReplay(ringedCommits: number) {
+    ink.expectReplay(ringedCommits);
   },
   onState(state: StateReport) {
     lastState = state;
@@ -103,6 +108,8 @@ const client = new InkClient(socketUrl(), identity(), {
 });
 
 const ink = new InkCanvas(paper, client);
+// A stroke the offline ring had to drop never reaches the Mac: the page lets it go too (PROTOCOL 6.7 lists).
+client.ring.onDropStroke = (key) => ink.forget(key);
 
 const toolbar = new Toolbar(toolbarEl, {
   setTool(tool: Tool) { ink.tool = tool; },

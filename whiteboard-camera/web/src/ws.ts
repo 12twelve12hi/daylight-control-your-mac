@@ -1,10 +1,11 @@
 // WebSocket client for ws://<mac>:7788/ink (PROTOCOL 1, 8). Offers the solstream.v1 subprotocol and
 // requires it back; backoff 1000 ms x 1.7 capped at 15 s; PING every 10 s; ring replay on ACK 0;
 // no ink leaves while the Mac shows the Allow panel (ACK 1); re-dials on visibilitychange and online;
-// a Mac that answers /api/info while the socket keeps failing is "refused" and re-dialled every 60 s.
+// a Mac that answers /api/info while the socket keeps failing is "refused" and re-dialled every 60 s;
+// a socket that has received nothing for 25 s is treated as closed (PROTOCOL 6.14: PING/PONG for liveness).
 
 import type { ConnectionPhase } from "./chip-state.js";
-import { Encoder, decodeServer, nowUs, type HandshakeAck, type StateReport } from "./protocol.js";
+import { Encoder, Opcode, decodeServer, nowUs, type HandshakeAck, type StateReport } from "./protocol.js";
 import { Ring } from "./ring.js";
 
 export const SUBPROTOCOL = "solstream.v1";
@@ -23,6 +24,12 @@ export const HANDSHAKE_DPI = 200;
 export const INCOMPATIBLE_PROBE_AFTER = 5;
 /** While "refused" (the probe found a Daylight that will not take the socket) one re-dial per minute, plus taps. */
 export const REFUSED_REDIAL_MS = 60_000;
+/**
+ * No frame received for this long (PONG answers every 10 s PING; STATE also comes at 1 Hz while LIVE): the
+ * path is gone even though the browser still reports the socket open, which it does until TCP gives up,
+ * minutes later. Below the Mac's own 30 s idle close, so ink after this point is ringed, not lost.
+ */
+export const LIVENESS_TIMEOUT_MS = 25_000;
 
 export function backoffDelay(attempt: number): number {
   return Math.min(BACKOFF_CAP_MS, BACKOFF_BASE_MS * Math.pow(BACKOFF_FACTOR, attempt));
@@ -33,6 +40,8 @@ export interface InkClientEvents {
   onState(state: StateReport): void;
   onAck?(ack: HandshakeAck): void;
   onPong?(rttMs: number): void;
+  /** ACK 0: the ring is about to replay, carrying this many STROKE_COMMITs. Called after onPhase("live"). */
+  onReplay?(ringedCommits: number): void;
 }
 
 export interface InkClientStats {
@@ -48,6 +57,8 @@ export interface InkClientStats {
   lastDelayMs: number;
   rttMs: number | null;
   lastCloseCode: number | null;
+  /** Sockets given up because nothing arrived for LIVENESS_TIMEOUT_MS. */
+  livenessTimeouts: number;
 }
 
 /** Narrow view of the WebSocket surface the client uses, so tests can inject a fake. */
@@ -57,7 +68,7 @@ export class InkClient {
   readonly encoder = new Encoder(nowUs);
   readonly ring: Ring;
   phase: ConnectionPhase = "disconnected";
-  readonly stats: InkClientStats = { dials: 0, opens: 0, closes: 0, framesSent: 0, framesRinged: 0, framesReplayed: 0, controlDropped: 0, refusedRedials: 0, lastDelayMs: 0, rttMs: null, lastCloseCode: null };
+  readonly stats: InkClientStats = { dials: 0, opens: 0, closes: 0, framesSent: 0, framesRinged: 0, framesReplayed: 0, controlDropped: 0, refusedRedials: 0, lastDelayMs: 0, rttMs: null, lastCloseCode: null, livenessTimeouts: 0 };
   private ws: WebSocket | null = null;
   private stopped = true;
   private attempt = 0;
@@ -67,6 +78,10 @@ export class InkClient {
   private pingSeq = 0n;
   private consecutiveFailures = 0;
   private ackedOnThisSocket = false;
+  /** Date.now() of the last frame received on the current socket (set at open). */
+  private lastRxAt = 0;
+  /** Date.now() of the first PING sent since that frame; null when every PING so far was followed by a frame. */
+  private unansweredPingAt: number | null = null;
 
   constructor(
     private readonly url: string,
@@ -142,9 +157,51 @@ export class InkClient {
 
   /** Dial now if a re-dial is pending (visibility, online). */
   nudge(): void {
+    if (this.ws) this.checkLiveness(this.ws);
     if (this.stopped || this.ws || this.phase === "denied" || this.phase === "incompatible") return;
     if (this.redialTimer !== null) { clearTimeout(this.redialTimer); this.redialTimer = null; }
     this.dial();
+  }
+
+  /**
+   * A socket that is open but has received nothing for LIVENESS_TIMEOUT_MS is closed here and handled like
+   * onclose. A PING must also have gone unanswered for a full interval: a background tab whose timers Chrome
+   * throttles to one a minute has had no chance to hear a PONG, and its socket is not judged on that.
+   */
+  private checkLiveness(ws: WebSocket): void {
+    if (this.ws !== ws || ws.readyState !== WebSocket.OPEN) return;
+    const now = Date.now();
+    if (now - this.lastRxAt <= LIVENESS_TIMEOUT_MS) return;
+    if (this.unansweredPingAt === null || now - this.unansweredPingAt < PING_INTERVAL_MS) return;
+    this.stats.livenessTimeouts++;
+    ws.onopen = null;
+    ws.onmessage = null;
+    ws.onerror = null;
+    ws.onclose = null;
+    try { ws.close(4000, "no pong"); } catch { /* ignore */ }
+    this.socketGone(ws, 4000);
+  }
+
+  /** The current socket is gone (closed by the peer, or given up on): disconnected phase and a re-dial. */
+  private socketGone(ws: WebSocket, code: number): void {
+    if (this.ws !== ws) return;
+    this.ws = null;
+    this.stats.closes++;
+    this.stats.lastCloseCode = code;
+    if (this.pingTimer !== null) { clearInterval(this.pingTimer); this.pingTimer = null; }
+    if (this.phase === "denied" || this.phase === "incompatible" || this.stopped) return;
+    this.setPhase("disconnected");
+    if (!this.ackedOnThisSocket) this.consecutiveFailures++;
+    this.ackedOnThisSocket = false;
+    if (this.consecutiveFailures >= INCOMPATIBLE_PROBE_AFTER) {
+      void this.probeIncompatible().then((reachable) => {
+        if (this.stopped || this.ws) return;
+        if (reachable) { this.setPhase("refused"); this.clearTimers(); this.scheduleRefusedRedial(); }
+        else this.scheduleRedial();
+      });
+      return;
+    }
+    this.scheduleRedial();
   }
 
   private rawSend(frame: ArrayBuffer): void {
@@ -203,15 +260,25 @@ export class InkClient {
         return;
       }
       this.attempt = 0;
+      this.lastRxAt = Date.now();
+      this.unansweredPingAt = null;
       ws.send(this.encoder.handshake(1200, 1600, HANDSHAKE_DPI, this.identity));
       this.stats.framesSent++;
       if (this.pingTimer !== null) clearInterval(this.pingTimer);
       this.pingTimer = window.setInterval(() => {
-        if (ws.readyState === WebSocket.OPEN) { ws.send(this.encoder.ping(this.pingSeq++)); this.stats.framesSent++; }
+        this.checkLiveness(ws);
+        if (this.ws === ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(this.encoder.ping(this.pingSeq++));
+          this.stats.framesSent++;
+          this.unansweredPingAt ??= Date.now();
+        }
       }, PING_INTERVAL_MS);
     };
     ws.onmessage = (ev: MessageEvent) => {
-      if (this.ws !== ws || !(ev.data instanceof ArrayBuffer)) return;
+      if (this.ws !== ws) return;
+      this.lastRxAt = Date.now();
+      this.unansweredPingAt = null;
+      if (!(ev.data instanceof ArrayBuffer)) return;
       const msg = decodeServer(ev.data);
       if (!msg) return;
       if ("ack" in msg) this.handleAck(msg.ack);
@@ -223,26 +290,7 @@ export class InkClient {
       }
     };
     ws.onerror = () => { /* onclose follows */ };
-    ws.onclose = (ev: CloseEvent) => {
-      if (this.ws !== ws) return;
-      this.ws = null;
-      this.stats.closes++;
-      this.stats.lastCloseCode = ev.code;
-      if (this.pingTimer !== null) { clearInterval(this.pingTimer); this.pingTimer = null; }
-      if (this.phase === "denied" || this.phase === "incompatible" || this.stopped) return;
-      this.setPhase("disconnected");
-      if (!this.ackedOnThisSocket) this.consecutiveFailures++;
-      this.ackedOnThisSocket = false;
-      if (this.consecutiveFailures >= INCOMPATIBLE_PROBE_AFTER) {
-        void this.probeIncompatible().then((reachable) => {
-          if (this.stopped || this.ws) return;
-          if (reachable) { this.setPhase("refused"); this.clearTimers(); this.scheduleRefusedRedial(); }
-          else this.scheduleRedial();
-        });
-        return;
-      }
-      this.scheduleRedial();
-    };
+    ws.onclose = (ev: CloseEvent) => this.socketGone(ws, ev.code);
   }
 
   /** True when the Mac answers /api/info as daylight while our socket keeps failing (refused, or an old protocol). */
@@ -268,6 +316,9 @@ export class InkClient {
     switch (ack.status) {
       case 0: {
         this.setPhase("live");
+        let ringedCommits = 0;
+        for (const e of this.ring.peek()) if (new DataView(e.frame).getUint16(2, true) === Opcode.STROKE_COMMIT) ringedCommits++;
+        this.events.onReplay?.(ringedCommits);
         const replay = this.ring.drain();
         for (const frame of replay) this.rawSend(frame);
         this.stats.framesReplayed += replay.length;

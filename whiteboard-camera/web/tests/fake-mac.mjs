@@ -7,7 +7,8 @@
 //   GET  /__dials             upgrade attempts (ms timestamps), refused ones included
 //   GET  /__clients           { open: n }
 //   POST /__reset             forget frames and dials; scenario back to defaults
-//   POST /__scenario {...}    ack 0|1|2|3|"none"; echoProtocol bool; refuse bool; inkSource 0|1|2; state {...}; apk bool
+//   POST /__scenario {...}    ack 0|1|2|3|"none"; echoProtocol bool; refuse bool; inkSource 0|1|2; state {...}; apk bool;
+//                            silent bool (a dead path: frames are recorded, nothing is answered, nothing is closed)
 //   POST /__ack {status}      send HANDSHAKE_ACK to every open socket (the owner clicked Allow)
 //   POST /__state {...}       send one STATE to every open socket (fields as in encodeState)
 //   POST /__close {code}      close every open socket with that code
@@ -38,7 +39,7 @@ const MIME = {
 };
 
 function defaultScenario() {
-  return { ack: 0, echoProtocol: true, refuse: false, inkSource: 0, state: null, apk: false, closeAfterAck: null };
+  return { ack: 0, echoProtocol: true, refuse: false, inkSource: 0, state: null, apk: false, closeAfterAck: null, silent: false };
 }
 
 const fake = {
@@ -199,7 +200,7 @@ wss.on("connection", (ws) => {
     const u8 = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
     const decoded = decodeClient(u8);
     fake.frames.push({ conn, t: Date.now(), ...decoded });
-    if (decoded.error) return;
+    if (decoded.error || fake.scenario.silent) return;
     if (decoded.opcode === 0x0001) {
       const ack = fake.scenario.ack;
       if (ack === "none") return;

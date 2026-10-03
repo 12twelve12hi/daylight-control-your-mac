@@ -58,6 +58,10 @@ interface ActiveStroke {
   pending: WirePoint[];
   sent: number;
   startedLive: boolean;
+  /** The ring dropped this stroke's frames while it was being flushed: restart it under a new id. */
+  lost: boolean;
+  /** Restarted after a ring drop: nothing drawn before the restart reached the Mac. */
+  forgotten: boolean;
 }
 
 interface ActiveErase {
@@ -86,6 +90,10 @@ export interface InkStats {
   armedStarts: number;
   /** STATE messages skipped because a COMMIT of ours was still in flight. */
   staleStates: number;
+  /** Strokes removed from the page because the offline ring dropped them before they reached the Mac. */
+  forgotten: number;
+  /** First STATEs after a reconnect that showed the Mac had lost history (a relaunch); the page kept the newest. */
+  historyLost: number;
 }
 
 export class InkCanvas {
@@ -106,8 +114,11 @@ export class InkCanvas {
   private inFlightCommits = 0;
   private staleRun = 0;
   private staleLastTotal = -1;
+  /** COMMITs the ring replays on the socket just ACKed; consumed by the first STATE after it (null: none expected). */
+  private replayCommits: number | null = null;
+  private flushing = false;
   tool: Tool = "pen";
-  readonly stats: InkStats = { strokes: 0, points: 0, ignored: 0, committed: 0, cancelled: 0, erases: 0, rawUpdates: 0, coalesced: 0, restarted: 0, thinned: 0, armedStarts: 0, staleStates: 0 };
+  readonly stats: InkStats = { strokes: 0, points: 0, ignored: 0, committed: 0, cancelled: 0, erases: 0, rawUpdates: 0, coalesced: 0, restarted: 0, thinned: 0, armedStarts: 0, staleStates: 0, forgotten: 0, historyLost: 0 };
   /** Called after any local change (for autosave-style hooks and tests). */
   onChange: (() => void) | null = null;
 
@@ -174,21 +185,42 @@ export class InkCanvas {
   /**
    * STATE `undo_depth` / `redo_depth`. In the common case the local list and the Mac's list hold the same
    * strokes in the same order, so the first `undoDepth` are visible and the next `redoDepth` are the redo tail.
-   * Two departures from that rule: a STATE generated before the Mac saw a COMMIT of ours is skipped (see
-   * STALE_STATE_RUN_LIMIT), and when the Mac holds more strokes than this page knows (a reload mid-session,
-   * strokes from another client) the lists are aligned on their newest end instead, so an undo still hides
-   * the stroke drawn last. The suffix rule is a heuristic in mixed histories; the Mac never replays its canvas.
+   * Departures from that rule: a STATE generated before the Mac saw a COMMIT of ours is skipped (see
+   * STALE_STATE_RUN_LIMIT), and when the two lists differ in length they are aligned on their newest end, so
+   * an undo still hides the stroke drawn last. The Mac holds more after a reload mid-session or strokes from
+   * another client; it holds fewer after a relaunch (its history starts empty) or a loss the page could not
+   * see. The suffix rule is a heuristic in mixed histories; the Mac never replays its canvas.
    */
   applyDepths(undoDepth: number, redoDepth: number): void {
     const macTotal = undoDepth + redoDepth;
+    if (this.replayCommits !== null) {
+      // The first STATE after ACK 0 predates the replay of the ring: the Mac's history plus the COMMITs in that
+      // replay is what the Mac will hold. Fewer than this page holds means the Mac lost history (it relaunched):
+      // keep the newest strokes, the ones the replay delivers, and treat its COMMITs as in flight.
+      const ringed = this.replayCommits;
+      this.replayCommits = null;
+      if (macTotal + ringed < this.committed.length) {
+        const n = ringed > 0 ? undoDepth + ringed : macTotal;   // a COMMIT clears the Mac's redo tail
+        this.committed = this.committed.slice(this.committed.length - Math.min(n, this.committed.length));
+        this.visible = ringed > 0 ? this.committed.length : Math.min(undoDepth, this.committed.length);
+        this.inFlightCommits = ringed;
+        this.staleRun = 0;
+        this.staleLastTotal = -1;
+        this.stats.historyLost++;
+        this.redraw();
+        this.onChange?.();
+        return;
+      }
+    }
     if (this.inFlightCommits > 0) {
-      if (macTotal >= this.committed.length) {
+      if (undoDepth >= this.visible) {
         this.inFlightCommits = 0;
         this.staleRun = 0;
         this.staleLastTotal = -1;
       } else {
-        // Stale: the Mac's total is below ours. Skip it unless the total stopped growing for too long (a Mac-side
-        // Clear during the window), in which case the ordinary rule applies and the lists re-align.
+        // Stale: the Mac has not counted our newest COMMIT yet. Judged by the undo depth, not the total: after an
+        // Undo the Mac's redo tail can make an old total look current. Skip it unless the total stopped growing
+        // for too long (a Mac-side Clear, Undo or erase during the window); then the ordinary rule applies.
         this.staleRun = macTotal > this.staleLastTotal ? 1 : this.staleRun + 1;
         this.staleLastTotal = macTotal;
         if (this.staleRun <= STALE_STATE_RUN_LIMIT) {
@@ -200,19 +232,61 @@ export class InkCanvas {
         this.staleLastTotal = -1;
       }
     }
+    const total = this.committed.length;
     let visible: number;
-    let keep: number;
-    if (macTotal > this.committed.length) {
-      visible = Math.max(0, this.committed.length - redoDepth);
-      keep = this.committed.length;
+    let from = 0;
+    if (macTotal > total) {
+      visible = Math.max(0, total - redoDepth);
+    } else if (macTotal < total) {
+      // The oldest local strokes are the ones the Mac does not hold; the newest went through the socket last.
+      from = total - macTotal;
+      visible = undoDepth;
     } else {
-      visible = Math.min(undoDepth, this.committed.length);
-      keep = Math.min(this.committed.length, visible + redoDepth);
+      visible = undoDepth;
     }
-    const changed = visible !== this.visible || keep !== this.committed.length;
+    const changed = visible !== this.visible || from > 0;
     this.visible = visible;
-    this.committed = this.committed.slice(0, keep);
+    if (from > 0) this.committed = this.committed.slice(from);
     if (changed) this.redraw();
+  }
+
+  /**
+   * The socket was just ACKed and the ring is about to replay `ringedCommits` COMMITs: the next STATE tells
+   * whether the Mac still holds the history this page shows (see applyDepths).
+   */
+  expectReplay(ringedCommits: number): void {
+    this.replayCommits = ringedCommits;
+  }
+
+  /**
+   * The phase became live and the ring is about to replay in order: an open stroke whose START was ringed is
+   * now on this connection, so a later drop must restart it (SPEC D37) like a stroke that started live.
+   */
+  markLive(): void {
+    if (this.active) this.active.startedLive = true;
+  }
+
+  /**
+   * The offline ring dropped this stroke's frames (point or frame budget): the Mac will never hold it, so the
+   * page lets it go too, or the depths in STATE would hide the wrong strokes. A stroke still on the glass is
+   * restarted under a new id from its unsent points; what was dropped leaves the screen.
+   */
+  forget(key: string): void {
+    const a = this.active;
+    if (a && a.key === key) {
+      a.lost = true;
+      if (!this.flushing) { this.restartLost(a); this.queueFlush(); }
+      return;
+    }
+    const i = this.committed.findIndex((s) => s.key === key);
+    if (i < 0) return;
+    this.committed.splice(i, 1);
+    if (i < this.visible) this.visible--;
+    // Its COMMIT was in the ring, so it was counted in flight.
+    if (this.inFlightCommits > 0) this.inFlightCommits--;
+    this.stats.forgotten++;
+    this.redraw();
+    this.onChange?.();
   }
 
   /** Clear and New page: both layers and the local list. The Mac does the same on its side. */
@@ -222,6 +296,7 @@ export class InkCanvas {
     this.inFlightCommits = 0;
     this.staleRun = 0;
     this.staleLastTotal = -1;
+    this.replayCommits = null;
     this.redraw();
     this.onChange?.();
   }
@@ -236,6 +311,26 @@ export class InkCanvas {
   restartOpenStroke(): void {
     const a = this.active;
     if (!a || !a.startedLive) return;
+    a.forgotten = false;   // the Mac committed what it had; the restart continues it
+    this.rekey(a);
+  }
+
+  /** The ring dropped the open stroke: the points not yet sent start it again; the dropped part leaves the screen. */
+  private restartLost(a: ActiveStroke): void {
+    a.lost = false;
+    a.forgotten = true;
+    a.points = a.pending.length > 0 ? a.points.slice(Math.max(0, a.points.length - a.pending.length)) : [];
+    this.stats.forgotten++;
+    this.rekey(a);
+    if (a.tool === "highlighter") {
+      this.clearWet();
+      for (let i = 1; i < a.points.length; i++) this.drawWetSegment(a, a.points[i - 1]!, a.points[i]!);
+    }
+    this.redraw();
+  }
+
+  /** A new id and a new STROKE_START for the open stroke; its pending points are rebased to delta_ms 0. */
+  private rekey(a: ActiveStroke): void {
     a.id = newUuid16();
     a.key = toHex(a.id);
     a.sent = 0;
@@ -314,6 +409,8 @@ export class InkCanvas {
       pending: [{ x: p.x, y: p.y, pressure: p.p, deltaMs: 0 }],
       sent: 0,
       startedLive: false,
+      lost: false,
+      forgotten: false,
     };
     a.startedLive = this.sink.sendInk(this.sink.encoder.strokeStart(id, toolCode(a.tool), color, baseWidth, p.p), a.key, 0);
     this.active = a;
@@ -403,18 +500,21 @@ export class InkCanvas {
     this.flush(true);
     this.active = null;
     const young = a.points.length < CANCEL_MIN_POINTS || at - a.firstDownAt <= CANCEL_MIN_MS;
-    if (cancelled && young) {
+    // Restarted after a ring drop and lifted before a point went out under the new id: nothing of it reaches the Mac.
+    const empty = a.forgotten && a.sent === 0;
+    if ((cancelled && young) || empty) {
       this.sink.sendInk(this.sink.encoder.strokeCancel(a.id), a.key, 0);
-      this.stats.cancelled++;
+      if (!empty) this.stats.cancelled++;
       // The wet dot or segment went to the ink layer (pen) or the wet layer (highlighter): rebuild both from the model.
       this.clearWet();
       this.redraw();
       return;
     }
-    this.sink.sendInk(this.sink.encoder.strokeCommit(a.id, a.sent), a.key, 0);
+    // The local list first: if ringing the COMMIT makes the ring drop this very stroke, forget() finds it there.
     this.stats.committed++;
     this.inFlightCommits++;
     this.commitLocal(a);
+    this.sink.sendInk(this.sink.encoder.strokeCommit(a.id, a.sent), a.key, 0);
   }
 
   // -- wire -------------------------------------------------------------------
@@ -443,10 +543,17 @@ export class InkCanvas {
       this.stats.thinned += a.pending.length - thinned.length;
       a.pending = thinned;
     }
-    while (a.pending.length > 0) {
-      const batch = a.pending.splice(0, MAX_POINTS_PER_CHUNK);
-      this.sink.sendInk(this.sink.encoder.strokeChunk(a.id, batch), a.key, batch.length);
-      a.sent += batch.length;
+    this.flushing = true;
+    try {
+      while (a.pending.length > 0) {
+        const batch = a.pending.splice(0, MAX_POINTS_PER_CHUNK);
+        this.sink.sendInk(this.sink.encoder.strokeChunk(a.id, batch), a.key, batch.length);
+        // Ringing this chunk overflowed the ring and it dropped this stroke, the chunk included: go on under a new id.
+        if (a.lost) { this.restartLost(a); continue; }
+        a.sent += batch.length;
+      }
+    } finally {
+      this.flushing = false;
     }
   }
 
@@ -461,7 +568,7 @@ export class InkCanvas {
       else kept.push(s);
     }
     const ids = hit.slice(0, MAX_ERASE_IDS).map((s) => uuidFromHex(s.key));
-    this.sink.sendInk(this.sink.encoder.erase(from.x, from.y, to.x, to.y, ERASER_RADIUS, ids), "", 0);
+    const frame = this.sink.encoder.erase(from.x, from.y, to.x, to.y, ERASER_RADIUS, ids);
     this.stats.erases++;
     if (hit.length > 0) {
       // Erased strokes leave the local list; the Mac's hit test is authoritative and STATE depths follow.
@@ -471,6 +578,8 @@ export class InkCanvas {
       this.redraw();
       this.onChange?.();
     }
+    // Sent after the local change: ringing it may make the ring drop (and the page forget) an older stroke.
+    this.sink.sendInk(frame, "", 0);
   }
 
   // -- drawing ----------------------------------------------------------------

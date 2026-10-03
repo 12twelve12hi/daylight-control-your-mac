@@ -265,3 +265,71 @@ test("the eraser only reaches visible strokes and keeps the redo tail", async ({
   expect(await inkAlphaAt(page, 300, 800)).toBeGreaterThan(0);
   expect(await inkAlphaAt(page, 300, 400)).toBe(0);
 });
+
+test("after an undo, a STATE older than our COMMIT still counts as stale: the Mac's redo tail does not make it current", async ({ page, request }) => {
+  const fake = new FakeMac(request);
+  await openWhiteboard(page);
+  const box = await paperBox(page);
+  for (const y of [300, 500, 700]) await penStroke(page, [{ ...toPage(box, 100, y), p: 0.5 }, { ...toPage(box, 500, y), p: 0.5 }]);
+  await waitForFrames(fake, "STROKE_COMMIT", 3);
+  await fake.state({ governor: 2, flags: allowed, undoDepth: 3, redoDepth: 0 });
+  // Two undos on the Mac: A visible, B and C the redo tail.
+  await fake.state({ governor: 2, flags: allowed, undoDepth: 1, redoDepth: 2 });
+  await expect.poll(() => debugValue<number>(page, "visibleStrokes")).toBe(1);
+  // A fourth stroke drops the redo tail on both sides; the Mac's periodic STATE built before it read the COMMIT says 1 / 2.
+  await penStroke(page, [{ ...toPage(box, 100, 900), p: 0.5 }, { ...toPage(box, 500, 900), p: 0.5 }]);
+  await waitForFrames(fake, "STROKE_COMMIT", 4);
+  expect(await debugValue<number>(page, "visibleStrokes")).toBe(2);
+  const staleBefore = (await debugValue<{ staleStates: number }>(page, "ink")).staleStates;
+  await fake.state({ governor: 2, flags: allowed, undoDepth: 1, redoDepth: 2 });
+  await expect.poll(async () => (await debugValue<{ staleStates: number }>(page, "ink")).staleStates).toBe(staleBefore + 1);
+  expect(await debugValue<number>(page, "visibleStrokes")).toBe(2);
+  expect(await inkAlphaAt(page, 300, 900)).toBeGreaterThan(0);
+  expect(await inkAlphaAt(page, 300, 300)).toBeGreaterThan(0);
+  // The STATE that carries the commit.
+  await fake.state({ governor: 2, flags: allowed, undoDepth: 2, redoDepth: 0 });
+  await page.waitForTimeout(150);
+  expect(await debugValue<number>(page, "visibleStrokes")).toBe(2);
+  expect(await inkAlphaAt(page, 300, 900)).toBeGreaterThan(0);
+});
+
+test("a stroke the offline ring drops leaves the page too; the newest strokes stay on the tablet", async ({ page, request }) => {
+  test.setTimeout(120_000);
+  const fake = new FakeMac(request);
+  await fake.scenario({ ack: 1 });
+  await openWhiteboard(page, { waitFor: "pending" });
+  const box = await paperBox(page);
+  // Strokes of 300 samples each, one per row, until the 2000-point ring drops the oldest.
+  const rows: number[] = [];
+  for (let i = 0; i < 12; i++) {
+    const y = 150 + i * 110;
+    rows.push(y);
+    const pts = [];
+    for (let k = 0; k < 300; k++) pts.push({ ...toPage(box, 100 + k * 3, y), p: 0.5 });
+    await penStroke(page, pts);
+    if ((await debugValue<{ droppedStrokes: number }>(page, "ring")).droppedStrokes >= 1) break;
+  }
+  expect((await debugValue<{ droppedStrokes: number }>(page, "ring")).droppedStrokes).toBeGreaterThanOrEqual(1);
+  expect((await debugValue<{ forgotten: number }>(page, "ink")).forgotten).toBeGreaterThanOrEqual(1);
+  // The owner clicks Allow: ACK 0 and the ring replays.
+  await fake.ack(0);
+  await expect.poll(() => debugValue<string>(page, "phase")).toBe("live");
+  await expect.poll(() => debugValue<{ length: number }>(page, "ring").then((r) => r.length)).toBe(0);
+  await expect.poll(async () => (await fake.framesNamed("STROKE_COMMIT")).length).toBeGreaterThanOrEqual(1);
+  const frames = await fake.frames();
+  const started = new Set(frames.filter((f) => f.name === "STROKE_START").map((f) => f.strokeId));
+  const delivered = frames.filter((f) => f.name === "STROKE_COMMIT" && started.has(f.strokeId)).length;
+  expect(delivered).toBeLessThan(rows.length);
+  expect(await debugValue<number>(page, "visibleStrokes")).toBe(delivered);
+  // The Mac's STATEs: it holds exactly the delivered strokes (three of them, past the stale run limit).
+  for (let i = 0; i < 3; i++) await fake.state({ governor: 2, flags: allowed, undoDepth: delivered, redoDepth: 0 });
+  await page.waitForTimeout(200);
+  expect(await debugValue<number>(page, "visibleStrokes")).toBe(delivered);
+  expect(await inkAlphaAt(page, 400, rows[rows.length - 1]!)).toBeGreaterThan(0);   // the last stroke drawn is still ink
+  expect(await inkAlphaAt(page, 400, rows[0]!)).toBe(0);                            // the dropped first stroke is gone
+  // An undo on the Mac hides the newest stroke here too.
+  await fake.state({ governor: 2, flags: allowed, undoDepth: delivered - 1, redoDepth: 1 });
+  await expect.poll(() => debugValue<number>(page, "visibleStrokes")).toBe(delivered - 1);
+  expect(await inkAlphaAt(page, 400, rows[rows.length - 1]!)).toBe(0);
+  expect(await inkAlphaAt(page, 400, rows[rows.length - 2]!)).toBeGreaterThan(0);
+});

@@ -2,6 +2,7 @@
 // and are replayed in order when the connection becomes live. Bounded by points, not frames, so a
 // Wi-Fi blip never loses a sentence and a long outage drops the OLDEST whole strokes first. A second,
 // frame-count bound keeps a long eraser session (frames that carry no points) from growing without end.
+// A dropped stroke is reported through `onDropStroke`: the Mac will never hold it, so the page must not either.
 // No DOM dependency: the Node unit test imports this file.
 
 export const RING_CAPACITY_POINTS = 2000;
@@ -23,6 +24,12 @@ export class Ring {
   droppedStrokes = 0;
   /** Single oldest frames dropped because the frame budget was full (diagnostics; erase frames mostly). */
   droppedFrames = 0;
+  /**
+   * Called once per stroke key whose frames left the ring unsent, after `push` has finished (so the callee may
+   * push again). The canvas forgets that stroke, or restarts it under a new id when it is still on the glass.
+   */
+  onDropStroke: ((strokeKey: string) => void) | null = null;
+  private droppedKeys: string[] = [];
 
   constructor(readonly capacityPoints: number = RING_CAPACITY_POINTS, readonly capacityFrames: number = RING_CAPACITY_FRAMES) {}
 
@@ -36,8 +43,9 @@ export class Ring {
 
   /**
    * Queues a frame. When the point budget overflows, the oldest stroke (all of its frames) is dropped; when the
-   * frame budget overflows, the oldest frames go one by one. Erase frames are never merged: their order
-   * relative to the ink matters.
+   * frame budget overflows, the oldest frames go one by one, except that a frame of a stroke takes the rest
+   * of that stroke with it (the Mac drops chunks and a COMMIT whose STROKE_START it never saw). Erase frames
+   * are never merged: their order relative to the ink matters.
    */
   push(frame: ArrayBuffer, strokeKey: string, points = 0): void {
     this.entries.push({ frame, strokeKey, points });
@@ -52,7 +60,9 @@ export class Ring {
       if (!first) break;
       this.pointTotal -= first.points;
       this.droppedFrames++;
+      if (first.strokeKey !== "") this.dropStroke(first.strokeKey);
     }
+    this.reportDrops();
   }
 
   /** A read-only view of the queued entries (diagnostics and tests). */
@@ -96,5 +106,13 @@ export class Ring {
     }
     this.entries = kept;
     this.droppedStrokes++;
+    this.droppedKeys.push(key);
+  }
+
+  private reportDrops(): void {
+    if (this.droppedKeys.length === 0) return;
+    const keys = this.droppedKeys;
+    this.droppedKeys = [];
+    for (const k of keys) this.onDropStroke?.(k);
   }
 }

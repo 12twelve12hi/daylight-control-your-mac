@@ -2,7 +2,7 @@
 // ACK 1 shows "Look at your Mac" and no ink is sent until ACK 0. Plus: denied stops retrying until a
 // tap, a server that does not echo solstream.v1 is incompatible, and a mid-stroke drop restarts the stroke.
 import { test, expect } from "@playwright/test";
-import { FakeMac, debugValue, openWhiteboard, paperBox, penMove, penRelease, penStroke, toPage, waitForFrames } from "./pen.js";
+import { FakeMac, debugValue, inkAlphaAt, openWhiteboard, paperBox, penMove, penRelease, penStroke, toPage, waitForFrames } from "./pen.js";
 
 test.beforeEach(async ({ request }) => {
   await new FakeMac(request).reset();
@@ -229,4 +229,97 @@ test("PING goes out and PONG comes back with an RTT", async ({ page, request }) 
   expect(pings[0]!.sequence).toBe("0");
   expect(pings[0]!.payloadLen).toBe(16);
   await expect.poll(() => debugValue<{ rttMs: number | null }>(page, "client").then((c) => c.rttMs)).not.toBeNull();
+});
+
+test("a stroke whose START went out by ring replay is restarted when that connection drops later in the contact", async ({ page, request }) => {
+  const fake = new FakeMac(request);
+  await fake.scenario({ ack: 1 });
+  await openWhiteboard(page, { waitFor: "pending" });
+  const box = await paperBox(page);
+  const row = (x0: number, n: number) => Array.from({ length: n }, (_, k) => ({ ...toPage(box, x0 + k * 5, 600), p: 0.5 }));
+  // Pen down while the Allow panel is up: the START is ringed.
+  await penStroke(page, row(100, 20), { release: false });
+  // Allow, mid-contact: the ring replays the START on this connection, then the samples go out live.
+  await fake.ack(0);
+  await expect.poll(() => debugValue<string>(page, "phase")).toBe("live");
+  const first = (await waitForFrames(fake, "STROKE_START"))[0]!;
+  await penMove(page, row(200, 20));
+  await waitForFrames(fake, "STROKE_CHUNK", 2);
+  // The connection drops while the pen is still down.
+  await fake.scenario({ ack: 0, refuse: true });
+  await fake.close(1001);
+  await expect.poll(() => debugValue<string>(page, "phase")).not.toBe("live");
+  await penMove(page, row(300, 20));
+  await fake.scenario({ refuse: false });
+  await expect.poll(() => debugValue<string>(page, "phase"), { timeout: 15_000 }).toBe("live");
+  const last = row(300, 20)[19]!;
+  await penRelease(page, last.x, last.y);
+  const commits = await waitForFrames(fake, "STROKE_COMMIT");
+  const onNewSocket = (await fake.frames()).filter((f) => f.conn !== first.conn);
+  const starts = onNewSocket.filter((f) => f.name === "STROKE_START");
+  expect(starts.length).toBe(1);
+  expect(starts[0]!.strokeId).not.toBe(first.strokeId);
+  for (const f of onNewSocket.filter((g) => g.name === "STROKE_CHUNK" || g.name === "STROKE_COMMIT")) expect(f.strokeId).toBe(starts[0]!.strokeId);
+  expect(commits.every((c) => c.strokeId === starts[0]!.strokeId)).toBe(true);
+  expect((await debugValue<{ restarted: number }>(page, "ink")).restarted).toBe(1);
+});
+
+test("after a Mac relaunch the tablet keeps exactly the strokes the Mac holds: the ones drawn offline", async ({ page, request }) => {
+  const fake = new FakeMac(request);
+  await openWhiteboard(page);
+  const box = await paperBox(page);
+  for (const y of [300, 500, 700]) await penStroke(page, [{ ...toPage(box, 100, y), p: 0.5 }, { ...toPage(box, 500, y), p: 0.5 }]);
+  await waitForFrames(fake, "STROKE_COMMIT", 3);
+  // The Mac quits (update, crash); the owner keeps writing while it relaunches.
+  await fake.scenario({ refuse: true });
+  await fake.close(1001);
+  await expect.poll(() => debugValue<string>(page, "phase")).not.toBe("live");
+  await penStroke(page, [{ ...toPage(box, 100, 900), p: 0.5 }, { ...toPage(box, 500, 900), p: 0.5 }]);
+  await expect.poll(() => debugValue<{ opcodes: number[] }>(page, "ring").then((r) => r.opcodes.includes(0x12))).toBe(true);
+  expect(await debugValue<number>(page, "visibleStrokes")).toBe(4);
+  // The relaunched Mac starts empty: its ACK 0 comes with STATE 0 / 0, sent before it reads the replay.
+  await fake.scenario({ refuse: false });
+  await expect.poll(() => debugValue<string>(page, "phase"), { timeout: 15_000 }).toBe("live");
+  await expect.poll(() => debugValue<number>(page, "visibleStrokes")).toBe(1);
+  expect((await debugValue<{ historyLost: number }>(page, "ink")).historyLost).toBe(1);
+  expect(await inkAlphaAt(page, 300, 900)).toBeGreaterThan(0);
+  expect(await inkAlphaAt(page, 300, 300)).toBe(0);
+  // The Mac's STATEs after the replay (1 Hz repeats past the stale run limit): one stroke, the offline one.
+  for (let i = 0; i < 3; i++) await fake.state({ governor: 2, flags: { allowed: true, activeSource: true }, undoDepth: 1, redoDepth: 0 });
+  await page.waitForTimeout(200);
+  expect(await debugValue<number>(page, "visibleStrokes")).toBe(1);
+  expect(await inkAlphaAt(page, 300, 900)).toBeGreaterThan(0);
+  expect(await inkAlphaAt(page, 300, 300)).toBe(0);
+  // An undo on the Mac hides that stroke on the tablet as well.
+  await fake.state({ governor: 2, flags: { allowed: true, activeSource: true }, undoDepth: 0, redoDepth: 1 });
+  await expect.poll(() => debugValue<number>(page, "visibleStrokes")).toBe(0);
+  expect(await inkAlphaAt(page, 300, 900)).toBe(0);
+});
+
+test("a silent Mac (socket open, no PONG, no STATE) is given up on within 30 s and later ink is ringed", async ({ page, request }) => {
+  const fake = new FakeMac(request);
+  await page.clock.install();   // before navigation: the ping interval and Date.now run on the fake clock
+  await openWhiteboard(page);
+  await page.clock.runFor(10_500);
+  await expect.poll(() => debugValue<{ rttMs: number | null }>(page, "client").then((c) => c.rttMs)).not.toBeNull();
+  // The path dies without a FIN reaching the tablet: the Mac end answers nothing and closes nothing.
+  await fake.scenario({ silent: true });
+  await page.clock.runFor(20_000);
+  expect(await debugValue<string>(page, "phase")).toBe("live");   // 20 s of silence is not yet dead
+  await page.clock.runFor(10_000);
+  await expect.poll(() => debugValue<string>(page, "phase")).not.toBe("live");
+  expect((await debugValue<{ livenessTimeouts: number; lastCloseCode: number }>(page, "client")).livenessTimeouts).toBe(1);
+  await expect(page.locator("#chip")).toHaveText("Looking for your Mac");
+  await expect(page.locator("#clear")).toBeDisabled();
+  const sentBefore = (await debugValue<{ framesSent: number }>(page, "client")).framesSent;
+  const box = await paperBox(page);
+  await penStroke(page, [{ ...toPage(box, 100, 400), p: 0.5 }, { ...toPage(box, 300, 400), p: 0.5 }]);
+  await expect.poll(() => debugValue<{ opcodes: number[] }>(page, "ring").then((r) => r.opcodes.includes(0x12))).toBe(true);
+  expect((await debugValue<{ framesSent: number }>(page, "client")).framesSent).toBe(sentBefore);
+  // The Mac answers again: the re-dial goes live and the ring replays the stroke.
+  await fake.scenario({ silent: false });
+  await page.clock.runFor(2_000);
+  await expect.poll(() => debugValue<string>(page, "phase"), { timeout: 10_000 }).toBe("live");
+  const commits = await waitForFrames(fake, "STROKE_COMMIT");
+  expect(commits[0]!.pointCount).toBe(2);
 });

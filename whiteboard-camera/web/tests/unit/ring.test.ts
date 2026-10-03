@@ -87,3 +87,52 @@ test("the frame budget keeps the point total right and never reorders erase fram
   assert.deepEqual(r.drain().map(tag), [2, 3, 4]);
   assert.equal(r.droppedFrames, 1);
 });
+
+test("a stroke dropped by the point budget is reported once, by key, oldest first", () => {
+  const r = new Ring(10);
+  const dropped: string[] = [];
+  r.onDropStroke = (k) => dropped.push(k);
+  for (const k of ["a", "b", "c"]) {
+    r.push(frame(1), k);        // start
+    r.push(frame(2), k, 4);     // chunk
+    r.push(frame(3), k);        // commit
+  }
+  assert.deepEqual(dropped, ["a"]);
+  assert.equal(r.points, 8);
+  assert.equal(r.peek().some((e) => e.strokeKey === "a"), false);
+});
+
+test("the frame budget drops a whole stroke when it reaches one of its frames, and reports it", () => {
+  const r = new Ring(2000, 3);
+  const dropped: string[] = [];
+  r.onDropStroke = (k) => dropped.push(k);
+  r.push(frame(1), "k");        // start k
+  r.push(frame(2), "");         // three erase frames: the fourth frame overflows the budget
+  r.push(frame(3), "");
+  r.push(frame(4), "");
+  assert.deepEqual(dropped, ["k"]);
+  assert.equal(r.peek().some((e) => e.strokeKey === "k"), false);
+  assert.deepEqual(r.drain().map(tag), [2, 3, 4]);
+});
+
+test("the rest of a stroke goes with its frame-budget victim: no chunk survives without its start", () => {
+  const r = new Ring(2000, 4);
+  const dropped: string[] = [];
+  r.onDropStroke = (k) => dropped.push(k);
+  r.push(frame(1), "a");        // start a
+  r.push(frame(2), "");         // erase
+  r.push(frame(3), "a", 2);     // chunk a
+  r.push(frame(4), "b");        // start b
+  r.push(frame(5), "b", 1);     // 5 > 4: start a goes, and with it chunk a
+  assert.deepEqual(dropped, ["a"]);
+  assert.equal(r.points, 1);
+  assert.deepEqual(r.drain().map(tag), [2, 4, 5]);
+});
+
+test("erase frames dropped by the frame budget are not reported as strokes", () => {
+  const r = new Ring(2000, 2);
+  const dropped: string[] = [];
+  r.onDropStroke = (k) => dropped.push(k);
+  for (let i = 1; i <= 4; i++) r.push(frame(i), "");
+  assert.deepEqual(dropped, []);
+});

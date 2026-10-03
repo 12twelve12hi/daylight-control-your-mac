@@ -107,6 +107,15 @@ class SourceRulesTest {
     }
 
     @Test
+    fun aFailedCodecStartReleasesItsInputSurface() {
+        // developer.android.com MediaCodec.createInputSurface: "The application is responsible for calling release()
+        // on the Surface when done." start() can throw after the Surface exists.
+        val configure = read("mirror/ScreenEncoder.kt").substringAfter("private fun configure(").substringBefore("private fun attach(")
+        assertInOrder(configure, "var surface: Surface? = null", "surface = c.createInputSurface()", "c.start()", "} catch (e: Exception) {",
+            "runCatching { surface?.release() }", "runCatching { c?.release() }")
+    }
+
+    @Test
     fun encoderFormatIsTheProtocolOne() {
         val e = read("mirror/ScreenEncoder.kt")
         for (needle in listOf(

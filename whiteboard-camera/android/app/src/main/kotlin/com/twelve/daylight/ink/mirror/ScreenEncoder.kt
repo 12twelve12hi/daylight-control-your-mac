@@ -136,11 +136,12 @@ class ScreenEncoder(private val sink: Sink) {
             setFloat(MediaFormat.KEY_MAX_FPS_TO_ENCODER, params.maxFps.toFloat())
         }
         var c: MediaCodec? = null
+        var surface: Surface? = null
         return try {
             c = MediaCodec.createByCodecName(name)
             c.setCallback(callback, handler)
             c.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
-            val surface = c.createInputSurface()
+            surface = c.createInputSurface()
             c.start()
             codec = c
             inputSurface = surface
@@ -148,6 +149,8 @@ class ScreenEncoder(private val sink: Sink) {
             true
         } catch (e: Exception) {
             Log.w(TAG, "configure $name ${s.width}x${s.height} failed: $e")
+            // MediaCodec.createInputSurface: the app releases the Surface; a failed start() must not leak it.
+            runCatching { surface?.release() }
             runCatching { c?.release() }
             false
         }

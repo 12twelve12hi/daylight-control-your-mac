@@ -97,6 +97,19 @@ final class RedactorTests: XCTestCase {
         XCTAssertEqual(Redactor.redactAddress("fe80::abcd"), "x::abcd")
     }
 
+    /// Finder DX-1: the facts key of a sender without a client id is `<source>:<address>`; an IPv6 address right after
+    /// `web:` or `ink:` was left whole in diagnostics.txt and tablet-facts.json.
+    func testIPv6InAFactsKeyIsCut() {
+        let address = "fe80::1c2b:3d4e:5f60:7a8b"
+        let entry = TabletFactsStore.Entry(
+            key: TabletFactsStore.key(source: "web", clientId: nil, remoteAddress: address), source: "web", clientId: nil,
+            sentAt: "2026-10-03T14:05:09Z", facts: [:], receivedAt: Date(timeIntervalSince1970: 1_791_036_309), remoteAddress: address, allowed: false)
+        XCTAssertEqual(redactor.redact(TabletFactsStore.diagnosticsLine(entry)), "tablet facts: web:x::7a8b received 2026-10-03T14:05:09Z (0 facts)")
+        XCTAssertEqual(redactor.redact("\"key\" : \"ink:2001:db8::42\","), "\"key\" : \"ink:x::42\",")
+        XCTAssertEqual(redactor.redact("web:x::7a8b"), "web:x::7a8b", "idempotent")
+        XCTAssertEqual(redactor.redact("mac aa:bb:cc:dd:ee:ff at 14:05:09"), "mac aa:bb:cc:dd:ee:ff at 14:05:09", "MAC addresses and times still stay")
+    }
+
     func testSSIDsAndSecrets() {
         XCTAssertEqual(redactor.redact("SSID: Mike Home WiFi\nnext"), "SSID: <ssid>\nnext")
         XCTAssertEqual(redactor.redact("wifi ssid=Office-5G, rssi=-50"), "wifi ssid=<ssid>, rssi=-50")

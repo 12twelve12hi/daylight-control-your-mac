@@ -141,11 +141,22 @@ extension ApiRoutes {
         guard factsObject.count <= factsMaxKeys else { return .failure(FactsError("too many keys (\(factsObject.count), at most \(factsMaxKeys))")) }
         var facts: [String: FactValue] = [:]
         for key in factsObject.keys.sorted() {
-            guard let value = factsValue(factsObject[key]) else { return .failure(FactsError("nested value \(key)")) }
-            if case let .string(s) = value, s.count > factsMaxValueLength { return .failure(FactsError("value too long \(key)")) }
+            guard let value = factsValue(factsObject[key]) else { return .failure(FactsError("nested value \(printable(key))")) }
+            if case let .string(s) = value, s.count > factsMaxValueLength { return .failure(FactsError("value too long \(printable(key))")) }
             facts[key] = value
         }
         return .success(FactsBody(source: source, clientId: clientId, sentAt: sentAt, facts: facts))
+    }
+
+    /// A posted key as it may appear in a reason (and so in the log): control characters become `?`, at most 64
+    /// characters (finder AF-3: a key with a newline forged log lines).
+    static func printable(_ key: String) -> String {
+        var out = String.UnicodeScalarView()
+        for scalar in key.unicodeScalars.prefix(64) {
+            let isControl = scalar.properties.generalCategory == .control
+            out.append(isControl ? "?" : scalar)
+        }
+        return String(out)
     }
 
     struct FactsError: Error, Equatable {

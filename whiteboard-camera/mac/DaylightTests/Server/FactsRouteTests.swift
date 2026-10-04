@@ -108,6 +108,17 @@ final class FactsRouteTests: XCTestCase {
         XCTAssertEqual(ApiRoutes.factsHead(head), .reject(400, "Bad facts: bad Content-Length"))
     }
 
+    /// Finder AF-3: the posted key goes into the 400 reason, which the listener logs; a newline in it forged log lines.
+    func testReasonCarriesNoControlCharactersFromTheKey() {
+        let nested = ApiRoutes.validateFacts(Array(FactsRouteTests.body(facts: "{\"a\\nfacts from 10.0.0.1: 200\":[1]}").utf8))
+        XCTAssertEqual(nested, .failure(ApiRoutes.FactsError("nested value a?facts from 10.0.0.1: 200")))
+        let long = String(repeating: "k", count: 100) + "\\r"
+        let tooLong = ApiRoutes.validateFacts(Array(FactsRouteTests.body(facts: "{\"\(long)\":\"\(String(repeating: "a", count: 1025))\"}").utf8))
+        XCTAssertEqual(tooLong, .failure(ApiRoutes.FactsError("value too long " + String(repeating: "k", count: 64))))
+        let tab = ApiRoutes.validateFacts(Array(FactsRouteTests.body(facts: "{\"x\\ty\":{}}").utf8))
+        XCTAssertEqual(tab, .failure(ApiRoutes.FactsError("nested value x?y")))
+    }
+
     /// Finder AF-2: a Content-Length of digits too large for Int is above 16384, so 413 (PROTOCOL 15.2), not 400.
     func testHugeContentLengthIs413() {
         var head = HTTPRequest(method: "POST", path: ApiRoutes.factsPath, headers: ["content-type": "application/json"])

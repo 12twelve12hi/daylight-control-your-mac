@@ -14,8 +14,10 @@ import com.twelve.daylight.ink.Facts
 import com.twelve.daylight.ink.ink.DryInkView
 import com.twelve.daylight.ink.ink.FrameScheduler
 import com.twelve.daylight.ink.ink.InkCanvasLayout
+import com.twelve.daylight.ink.ink.LaserPointer
 import com.twelve.daylight.ink.ink.PenInput
 import com.twelve.daylight.ink.ink.StrokeSession
+import com.twelve.daylight.ink.ink.Tools
 import com.twelve.daylight.ink.ink.WetInkSurface
 import com.twelve.daylight.ink.net.Identity
 import com.twelve.daylight.ink.net.InkConnection
@@ -115,6 +117,8 @@ class MainActivity : Activity(), InkConnection.Listener, Toolbar.Actions {
         canvas.onPageSize = { w, h -> session.setViewSize(w, h) }
         input = PenInput(session, prefs, wet)
         input.unbufferedPerStroke = prefs.unbufferedInput
+        // The Laser tool maps positions with the strokes' own page and has its own encoder (no shared buffer).
+        input.laser = LaserPointer(conn, Encoder { System.currentTimeMillis() * 1000L }, frames) { session.page }
         dry.input = input
         wet?.input = input
 
@@ -208,7 +212,9 @@ class MainActivity : Activity(), InkConnection.Listener, Toolbar.Actions {
     // ---- toolbar ----
 
     override fun selectTool(tool: Int) {
-        session.tool = tool
+        // The laser is not a stroke tool: the session keeps the last drawing tool and never sees Tools.LASER.
+        input.laserMode = tool == Tools.LASER
+        if (tool != Tools.LASER) session.tool = tool
         toolbar.setTool(tool)
     }
 

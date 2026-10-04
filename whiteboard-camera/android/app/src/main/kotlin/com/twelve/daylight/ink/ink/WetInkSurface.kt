@@ -66,6 +66,8 @@ class WetInkSurface(context: Context) : SurfaceView(context) {
 
     override fun onTouchEvent(event: MotionEvent): Boolean = input?.onTouch(this, event) ?: true
     override fun onGenericMotionEvent(event: MotionEvent): Boolean = input?.onGenericMotion(this, event) ?: super.onGenericMotionEvent(event)
+    // Hover reaches a view through dispatchHoverEvent and onHoverEvent, not onGenericMotionEvent.
+    override fun onHoverEvent(event: MotionEvent): Boolean = input?.onHover(event) == true || super.onHoverEvent(event)
 
     fun segment(seg: Seg) {
         val r = renderer ?: return

@@ -29,6 +29,7 @@ object Texts {
     const val TOOL_PEN = "Pen"
     const val TOOL_HIGHLIGHT = "Highlight"
     const val TOOL_ERASE = "Erase"
+    const val TOOL_LASER = "Laser"
     const val TOOL_UNDO = "Undo"
     const val TOOL_REDO = "Redo"
     const val TOOL_NEW_PAGE = "New page"

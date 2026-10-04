@@ -11,6 +11,8 @@ object Tools {
     const val PEN = SolStream.Tool.PEN
     const val HIGHLIGHTER = SolStream.Tool.HIGHLIGHTER
     const val ERASER = SolStream.Tool.ERASER
+    /** The laser pointer (PROTOCOL 6.9): a toolbar selection only. Never a StrokeSession tool, never on the wire. */
+    const val LASER = -1
 
     const val PEN_COLOR: Int = 0xFF111111.toInt()          // InkBlack
     const val HIGHLIGHTER_COLOR: Int = 0x80D97706.toInt()  // Amber at 50 percent

@@ -9,6 +9,7 @@ import com.twelve.daylight.ink.prefs.Prefs
  * MotionEvent -> StrokeSession, shared by the wet and dry views (whichever is on top receives the events).
  * SPEC E6: only TOOL_TYPE_STYLUS and TOOL_TYPE_ERASER draw; hover never draws; ACTION_CANCEL and FLAG_CANCELED cancel;
  * a pressure-0 down never starts a stroke (PROTOCOL 11). Fingers are swallowed so nothing under the canvas scrolls.
+ * With the Laser tool selected the pen moves the [LaserPointer] instead and nothing reaches the session.
  */
 class PenInput(
     private val session: StrokeSession,
@@ -24,6 +25,21 @@ class PenInput(
     private var lastViewX = 0f
     private var lastViewY = 0f
     private var wetStroke: LocalStroke? = null
+
+    /** Set by the activity; while null the Laser tool sends nothing. */
+    var laser: LaserPointer? = null
+
+    /** The Laser tool is selected: stylus contact and hover go to [laser], never to the session or the wet layer. */
+    var laserMode: Boolean = false
+        set(v) {
+            if (v == field) return
+            if (penPointerId >= 0) {
+                penPointerId = -1
+                if (!field) { session.cancel(); wet?.cancel() }    // a stroke still open when the laser was picked
+            }
+            field = v
+            if (!v) laser?.reset()
+        }
 
     /** Adapter so [MotionSamples] (pure) can read a MotionEvent. One instance, no allocation per event. */
     private val adapter = object : MotionLike {
@@ -46,6 +62,7 @@ class PenInput(
     }
 
     fun onTouch(view: View, e: MotionEvent): Boolean {
+        if (laserMode) return laserTouch(view, e)
         val idx = e.actionIndex
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
@@ -96,6 +113,39 @@ class PenInput(
             return true
         }
         return false
+    }
+
+    /** Stylus hover. It never draws (SPEC D3); with the Laser tool selected it moves the laser at hover intensity. */
+    fun onHover(e: MotionEvent): Boolean {
+        if (!laserMode || e.getToolType(0) != MotionEvent.TOOL_TYPE_STYLUS) return false
+        if (e.actionMasked == MotionEvent.ACTION_HOVER_MOVE) laser?.hover(e.x, e.y)
+        return true
+    }
+
+    /** The Laser tool: the pen pointer's newest position is the laser (older history would be coalesced away anyway). */
+    private fun laserTouch(view: View, e: MotionEvent): Boolean {
+        val idx = e.actionIndex
+        when (e.actionMasked) {
+            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
+                if (!isPen(e, idx)) return true                 // fingers and palms: swallowed
+                penPointerId = e.getPointerId(idx)
+                if (unbufferedPerStroke) view.requestUnbufferedDispatch(e)
+                laser?.contact(e.getX(idx), e.getY(idx))
+            }
+            MotionEvent.ACTION_MOVE -> {
+                if (penPointerId < 0) return true
+                val pi = e.findPointerIndex(penPointerId)
+                if (pi < 0) return true
+                laser?.contact(e.getX(pi), e.getY(pi))
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP -> {
+                if (e.getPointerId(idx) == penPointerId) penPointerId = -1
+            }
+            MotionEvent.ACTION_CANCEL -> {
+                penPointerId = -1
+            }
+        }
+        return true
     }
 
     private fun wetSegment(s: RawSample) {

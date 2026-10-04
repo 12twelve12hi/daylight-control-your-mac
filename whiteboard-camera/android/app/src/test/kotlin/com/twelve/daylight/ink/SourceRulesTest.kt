@@ -56,7 +56,36 @@ class SourceRulesTest {
         assertTrue(s.contains("MotionEvent.ACTION_CANCEL ->"))
         assertTrue(s.contains("(e.flags and MotionEvent.FLAG_CANCELED) != 0"))
         assertTrue(s.contains("ACTION_BUTTON_PRESS"))                     // barrel button is observed, never drawn
-        assertFalse(s.contains("ACTION_HOVER"))                           // hover never reaches the session
+        // Hover never reaches the session: the one ACTION_HOVER branch is onHover, and it feeds only the laser pointer.
+        val hover = s.substringAfter("fun onHover(").substringBefore("\n    }\n")
+        assertTrue(hover.contains("MotionEvent.ACTION_HOVER_MOVE") && hover.contains("laser?.hover("))
+        assertTrue(hover.contains("e.getToolType(0) != MotionEvent.TOOL_TYPE_STYLUS"))
+        assertFalse(hover.contains("session."))
+        assertFalse(s.substringBefore("fun onHover(").contains("ACTION_HOVER"))
+        assertFalse(s.substringAfter("fun onHover(").substringAfter("\n    }\n").contains("ACTION_HOVER"))
+    }
+
+    @Test
+    fun theLaserToolNeverReachesTheStrokeSession() {
+        // LOOSE_ENDS F3: with Laser selected the pen moves the laser only (no stroke, no wet or dry ink, no undo).
+        val s = read("ink/PenInput.kt")
+        assertTrue(s.contains("if (laserMode) return laserTouch(view, e)"))
+        val laserTouch = s.substringAfter("private fun laserTouch(").substringBefore("\n    }\n")
+        assertTrue(laserTouch.contains("laser?.contact("))
+        assertFalse(laserTouch.contains("session."))
+        assertFalse(laserTouch.contains("wet"))
+        assertFalse(read("ink/LaserPointer.kt").contains("StrokeSession"))
+        assertFalse(read("ink/LaserPointer.kt").contains("InkSink"))
+        val select = read("ui/MainActivity.kt").substringAfter("override fun selectTool(").substringBefore("\n    }\n")
+        assertTrue(select.contains("input.laserMode = tool == Tools.LASER"))
+        assertTrue(select.contains("if (tool != Tools.LASER) session.tool = tool"))
+        for (view in listOf("ink/DryInkView.kt", "ink/WetInkSurface.kt")) {
+            assertTrue("$view routes hover", read(view).contains("override fun onHoverEvent(event: MotionEvent): Boolean = input?.onHover(event) == true || super.onHoverEvent(event)"))
+        }
+        val toolbar = read("ui/Toolbar.kt")
+        assertTrue(toolbar.contains("private val laser = pill(Texts.TOOL_LASER)"))
+        assertTrue(toolbar.contains("laser.onTap = { actions?.selectTool(Tools.LASER) }"))
+        assertTrue(read("ui/Texts.kt").contains("const val TOOL_LASER = \"Laser\""))
     }
 
     @Test

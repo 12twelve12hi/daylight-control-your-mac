@@ -7,7 +7,7 @@ import android.widget.LinearLayout
 import com.twelve.daylight.ink.ink.Tools
 
 /**
- * The bottom row: Pen, Highlight, Erase | Undo, Redo | the chip (centre) | New page, Clear, Settings.
+ * The bottom row: Pen, Highlight, Erase, Laser | Undo, Redo | the chip (centre) | New page, Clear, Settings.
  * Undo and redo are enabled from STATE depths only (the Mac's truth). Padded 16 dp above the bottom edge (DC-1 rule).
  */
 class Toolbar(context: Context) : LinearLayout(context) {
@@ -23,6 +23,7 @@ class Toolbar(context: Context) : LinearLayout(context) {
     private val pen = pill(Texts.TOOL_PEN)
     private val highlight = pill(Texts.TOOL_HIGHLIGHT)
     private val erase = pill(Texts.TOOL_ERASE)
+    private val laser = pill(Texts.TOOL_LASER)
     private val undo = pill(Texts.TOOL_UNDO)
     private val redo = pill(Texts.TOOL_REDO)
     private val newPage = pill(Texts.TOOL_NEW_PAGE)
@@ -36,7 +37,7 @@ class Toolbar(context: Context) : LinearLayout(context) {
         setBackgroundColor(Tokens.SURFACE_CREAM)
         val pad = (12 * d).toInt()
         setPadding(pad, pad, pad, (16 * d).toInt())
-        for (v in listOf(pen, highlight, erase)) add(v)
+        for (v in listOf(pen, highlight, erase, laser)) add(v)
         addGap()
         add(undo); add(redo)
         addSpacer()
@@ -49,6 +50,7 @@ class Toolbar(context: Context) : LinearLayout(context) {
         pen.onTap = { actions?.selectTool(Tools.PEN) }
         highlight.onTap = { actions?.selectTool(Tools.HIGHLIGHTER) }
         erase.onTap = { actions?.selectTool(Tools.ERASER) }
+        laser.onTap = { actions?.selectTool(Tools.LASER) }
         undo.onTap = { actions?.undo() }
         redo.onTap = { actions?.redo() }
         newPage.onTap = { actions?.newPage() }
@@ -83,9 +85,11 @@ class Toolbar(context: Context) : LinearLayout(context) {
         pen.selectedLook = tool == Tools.PEN
         highlight.selectedLook = tool == Tools.HIGHLIGHTER
         erase.selectedLook = tool == Tools.ERASER
+        laser.selectedLook = tool == Tools.LASER
         pen.border = if (tool == Tools.PEN) Tokens.INK_BLACK else Tokens.BORDER_SUBTLE
         highlight.border = if (tool == Tools.HIGHLIGHTER) Tokens.INK_BLACK else Tokens.BORDER_SUBTLE
         erase.border = if (tool == Tools.ERASER) Tokens.INK_BLACK else Tokens.BORDER_SUBTLE
+        laser.border = if (tool == Tools.LASER) Tokens.INK_BLACK else Tokens.BORDER_SUBTLE
     }
 
     fun setDepths(undoDepth: Int, redoDepth: Int) {

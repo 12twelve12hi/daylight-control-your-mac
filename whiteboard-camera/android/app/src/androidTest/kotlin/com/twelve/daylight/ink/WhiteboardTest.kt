@@ -99,7 +99,9 @@ class WhiteboardTest {
                 out
             }
             for ((text, h) in pills) assertTrue("pill '$text' is $h px tall: $report", h >= (36 * density).toInt())
-            assertEquals("pills in $report", 9, pills.size)
+            // Pen, Highlight, Erase, Laser (LOOSE_ENDS F3), Undo, Redo, the connection chip, New page, Clear, Settings.
+            assertEquals("pills in $report", 10, pills.size)
+            assertTrue("a Laser pill in $report", pills.any { it.first == "Laser" })
         }
     }
 

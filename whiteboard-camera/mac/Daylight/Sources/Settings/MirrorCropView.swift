@@ -15,7 +15,24 @@ struct MirrorCropView: NSViewRepresentable {
     func makeNSView(context: Context) -> CropCanvas {
         let view = CropCanvas()
         view.onChange = { insets = $0 }
+        // The Settings frame decides the size; the 300 by 400 intrinsic size is only a fallback (below).
+        view.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
+        view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        view.setContentHuggingPriority(.defaultLow, for: .vertical)
+        view.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        // An accessibility element with an identifier, so the UI suite's overlap check sees the crop view's frame.
+        view.setAccessibilityElement(true)
+        view.setAccessibilityRole(.image)
+        view.setAccessibilityIdentifier(SettingsTab.mirrorCropViewID)
         return view
+    }
+
+    /// Takes the size SwiftUI offers (the Settings tab gives 260 pt of height): with the 400 pt intrinsic height the
+    /// view grew past its frame and drew over the rows above and below it (UI test run 37182692894).
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: CropCanvas, context: Context) -> CGSize? {
+        let width = proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? 300
+        let height = proposal.height.flatMap { $0.isFinite ? $0 : nil } ?? 260
+        return CGSize(width: width, height: height)
     }
 
     func updateNSView(_ view: CropCanvas, context: Context) {

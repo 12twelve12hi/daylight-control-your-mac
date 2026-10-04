@@ -26,6 +26,9 @@ enum SettingsTab: String, CaseIterable, Equatable, Hashable {
         return SettingsTab.allCases.first { $0.rawValue.lowercased() == wanted }
     }
 
+    /// The Mirror tab's crop view, so the UI suite's overlap check sees its frame.
+    static let mirrorCropViewID = "daylight.settings.mirror.cropview"
+
     /// The accessibility identifier on the last element of the tab, `daylight.settings.<tab>.last`.
     var lastElementID: String {
         return "daylight.settings.\(rawValue.lowercased()).last"
@@ -58,15 +61,15 @@ struct SettingsView: View {
 
     var body: some View {
         TabView(selection: $context.selectedTab) {
-            generalTab.tabItem { Text("General") }.tag(SettingsTab.general)
-            hotkeysTab.tabItem { Text("Hotkeys") }.tag(SettingsTab.hotkeys)
-            networkTab.tabItem { Text("Network") }.tag(SettingsTab.network)
-            mirrorTab.tabItem { Text("Mirror") }.tag(SettingsTab.mirror)
-            overlayTab.tabItem { Text("Overlay") }.tag(SettingsTab.overlay)
-            ShareSettingsView(store: context.shareStore, showWindow: context.showShareWindow).tabItem { Text("Share") }.tag(SettingsTab.share)
-            savingTab.tabItem { Text("Saving") }.tag(SettingsTab.saving)
-            advancedTab.tabItem { Text("Advanced") }.tag(SettingsTab.advanced)
-            diagnosticsTab.tabItem { Text("Diagnostics") }.tag(SettingsTab.diagnostics)
+            page(generalTab).tabItem { Text("General") }.tag(SettingsTab.general)
+            page(hotkeysTab).tabItem { Text("Hotkeys") }.tag(SettingsTab.hotkeys)
+            page(networkTab).tabItem { Text("Network") }.tag(SettingsTab.network)
+            page(mirrorTab).tabItem { Text("Mirror") }.tag(SettingsTab.mirror)
+            page(overlayTab).tabItem { Text("Overlay") }.tag(SettingsTab.overlay)
+            page(ShareSettingsView(store: context.shareStore, showWindow: context.showShareWindow)).tabItem { Text("Share") }.tag(SettingsTab.share)
+            page(savingTab).tabItem { Text("Saving") }.tag(SettingsTab.saving)
+            page(advancedTab).tabItem { Text("Advanced") }.tag(SettingsTab.advanced)
+            page(diagnosticsTab).tabItem { Text("Diagnostics") }.tag(SettingsTab.diagnostics)
         }
         // 720 pt: the row of nine tabs is about 620 pt wide; at 560 pt the last tab (Diagnostics) was not shown and
         // could not be clicked (UI test run 37180339019). The UI suite fails any tab that is not one click away.
@@ -75,6 +78,13 @@ struct SettingsView: View {
     }
 
     static let contentWidth: CGFloat = 720
+
+    /// Every tab's content starts at the top left of the tab area: a Form or a short VStack is otherwise centred
+    /// vertically, leaving an empty band under the tab bar (Saving and Share in run 37182692894). The UI suite asserts
+    /// the first element of each tab sits within 40 pt of the tab bar.
+    private func page<Content: View>(_ content: Content) -> some View {
+        content.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
 
     // MARK: General
 
@@ -181,8 +191,10 @@ struct SettingsView: View {
         }
     }
 
+    /// A VStack, not a Form: in the Form the 260 pt crop view was laid out at its 400 pt intrinsic height and drew over
+    /// the "Quality" row above it and the footnote below it (run 37182692894). The UI suite's overlap check guards it.
     private var mirrorForm: some View {
-        Form {
+        VStack(alignment: .leading, spacing: 10) {
             Picker("Transport", selection: $store.settings.mirrorTransport) {
                 Text("USB (adb)").tag(MirrorTransport.usb)
                 Text("Wi-Fi (Daylight Ink screen stream)").tag(MirrorTransport.wifiStream)
@@ -223,9 +235,12 @@ struct SettingsView: View {
                 Text("Standard (1600 px, 8 Mbit/s, 30 fps)").tag(0)
                 Text("Low bandwidth (1200 px, 4 Mbit/s, 24 fps)").tag(1)
             }
-            Section(header: Text("Crop (portrait, tablet pixels; the top strip hides the pills)")) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Crop (portrait, tablet pixels; the top strip hides the pills)").font(.headline)
                 MirrorCropView(insets: $store.settings.mirrorCropInsetsPortrait, nativeWidth: 1200, nativeHeight: 1600, latestFrame: context.latestMirrorFrame)
+                    .frame(maxWidth: .infinity)
                     .frame(height: 260)
+                    .clipped()
                 HStack {
                     Stepper("Top \(store.settings.mirrorCropInsetsPortrait.top)", value: $store.settings.mirrorCropInsetsPortrait.top, in: 0...800)
                     Stepper("Bottom \(store.settings.mirrorCropInsetsPortrait.bottom)", value: $store.settings.mirrorCropInsetsPortrait.bottom, in: 0...800)
@@ -243,6 +258,7 @@ struct SettingsView: View {
                 }
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
     }
 
@@ -299,8 +315,9 @@ struct SettingsView: View {
 
     // MARK: Saving
 
+    /// One left-aligned column: the two-column Form split it into misaligned columns (run 37182692894).
     private var savingTab: some View {
-        Form {
+        VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Text("Folder: \(store.settings.saveDirectory?.path ?? "~/Documents/Daylight Camera")")
                 Spacer()
@@ -309,8 +326,10 @@ struct SettingsView: View {
             Toggle("Save the strokes as JSON next to each PNG", isOn: $store.settings.saveStrokesJSON)
             Stepper("Autosave every \(store.settings.autosaveSeconds) s while drawing", value: $store.settings.autosaveSeconds, in: Settings.autosaveRange, step: 15)
             Text("Pages are saved when the board returns to the camera, on Clear, on New page, every autosave interval while dirty, on Hold: Camera and on quit.").font(.footnote).foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier(SettingsTab.saving.lastElementID)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
     }
 

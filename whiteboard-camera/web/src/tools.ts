@@ -1,7 +1,7 @@
-// The toolbar: pen, highlighter, eraser, undo, redo, new page, Clear and the info button.
+// The toolbar: pen, highlighter, eraser, laser, undo, redo, new page, Clear and the info button.
 // Undo and redo follow the Mac's depths from STATE (the client never mutates its own undo stack on tap).
 
-export type Tool = "pen" | "highlighter" | "eraser";
+export type Tool = "pen" | "highlighter" | "eraser" | "laser";
 
 export interface ToolbarActions {
   setTool(tool: Tool): void;
@@ -29,7 +29,7 @@ export class Toolbar {
       if (!el) throw new Error(`toolbar button #${id} missing`);
       return el;
     };
-    this.toolButtons = { pen: q("tool-pen"), highlighter: q("tool-highlighter"), eraser: q("tool-eraser") };
+    this.toolButtons = { pen: q("tool-pen"), highlighter: q("tool-highlighter"), eraser: q("tool-eraser"), laser: q("tool-laser") };
     this.undoButton = q("undo");
     this.redoButton = q("redo");
     for (const tool of Object.keys(this.toolButtons) as Tool[]) {

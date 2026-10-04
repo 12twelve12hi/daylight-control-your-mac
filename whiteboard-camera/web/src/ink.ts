@@ -1,8 +1,10 @@
 // Pen-only ink canvas (SPEC D3, PROTOCOL 4, 6.3 to 6.8). Three stacked canvases over PaperBg:
 // highlight (amber under the ink), ink, and a wet layer that receives the pointer events.
 // Local rendering is a preview; the Mac is the source of truth (undo and redo follow STATE depths).
+// The Laser tool sends LASER_POINT (PROTOCOL 6.9) instead: nothing drawn, no stroke, no undo.
 
 import { clampPressure, strokeHitsSegment, strokeWidth, type LocalPoint } from "./geometry.js";
+import { LASER_DECAY_S, LaserThrottle, laserIntensity, type LaserPoint } from "./laser.js";
 import { Encoder, MAX_POINTS_PER_CHUNK, newUuid16, toHex, type WirePoint } from "./protocol.js";
 import type { Tool } from "./tools.js";
 
@@ -31,6 +33,8 @@ export interface InkSink {
   readonly encoder: Encoder;
   /** Sends live, or rings while offline / pending. Returns true when it went out on a live socket. */
   sendInk(frame: ArrayBuffer, strokeKey: string, points: number): boolean;
+  /** Meaningful now or never (the laser): sent while live, dropped otherwise. Returns true when it went out. */
+  sendControl(frame: ArrayBuffer): boolean;
   isLive(): boolean;
   backpressure(): "ok" | "hold" | "thin";
 }
@@ -94,6 +98,8 @@ export interface InkStats {
   forgotten: number;
   /** First STATEs after a reconnect that showed the Mac had lost history (a relaunch); the page kept the newest. */
   historyLost: number;
+  /** LASER_POINT messages that went out on a live socket. */
+  laserPoints: number;
 }
 
 export class InkCanvas {
@@ -117,8 +123,10 @@ export class InkCanvas {
   /** COMMITs the ring replays on the socket just ACKed; consumed by the first STATE after it (null: none expected). */
   private replayCommits: number | null = null;
   private flushing = false;
+  /** One LASER_POINT per animation frame, the newest point wins. */
+  private readonly laser = new LaserThrottle((p) => this.sendLaser(p), (cb) => requestAnimationFrame(cb));
   tool: Tool = "pen";
-  readonly stats: InkStats = { strokes: 0, points: 0, ignored: 0, committed: 0, cancelled: 0, erases: 0, rawUpdates: 0, coalesced: 0, restarted: 0, thinned: 0, armedStarts: 0, staleStates: 0, forgotten: 0, historyLost: 0 };
+  readonly stats: InkStats = { strokes: 0, points: 0, ignored: 0, committed: 0, cancelled: 0, erases: 0, rawUpdates: 0, coalesced: 0, restarted: 0, thinned: 0, armedStarts: 0, staleStates: 0, forgotten: 0, historyLost: 0, laserPoints: 0 };
   /** Called after any local change (for autosave-style hooks and tests). */
   onChange: (() => void) | null = null;
 
@@ -368,6 +376,11 @@ export class InkCanvas {
 
   private down(e: PointerEvent): void {
     this.armed = null;
+    if (this.tool === "laser" && !this.active && !this.erasing) {
+      if (this.pointLaser(e)) e.preventDefault();
+      else this.stats.ignored++;
+      return;
+    }
     // Fingers and palms never draw and never engage; a pen with pressure 0 is a side button in the air, or a
     // digitizer whose first contact sample carries no pressure yet (LOOSE_ENDS D4): the contact is armed and
     // becomes a stroke on its first pressured sample.
@@ -437,6 +450,11 @@ export class InkCanvas {
 
   private sample(e: PointerEvent, samples: readonly PointerEvent[]): void {
     if (e.pointerType !== "pen") return;
+    if (this.tool === "laser" && !this.active && !this.erasing) {
+      // Only the newest sample matters: the throttle keeps one point per frame anyway.
+      this.pointLaser(samples[samples.length - 1] ?? e);
+      return;
+    }
     let events: readonly PointerEvent[] = samples;
     const armed = this.armed;
     if (armed && !this.active && !this.erasing) {
@@ -515,6 +533,23 @@ export class InkCanvas {
     this.inFlightCommits++;
     this.commitLocal(a);
     this.sink.sendInk(this.sink.encoder.strokeCommit(a.id, a.sent), a.key, 0);
+  }
+
+  // -- laser ------------------------------------------------------------------
+
+  /** Offers a laser point for a pen sample (contact or hover); false for anything that is not a pen. */
+  private pointLaser(e: PointerEvent): boolean {
+    const intensity = laserIntensity(e);
+    if (intensity === null) return false;
+    const p = this.canvasPoint(e);
+    this.laser.offer({ x: p.x, y: p.y, intensity });
+    return true;
+  }
+
+  /** The throttle's frame callback. A point offered just before another tool was selected is let go. */
+  private sendLaser(p: LaserPoint): void {
+    if (this.tool !== "laser") return;
+    if (this.sink.sendControl(this.sink.encoder.laserPoint(p.x, p.y, p.intensity, LASER_DECAY_S))) this.stats.laserPoints++;
   }
 
   // -- wire -------------------------------------------------------------------

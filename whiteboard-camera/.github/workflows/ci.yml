@@ -16,8 +16,9 @@ on:
 
 # Concurrency is per job (LOOSE_ENDS B16): the Linux jobs cancel their older runs for fast feedback; a mac job
 # that has started always finishes, with at most one newer mac job waiting behind it. A dispatched run (a notarize
-# build) keeps its own Linux groups: run 37224451366 lost web and android to a push on the same ref, and its mac job
-# was skipped with them (LOOSE_ENDS SG-4).
+# build) keeps its own groups for every job: run 37224451366 lost web and android to a push on the same ref and its mac
+# job was skipped with them; a queued job is replaced by a newer queued one in the same group even with
+# cancel-in-progress false (run 37224601354 lost android-emulator that way) (LOOSE_ENDS SG-4).
 jobs:
   golden:
     runs-on: ubuntu-latest
@@ -102,7 +103,7 @@ jobs:
   mac:
     runs-on: macos-15
     concurrency:
-      group: wbc-mac-${{ github.ref }}
+      group: wbc-mac-${{ github.ref }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || 'push' }}
       cancel-in-progress: false
     # A notarize run (tag or dispatch) may hold the runner while Apple works: mac-release waits up to 75 minutes for the
     # notary service (the first signed run, 37220975435, outran a 30 minute wait); a plain push keeps the 60 minute budget.
@@ -215,7 +216,7 @@ jobs:
     runs-on: macos-26
     continue-on-error: true
     concurrency:
-      group: wbc-mac26-${{ github.ref }}
+      group: wbc-mac26-${{ github.ref }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || 'push' }}
       cancel-in-progress: false
     timeout-minutes: 60
     needs: [golden, web, kit-linux, android]
@@ -261,7 +262,7 @@ jobs:
   android-emulator:
     runs-on: ubuntu-latest
     concurrency:
-      group: wbc-android-emulator-${{ github.ref }}
+      group: wbc-android-emulator-${{ github.ref }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || 'push' }}
       # Like the mac job: a started run finishes (the emulator needs about 20 minutes and the branch takes pushes from
       # several teams), with at most one newer run waiting behind it.
       cancel-in-progress: false

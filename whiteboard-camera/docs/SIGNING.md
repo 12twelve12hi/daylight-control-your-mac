@@ -82,7 +82,7 @@ Open the mac job, step "Signed and notarized build (skips itself without secrets
 6. `** ARCHIVE SUCCEEDED **` (about five minutes), then `** EXPORT SUCCEEDED **`.
 7. `mac-release: exported Info.plist DaylightBuildSigned=true` and `mac-release: Contents/embedded.provisionprofile present`.
 8. The `codesign -vvv --deep --strict` block ends with `valid on disk` and `satisfies its Designated Requirement`; `spctl` may still say rejected here (expected before notarization, the script says so).
-9. `mac-release: notarytool submit exit 0` with the JSON holding the `id`, the annotation `notarization submission <id> (run <run id>)`, `mac-release: notarytool wait <id> --timeout 75m`, then `notarytool wait exit 0` with `"status": "Accepted"` (Apple's first submission for a new team can take an hour or more; later ones minutes), the notarization log JSON with `"status": "Accepted"` and an empty `issues` list, then `stapler` reporting that the staple and validate action worked, for the DMG and for the app.
+9. `mac-release: notarytool submit exit 0` with the JSON holding the `id`, the annotation `notarization submission <id> (run <run id>)`, `mac-release: notarytool wait <id> --timeout 75m`, then `notarytool wait exit 0` with `"status": "Accepted"` (Apple's first submission for a new team took 31 to 42 minutes; the second took 21 seconds), the notarization log JSON with `"status": "Accepted"` and an empty `issues` list, then `stapler` reporting that the staple and validate action worked, for the DMG and for the app.
 10. The artifacts `release-logs`, `Daylight-signed` and `Daylight-dmg` on the run page.
 
 ## Every failure and its remedy

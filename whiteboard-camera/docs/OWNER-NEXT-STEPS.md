@@ -4,7 +4,7 @@ This is the one page to open first. It walks from "I have a Mac without Xcode an
 
 Writing rules: no em-dashes; LivePaper is a transflective LCD; the backlight is DC dimming; VRR is 45 to 90 Hz.
 
-Coming back after a break? `docs/WHATS-NEW.md` lists what changed (Wi-Fi mirror, adb source, Overlay, Export diagnostics, Send facts to Mac) and the two steps that are still yours.
+Coming back after a break? `docs/WHATS-NEW.md` lists what changed (the share window for group calls, the screenshots CI takes of both apps, Wi-Fi mirror, adb source, Overlay, Export diagnostics, Send facts to Mac) and the two steps that are still yours.
 
 ## What you have and what you do not, in one paragraph
 
@@ -15,6 +15,7 @@ Order of the day, and why: try the web whiteboard first (nothing to install on t
 | Step | What | Time | Needs |
 |---|---|---|---|
 | 0 | Install the tools on the Mac | 10 min | the Mac, internet |
+| 0b | Look at both apps in the CI screenshots | 5 min | step 0 |
 | 1 | Download the unsigned build and open the preview | 10 min | the Mac |
 | 2 | Pair the web whiteboard | 10 min | the DC-1 on the same Wi-Fi |
 | 3 | Pair Daylight Ink over USB | 10 min | a USB-C cable, USB debugging on the DC-1 |
@@ -25,7 +26,7 @@ Order of the day, and why: try the web whiteboard first (nothing to install on t
 | 7 | Install the signed app and approve the camera extension | 10 min | step 6 |
 | 8 | Pick Daylight Camera in Zoom, Meet or FaceTime | 5 min | step 7 |
 | 8b | Try overlay mode (optional) | 10 min | step 1 (the preview window is enough) |
-| 8c | Make the whiteboard big in a group call (optional) | 5 min | step 2 or 3 (a tablet drawing) and any call app |
+| 8c | Make the whiteboard big in a group call (optional; the Zoom second-camera check needs step 7) | 5 min | step 2 or 3 (a tablet drawing) and any call app |
 | 9 | Run the testing checklist, tap "Send facts to Mac" where it says so, then "Export diagnostics..." once and send the zip | 60 to 90 min | everything above |
 
 ---
@@ -42,6 +43,22 @@ Done looks like: `gh auth status` prints your GitHub login and `gh run list --li
 If it fails: `gh` says "not logged in" (run `gh auth login` again); `gh run list` says the workflow does not exist (you are in the wrong folder; the workflow file is `.github/workflows/whiteboard-camera.yml` at the monorepo root).
 
 Optional, for later: the `adb` you need for the tablet is bundled inside the app at `Daylight.app/Contents/Resources/Vendor/adb`; you do not need Android Studio or Homebrew's platform-tools, and a second adb on the Mac is one of the failure rows (24). Settings > Mirror > "adb source" can instead use "Download on first use" (Google's platform-tools 37.0.0 after you accept the Android SDK License once) or "Use installed adb" (the one from Homebrew or Android Studio, platform-tools 35 or newer); the default "Bundled (default)" needs nothing. A new choice applies at once (a running mirror restarts with it); `docs/SETUP.md` section 2.3 "adb source" has the details.
+
+---
+
+## Step 0b: look at both apps in the CI screenshots (5 min, no hardware)
+
+Why: every CI run launches the real Mac app and the real Daylight Ink APK and photographs every screen, so you can see what you are about to install before you install it, and check that a window looks right on your own screen later.
+
+Done looks like: two folders of PNG files, one per app.
+
+1. Pick the latest green run (step 0, item 4), then `gh run download <run id> -n mac-screenshots -n android-screenshots`. In the browser: Actions > whiteboard-camera > the run > Artifacts at the bottom of the page > `mac-screenshots` and `android-screenshots` (you must be logged in to GitHub to download).
+2. `mac-screenshots` has `light/` and `dark/`: the Welcome window, the menu bar item and its submenus (among them "Share the whiteboard"), every Settings tab at the top and the bottom, the preview, Diagnostics and the Allow panel, each shot on the runner's 1024 by 768 screen and as the window alone.
+3. `android-screenshots` has `screenshots/`: Daylight Ink on an emulated Android 13 tablet at the DC-1's 1200x1600 and 200 dpi, from the first launch through the onboarding, the whiteboard, its Settings ("This tablet"), the overlay pills and the screen-share prompt, to `11-connected.png` (connected to a stand-in Mac) and `90-after-process-death.png`.
+
+What they cannot show: a real webcam picture, the virtual camera in a call, the pen hardware, the LivePaper transflective LCD, the DC-dimmed backlight. `docs/SCREENSHOTS.md` lists every file and what the suite checked before it took the picture.
+
+If it fails: "no artifact matches" (the run is older than this feature, or red before the step: pick the newest green run).
 
 ---
 
@@ -213,7 +230,7 @@ Done looks like: the other people see your page large and sharp in the middle of
    - Slack huddles and Webex: share a window the same way.
 3. Put the window behind the call or on a second display; covered is fine. Do not minimise it (a minimised window pauses the share). Stop sharing in the call app when you are done; closing the window also ends what they see.
 4. Optional, in Settings > Share: "Open the share window when the whiteboard slides in" (the window appears by itself when you touch the pen, without taking focus from the call), "Keep the share window above other windows", "Hide the share window's title bar". The same steps are in menu bar > "Share the whiteboard" > "How to share it in a call...".
-5. Optional test on the signed build (Daylight Camera exists only there), worth one minute and an answer back (`docs/TESTING-CHECKLIST.md` 7.7): in Zoom, Share Screen > Advanced > "Second camera" (older Zoom: "Content from 2nd Camera"), then "Switch Camera" until "Daylight Camera" shows, then note whether Zoom offered it. If it does, the next build can add a camera made only of the page, so you share it without any window (TOO-SMALL.md section 6, item 2). Also try hovering the green button of the "Daylight Whiteboard" window during a Zoom call with Zoom's "Use Mac System Picker" on: if a share option appears there, that is a two-click path.
+5. Optional test on the signed build (Daylight Camera exists only there), worth three minutes and an answer back (`docs/TESTING-CHECKLIST.md` 7.7): in Zoom, Share Screen > Advanced > "Content from 2nd Camera" (newer Zoom: "Second camera"), then Share, then "Switch Camera" (top left) until "Daylight Camera" shows. Write three answers in the note you send with the diagnostics zip: (a) was "Daylight Camera" offered at all, (b) after how many "Switch Camera" clicks, (c) on a second device in the meeting, is the shared picture sharp, the right way round (not mirrored) and full size. If it does, the next build can add a camera made only of the page, so you share it without any window (TOO-SMALL.md section 6, item 2). Also try hovering the green button of the "Daylight Whiteboard" window during a Zoom call with Zoom's "Use Mac System Picker" on: if a share option appears there, that is a two-click path.
 
 Not in the app yet: "follow the pen", which magnifies the area you are writing in inside the camera picture itself. Its math is built and tested (`FollowRegion` in DaylightKit) and wiring it in is the next step after the second camera (`docs/product/TOO-SMALL.md` section 7).
 
@@ -225,7 +242,7 @@ If it fails: the window stays cream with no page (the ink source is Mirror and n
 
 Why: every tablet fact the code guessed (LOOSE_ENDS section D) and every Mac fact marked UNVERIFIED is answered by one zip, so you never copy lines into the docs. `docs/FEEDBACK.md` is the full guide.
 
-1. Work through `docs/TESTING-CHECKLIST.md` one session at a time (Session 6 is the optional Overlay run).
+1. Work through `docs/TESTING-CHECKLIST.md` one session at a time (Session 6 is the optional Overlay run, Session 7 the optional share window with the Zoom second-camera check in row 7.7).
 2. Where a row says so, tap "Send facts to Mac" on the tablet: on the web page tap "?" and find it under "This tablet"; in Daylight Ink open Settings > "This tablet". The tablet answers "Sent to your Mac."
 3. At the end of the day: Mac menu bar > "Export diagnostics...", tick "Run self-test first" if something misbehaved, Export. The menu shows "Diagnostics saved as diagnostics-<yyyy-MM-dd-HH-mm>.zip in Documents > Daylight Camera. Send this file back after the test." and Finder shows the zip.
 4. Send that zip, plus one sentence per surprise with the checklist row number.
@@ -269,6 +286,7 @@ Switching ink sources: menu bar > "Ink source" > "Web whiteboard" / "Daylight In
 
 - [ ] 🟢 `brew install gh`, `gh auth login`, clone, `git checkout claude/daylight-whiteboard-camera-tzxfjb`. You see: `gh auth status` prints your login. ⏱️ 10 minutes
 - [ ] 🟢 `gh run list --workflow whiteboard-camera --branch claude/daylight-whiteboard-camera-tzxfjb --limit 3`, pick a green run, `gh run download <id> -n Daylight-unsigned`. You see: `Daylight-unsigned.zip` in the folder. ⏱️ 3 minutes
+- [ ] 🟣 Same run: `gh run download <id> -n mac-screenshots -n android-screenshots` and flip through both folders. You see: the Mac windows in light and dark, and Daylight Ink at 1200x1600 on an emulated tablet. ⏱️ 5 minutes
 - [ ] 🟢 Unzip, drag to Applications, right-click > Open (or Privacy & Security > Open Anyway). You see: a camera icon in the menu bar, the Welcome window and an empty cream preview window. You feel: nothing else changed on the Mac. ⏱️ 3 minutes
 - [ ] 🟢 Welcome window: click "Allow camera access", Allow. You see: the first row reads "This is an unsigned test build..." and the preview shows your face. ⏱️ 1 minute
 - [ ] 🟢 Click the menu line "Open http://...:7788 on your Daylight"; type it into Chrome on the tablet; tap "Tap to start". You see: Chrome goes full screen, the chip reads "Look at your Mac". ⏱️ 3 minutes
@@ -303,5 +321,6 @@ Switching ink sources: menu bar > "Ink source" > "Web whiteboard" / "Daylight In
 - [ ] 🟢 Optional: Settings > Overlay > "Enable overlay mode", then Ctrl+Opt+Cmd+O. You see: the board slides in and your camera picture shrinks into a cut-out square in the bottom-right corner. Switch it off again afterwards if you prefer Studio Split. ⏱️ 5 minutes
 - [ ] 📋 Tell the integrator whether the "Open System Settings" button landed on the right pane (LOOSE_ENDS E13). The decisions A2 (macOS 26), A3, A4, A5, A6 and A14 are already settled (2026-10-03). ⏱️ 1 minute
 - [ ] 🟢 Optional, for calls with many people: menu bar > "Share the whiteboard" > "Show share window", then share the window "Daylight Whiteboard" in the call (Zoom Command-Shift-S). You see: the others get your page as the big main picture. ⏱️ 5 minutes
-- [ ] 📋 Then run `docs/TESTING-CHECKLIST.md`, one session at a time (Mac only, web, Daylight Ink, mirror with the adb source rows 4.19 to 4.21, mirror over Wi-Fi in Session 4b, signed camera, optional Overlay in Session 6). ⏱️ 90 to 120 minutes, in pieces
+- [ ] 📋 Optional, signed build: the Zoom second-camera check, `docs/TESTING-CHECKLIST.md` 7.7 (Share Screen > Advanced > "Content from 2nd Camera" or "Second camera", then "Switch Camera" until "Daylight Camera"). Write its three answers in your note: offered or not, how many clicks, sharp, not mirrored and full size on a second device. ⏱️ 3 minutes
+- [ ] 📋 Then run `docs/TESTING-CHECKLIST.md`, one session at a time (Mac only, web, Daylight Ink, mirror with the adb source rows 4.19 to 4.21, mirror over Wi-Fi in Session 4b, signed camera, optional Overlay in Session 6, optional share window in Session 7). ⏱️ 90 to 120 minutes, in pieces
 - [ ] 📋 Menu bar > "Export diagnostics...", Export. You see: "Diagnostics saved as diagnostics-<yyyy-MM-dd-HH-mm>.zip in Documents > Daylight Camera. Send this file back after the test." and Finder shows the zip. Send it back. ⏱️ 2 minutes

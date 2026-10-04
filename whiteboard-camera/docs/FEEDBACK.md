@@ -36,7 +36,7 @@ One file carries everything the engineers need from a test day: the diagnostics 
 | `clients.json` | the allowed tablets, IP addresses reduced to their last number, client ids to their first 8 characters | 256 KiB |
 | `tablet-facts.json` | the latest "Send facts to Mac" from each tablet (web page and Daylight Ink), PROTOCOL 15, as `{"schema":"daylight-tablet-facts-export/1","entries":[{key, source, clientId, sentAt, receivedAt, remoteAddress, allowed, facts}]}` | 16 senders, 1 MiB |
 
-What is never inside: Wi-Fi network names, tokens or keys, full IP addresses, and file paths outside Daylight's own folders (your home folder shows as `~`). Logs that hit their cap keep their newest part, other files their beginning, and MANIFEST says so. The whole zip stays under 16 MiB; it is a plain (uncompressed) zip that Finder, `unzip` and `ditto` open.
+What is never inside: Wi-Fi network names, tokens or keys, full IP addresses, and file paths outside Daylight's own folders (your home folder shows as `~`, except in `settings.json`, where the save folder stays as you chose it). Logs that hit their cap keep their newest part, other files their beginning, and MANIFEST says so. The whole zip stays under 16 MiB; it is a plain (uncompressed) zip that Finder, `unzip` and `ditto` open.
 
 ## 4. Which file answers which LOOSE_ENDS section D row
 
@@ -75,3 +75,15 @@ Overlay is off by default (Settings > Overlay > "Enable overlay mode"). When you
 | E29 | the person mask reaches Metal without a copy | `unified-log.txt` and `diagnostics.txt`: no line `overlay: mask <w>x<h> is not Metal-compatible; copied once per frame` (that line means the copy fallback ran) |
 | E30 | segmentation time per quality | `perf-log.txt`: the `perf overlay seg_ms=... mask_age_ms=... seg_dropped=... state=...` lines (one per second while Overlay is enabled and Daylight runs with the perf log on) |
 | E31 | matte quality in your room | `unified-log.txt` `overlay:` lines (`overlay: mask coverage <fraction> below 0.01; showing the camera rectangle` is row 49, `overlay: segmentation failed <n> frames in a row: <error>` is row 48); how it looked is a sentence in your note |
+
+## 6. The share window and the Zoom second-camera check (optional, TESTING-CHECKLIST Session 7)
+
+The share window (menu bar > "Share the whiteboard" > "Show share window", Settings > Share) leaves its own lines in the log, so export after the session as usual.
+
+| Row | Fact | File and key |
+|---|---|---|
+| 7.1 | the window opened, its size and settings | `unified-log.txt` category `share`: `share window shown (<w>x<h> pt, floats=<true or false>, titleBar=<true or false>)`; the same line is in the Diagnostics tail |
+| 7.3 to 7.6 (TS-1, TS-2) | whether Zoom lists the window, with and without the title bar; whether a covered window keeps sharing and a minimised one pauses | not in the export: what the second device showed; one sentence per row in your note |
+| 7.7 (TS-3) | the Zoom second-camera check on the signed build | not in the export: write three answers in your note: (a) was "Daylight Camera" offered under Share Screen > Advanced > "Content from 2nd Camera" (or "Second camera"), (b) after how many "Switch Camera" clicks, (c) on the second device, was the picture sharp, the right way round (not mirrored) and full size. These three answers decide whether the next build adds a camera made only of the page |
+| 7.8 (TS-6) | a "Share" choice on the window's green button with Zoom's "Use Mac System Picker" on | not in the export: yes or no in your note |
+| 7.9 (TS-7) | Daylight's CPU with the share window open and closed | not in the export: the two Activity Monitor percentages in your note |

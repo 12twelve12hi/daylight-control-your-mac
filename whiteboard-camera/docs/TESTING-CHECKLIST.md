@@ -4,7 +4,7 @@ Everything the code could not prove without hardware, as atomic steps grouped in
 
 Prerequisites per session are at the top of each one. Sessions 1 to 4b, 6 and 7 run on the unsigned build (the preview window stands in for the camera); session 5 needs the signed, notarized build of `docs/SIGNING.md`. Legend: 🟢 setup, ✍️ draw something, 🟡 make it fail on purpose, 🟣 confirm a file or a value, 📋 a fact the export collects (tap "Send facts to Mac" where the row says so; Export diagnostics once at the end), ⏱️ a timed wait.
 
-Rows marked "proved in CI, confirm on device" already pass on an emulated Android 13 tablet at 1200x1600 and 200 dpi in the `android-emulator` CI job (`docs/SCREENSHOTS.md` has the pictures of every run); on the DC-1 you only confirm them.
+Rows marked "proved in CI, confirm on device" already pass on an emulated Android 13 tablet at 1200x1600 and 200 dpi in the `android-emulator` CI job (artifact `android-screenshots`); on the DC-1 you only confirm them. Every Mac menu item, Settings tab, label and option this checklist quotes in a `menu bar > ...` or `Settings > ...` chain is also checked against the real app on the CI runner by the UI test suite (artifact `mac-screenshots`), so a mismatch between this page and the app fails CI. `docs/SCREENSHOTS.md` says how to download both and what each picture shows.
 
 Writing rules: no em-dashes; LivePaper is a transflective LCD; the backlight is DC dimming; VRR is 45 to 90 Hz.
 

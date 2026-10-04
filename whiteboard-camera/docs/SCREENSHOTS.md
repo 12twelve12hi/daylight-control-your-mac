@@ -1,12 +1,23 @@
-# Emulator screenshots: where every CI run puts them
+# Screenshots: both apps, photographed by every CI run
+
+Two artifacts of every run of the `whiteboard-camera` workflow show the apps without any hardware: `android-screenshots` (Daylight Ink on an emulated DC-1, first half of this page) and `mac-screenshots` (the Mac app's windows on the macos-15 runner, second half). To get both from the newest green run:
+
+```
+gh run list --workflow whiteboard-camera --branch claude/daylight-whiteboard-camera-tzxfjb --limit 3
+gh run download <run id> -n android-screenshots -n mac-screenshots
+```
+
+Or in the browser, logged in to GitHub: Actions > whiteboard-camera > the run > Artifacts at the bottom of the run page. Each artifact is a zip, kept for the repository's artifact retention period (90 days unless the setting was changed). `docs/OWNER-NEXT-STEPS.md` step 0b is the five-minute owner version.
+
+## Emulator screenshots: where every CI run puts them
 
 The `android-emulator` CI job runs the Daylight Ink instrumented tests on an emulated Android 13 tablet shaped like the Daylight DC-1 and keeps what the screen showed. It is in both workflows (`/.github/workflows/whiteboard-camera.yml` in the monorepo, `.github/workflows/ci.yml` standalone), runs beside the other Linux jobs and is blocking: a red run fails the workflow. It ran with `continue-on-error: true` until it had been green three runs in a row (37183448543, 37183673841, 37184526410). Locally: boot any API 33 emulator, then `make android-emulator-build android-emulator`.
 
-## Where to find them
+### Where to find them
 
 GitHub > Actions > pick the run > scroll to **Artifacts** at the bottom of the run page > **android-screenshots** (a zip). It is uploaded on every run, green or red, so a failing run still has its pictures and logs. The run page's summary also carries the job's result block (tests started, passed, failed, the failed test names, screenshot and ANR counts, the failure reasons).
 
-## What is in the zip
+### What is in the zip
 
 | File | What it is |
 |---|---|
@@ -21,7 +32,7 @@ GitHub > Actions > pick the run > scroll to **Artifacts** at the bottom of the r
 
 The job fails (and with it the workflow run) when the instrumentation output lacks `OK (`, reports `OK (0 tests)`, contains `FAILURES!!!`, `INSTRUMENTATION_FAILED` or `Process crashed`, when logcat shows a `FATAL EXCEPTION` in `com.twelve.daylight.ink` or `ANR in com.twelve.daylight.ink`, or when the process-death check fails. Each reason is printed as a `::error::` annotation and listed in `summary.txt`. `make scripts-check` proves these rules on Linux against sample outputs.
 
-## The emulated device and why
+### The emulated device and why
 
 | Setting | Value | Why |
 |---|---|---|
@@ -35,7 +46,7 @@ The job fails (and with it the workflow run) when the instrumentation output lac
 
 What the emulator does not reproduce: the LivePaper panel (a transflective LCD, so the screenshots show colour and contrast as an ordinary LCD would, not as the DC-1 does in sunlight), the DC-dimmed backlight, the 45 to 90 Hz variable refresh rate, and the pen digitizer (tests inject stylus `MotionEvent`s). Those stay on `docs/TESTING-CHECKLIST.md`.
 
-## How a run goes
+### How a run goes
 
 1. Checkout, Temurin 17, setup-gradle, `scripts/ci-env.sh`.
 2. KVM group permissions (the udev rule from the runner README).
@@ -46,26 +57,26 @@ What the emulator does not reproduce: the LivePaper panel (a transflective LCD, 
 
 The tests run through `am instrument` and not through Gradle's `connectedDebugAndroidTest` because Gradle uninstalls the app at the end, and the screenshots live in the app's own storage.
 
-## Contract for the tests
+### Contract for the tests
 
 - Application id `com.twelve.daylight.ink`; test package `com.twelve.daylight.ink.test`; `testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"`.
 - Screenshots are PNGs written to `targetContext.getExternalFilesDir("screenshots")`, which is `/sdcard/Android/data/com.twelve.daylight.ink/files/screenshots/` on the emulator. Names `NN-name.png`, two-digit prefix in shooting order; 90 and above are reserved for the script.
 - No `clearPackageData` and no test orchestrator: clearing the package data would delete the screenshots before they are pulled.
 - The launcher activity is `com.twelve.daylight.ink/.ui.MainActivity` (the process-death check starts it).
 
-## Process death: what the check really does
+### Process death: what the check really does
 
 Killing the app process from inside a test would also kill the instrumentation, which runs in the same process, so the check is in the script after the tests. It sends the same intent a launcher tap sends (`am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n com.twelve.daylight.ink/.ui.MainActivity`), waits 3 s, presses Home, kills the process, confirms `pidof` no longer reports the old pid, sends the launcher intent again, waits 3 s and takes `90-after-process-death.png`. Because the task still exists, the second launch brings it to the front and Android recreates the activity from its saved state, as when the system reclaims a backgrounded app and the owner returns to it. It is not literally a tap in Recents; if the system had dropped the task the launch would start fresh, which the picture would show.
 
-# Mac screenshots: the app's real windows on the CI runner
+## Mac screenshots: the app's real windows on the CI runner
 
 The `mac` job (macos-15) runs `make mac-ui-test` after `make mac-smoke`: the XCUITest suite `mac/DaylightUITests` launches the unsigned Release `Daylight.app` that the same job built, once in light and once in dark appearance, drives every window and the menu bar item, takes a screenshot at every step and checks what it sees. Owner: `docs/handoff/vp-mac-ui.md` (design, rounds, runs). Locally on a Mac with Xcode: `make mac-generate mac-debug mac-ui-test`.
 
-## Where to find them
+### Where to find them
 
 GitHub > Actions > pick the run > **Artifacts** > **mac-screenshots** (a zip, uploaded green or red). The suite's log is `ui-test.log` in the **xcodebuild-logs** artifact. For a session that cannot download artifacts, the mac job's log also carries every image as a small JPEG (one base64 line between `UI-THUMB-BEGIN <path>` and `UI-THUMB-END`) and one accessibility line per element per surface (`DaylightUITests [<appearance>] ax <surface>:`).
 
-## What is in the zip
+### What is in the zip
 
 `light/` and `dark/`, each with the same numbered steps; `-window` images show the window alone, the others the whole 1024 by 768 runner screen.
 
@@ -78,10 +89,10 @@ GitHub > Actions > pick the run > **Artifacts** > **mac-screenshots** (a zip, up
 | `20-diagnostics` | The Diagnostics window |
 | `21-allow` | The Allow panel for a fixture tablet ("UI test tablet", 192.168.1.40) |
 
-## What the suite checks
+### What the suite checks
 
 - Every window lies on the screen; every Settings tab is reachable by a click; every element lies horizontally inside its window; no two visible elements overlap; every tab's content starts under the tab bar; every popup is visible and hittable; the last element of each tab is inside the window after scrolling.
 - The texts: the Welcome rows, the menu items in order with their submenus, every popup's options, the Allow prompt, and the Diagnostics report (read from the pasteboard after "Copy diagnostics").
-- Docs to UI: `scripts/ui-expectations.sh` collects every Mac menu item, tab, setting label, option and Welcome phrase that `docs/OWNER-NEXT-STEPS.md`, `docs/SETUP.md` and `docs/TESTING-CHECKLIST.md` quote (55 on 2026-10-04) and the suite fails, naming the doc line, when one is not in the UI as written.
+- Docs to UI: `scripts/ui-expectations.sh` collects every Mac menu item, tab, setting label, option and Welcome phrase that `docs/OWNER-NEXT-STEPS.md`, `docs/SETUP.md` and `docs/TESTING-CHECKLIST.md` quote (58 on 2026-10-04, the Settings > Share labels among them since the integration) and the suite fails, naming the doc line, when one is not in the UI as written.
 
 The app runs with `--ui-test`: a throwaway settings suite (so every launch is a first launch), no camera, no camera extension, no mirror, no global hotkeys and no network listener, so the runner never shows a permission prompt. What the screenshots cannot show: the real camera picture, the virtual camera in Zoom, a connected tablet. Those stay on `docs/TESTING-CHECKLIST.md`.

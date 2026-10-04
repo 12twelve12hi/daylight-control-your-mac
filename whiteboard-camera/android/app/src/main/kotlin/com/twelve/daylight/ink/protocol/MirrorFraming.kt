@@ -112,7 +112,7 @@ class MirrorFraming(private val nowUs: () -> Long) {
             return v
         }
 
-        /** MIRROR_CONTROL from a whole frame; null when it is not one or its payload is not exactly 12 bytes. */
+        /** MIRROR_CONTROL from a whole frame; null when it is not one, its payload is not exactly 12 bytes or its command is not 0..3. */
         fun decodeControl(frame: ByteArray): MirrorControl? {
             val h = Decoder.header(frame) ?: return null
             if (h.opcode != OP_MIRROR_CONTROL) return null
@@ -123,6 +123,7 @@ class MirrorFraming(private val nowUs: () -> Long) {
             if (payloadLen != CONTROL_PAYLOAD_BYTES) return null
             val b = ByteBuffer.wrap(frame, SolStream.HEADER_LEN, payloadLen).order(ByteOrder.LITTLE_ENDIAN)
             val command = b.get().toInt() and 0xFF
+            if (command > MirrorControl.RELEASE) return null   // PROTOCOL 10: an unknown command does not decode
             b.get()                                       // reserved
             val maxSize = b.short.toInt() and 0xFFFF
             val bitrate = b.int.toLong() and 0xFFFFFFFFL

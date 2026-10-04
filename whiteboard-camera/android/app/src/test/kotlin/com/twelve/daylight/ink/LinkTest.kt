@@ -40,6 +40,9 @@ class LinkTest {
     private val ackPending = unhex("da0102001000000040e2cfeeb540060080070000380400001e00000001000000")
     private val ackDenied = unhex("da0102001000000040e2cfeeb540060080070000380400001e00000002000000")
     private val ackUnsupported = unhex("da0102001000000040e2cfeeb540060080070000380400001e00000003000000")
+    private val ackStatus4 = unhex("da0102001000000040e2cfeeb540060080070000380400001e00000004000000")
+    private val ackStatusMax = unhex("da0102001000000040e2cfeeb540060080070000380400001e000000ffffffff")
+    private val ackShort = unhex("da0102000c00000040e2cfeeb540060080070000380400001e000000")
     private val stateLivePinned = unhex("da0170001400000040e2cfeeb5400600020d00010000803fffffffff0000030003000000")
     private val mirrorStart = unhex("da0171000c00000040e2cfeeb540060001004006c0cf6a001e00d007")   // golden mirror_control_start
     private fun unhex(s: String) = ByteArray(s.length / 2) { i -> s.substring(i * 2, i * 2 + 2).toInt(16).toByte() }
@@ -136,6 +139,46 @@ class LinkTest {
             assertEquals(dialsBefore + 1, r.dials.size)
             assertEquals(0L, r.dials.last().second)
         }
+    }
+
+    @Test
+    fun anAckThatDoesNotDecodeIsIncompatibleInsteadOfHangingAtConnecting() {
+        // FZ-3: the decoder drops an ACK whose status is outside 0..3 (PROTOCOL 10). Link has no handshake timeout, so
+        // while it waits for an ACK it treats such a frame as a newer Mac: "Update Daylight", close, no re-dial.
+        for (bad in listOf(ackStatus4, ackStatusMax, ackShort)) {
+            val r = Recorder(); val l = link(r); l.start(); open(l, r)
+            l.received(bad)
+            assertEquals(Phase.INCOMPATIBLE, l.phase)
+            assertEquals(listOf(1002), r.closes)
+            assertFalse(l.inkAllowed)
+            assertEquals(null, l.lastAck)
+            l.closed(failure = false)
+            assertEquals(1, r.dials.size)
+            assertEquals(Phase.INCOMPATIBLE, l.phase)
+            l.userRetry()
+            assertEquals(Phase.SEARCHING, l.phase)
+            assertEquals(2, r.dials.size)
+        }
+        // PENDING still waits for the owner's answer, so an unreadable second ACK is incompatible too.
+        val r = Recorder(); val l = link(r); l.start(); open(l, r)
+        l.received(ackPending)
+        l.received(ackStatus4)
+        assertEquals(Phase.INCOMPATIBLE, l.phase)
+        assertEquals(listOf(1002), r.closes)
+    }
+
+    @Test
+    fun anUndecodableAckOnALiveLinkIsDroppedAndOtherBadFramesNeverChangeThePhase() {
+        val r = Recorder(); val l = link(r); l.start(); open(l, r)
+        l.received(unhex("da0170001400000040e2cfeeb5400600040d00010000803fffffffff0000030003000000"))   // governor 4
+        l.received(unhex("da01fd0000000000"))                                                            // short header
+        assertEquals(Phase.CONNECTING, l.phase)                                                          // only an ACK opcode counts
+        assertTrue(r.closes.isEmpty())
+        l.received(ackOk)
+        l.received(ackStatus4)
+        assertEquals(Phase.LIVE, l.phase)                                                                // decided: dropped
+        assertTrue(r.closes.isEmpty())
+        assertEquals(0, r.states)
     }
 
     @Test

@@ -38,21 +38,7 @@ class FuzzCorpusTest {
      * fixes are requested from the owner of the Android sources. The test asserts each of these STILL diverges, so it
      * turns red when the codec is fixed; then delete the entry.
      */
-    private val knownDivergent: Map<String, String> = mapOf(
-        "oversize_unknown_op_1mib_plus_1" to "FZ-1",
-        "oversize_state_1mib_plus_1" to "FZ-1",
-        "mirror_packet_oversize" to "FZ-1",
-        "ack_status_4" to "FZ-3",
-        "ack_status_255" to "FZ-3",
-        "ack_status_4294967295" to "FZ-3",
-        "state_governor_4" to "FZ-4",
-        "state_governor_ff" to "FZ-4",
-        "state_mode_4" to "FZ-4",
-        "state_ink_source_3" to "FZ-4",
-        "state_ink_source_ff" to "FZ-4",
-        "mirror_control_cmd_4" to "FZ-5",
-        "mirror_control_cmd_255" to "FZ-5",
-    )
+    private val knownDivergent: Map<String, String> = emptyMap()   // FZ-1, FZ-3, FZ-4 and FZ-5 are fixed: none left
 
     private fun hex(bytes: ByteArray): String {
         val sb = StringBuilder(bytes.size * 2)

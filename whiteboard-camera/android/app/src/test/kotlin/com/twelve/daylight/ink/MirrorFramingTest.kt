@@ -256,4 +256,28 @@ class MirrorFramingTest {
         assertEquals(0xFFFFFFFFL, p.u32())
         assertEquals(0L, p.u32())
     }
+
+    @Test
+    fun controlCommandOutsideZeroToThreeDoesNotDecode() {
+        // PROTOCOL 14.4 and 10 (FZ-5).
+        for (cmd in listOf("04", "ff")) {
+            val frame = unhex("da0171000c00000040e2cfeeb5400600" + cmd + "00" + "0000" + "00000000" + "0000" + "0000")
+            assertNull(cmd, MirrorFraming.decodeControl(frame))
+            assertNull(cmd, Decoder.decode(frame))
+        }
+        val release = unhex("da0171000c00000040e2cfeeb5400600" + "03" + "00" + "0000" + "00000000" + "0000" + "0000")
+        assertEquals(MirrorControl.RELEASE, MirrorFraming.decodeControl(release)!!.command)
+    }
+
+    @Test
+    fun theLargestMediaPacketFitsTheOneMiBHeaderCap() {
+        // PROTOCOL 14.2: n <= 1,048,564, so 12 + n is exactly the 1 MiB payload cap the header check enforces (FZ-1).
+        val largest = framing.packet(false, true, 0L, ByteArray(MirrorFraming.MAX_ANNEX_B_BYTES))
+        assertEquals(1_048_576, Decoder.header(largest)!!.payloadLen)
+        try {
+            framing.packet(false, true, 0L, ByteArray(MirrorFraming.MAX_ANNEX_B_BYTES + 1))
+            throw AssertionError("an access unit over the cap must be refused (the tablet drops it and asks for a key frame)")
+        } catch (expected: IllegalArgumentException) {
+        }
+    }
 }

@@ -128,4 +128,61 @@ class SolStreamTest {
         val shortByOne = unhex(cases().first { it.getString("name") == "pong" }.getString("hex")).copyOf(31)
         assertNull(Decoder.decode(shortByOne))
     }
+
+    /** A server frame with a correct header around [payload]. */
+    private fun frame(opcode: Int, payload: ByteArray): ByteArray {
+        val b = java.nio.ByteBuffer.allocate(SolStream.HEADER_LEN + payload.size).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        b.put(SolStream.MAGIC.toByte()).put(SolStream.VERSION.toByte()).putShort(opcode.toShort()).putInt(payload.size).putLong(ts)
+        return b.put(payload).array()
+    }
+
+    private fun ackPayload(status: Int): ByteArray =
+        java.nio.ByteBuffer.allocate(16).order(java.nio.ByteOrder.LITTLE_ENDIAN).putInt(1920).putInt(1080).putInt(30).putInt(status).array()
+
+    private fun statePayload(governor: Int, mode: Int, inkSource: Int, size: Int = 20): ByteArray {
+        val p = ByteArray(size)
+        p[0] = governor.toByte(); p[2] = mode.toByte(); p[3] = inkSource.toByte()
+        return p
+    }
+
+    @Test
+    fun payloadLenAboveOneMiBIsRejectedInTheHeader() {
+        // PROTOCOL 3: payload_len <= 1 MiB (FZ-1). Exactly 1 MiB is fine, one byte more is not, whatever the opcode.
+        assertEquals(1_048_576, Decoder.MAX_PAYLOAD_LEN)
+        val unknownAtCap = frame(0x00FD, ByteArray(1_048_576))
+        assertNotNull(Decoder.header(unknownAtCap))
+        assertTrue(Decoder.decode(unknownAtCap) is ServerMessage.Unknown)
+        assertNull(Decoder.header(frame(0x00FD, ByteArray(1_048_577))))
+        assertNull(Decoder.decode(frame(0x00FD, ByteArray(1_048_577))))
+        // A STATE longer than 20 bytes is a compatible addition, but not past the cap.
+        assertTrue(Decoder.decode(frame(SolStream.Op.STATE, statePayload(2, 0, 1, 1_048_576))) is ServerMessage.State)
+        assertNull(Decoder.decode(frame(SolStream.Op.STATE, statePayload(2, 0, 1, 1_048_577))))
+        // A payload_len with the top bit set (a negative Int) never decodes either.
+        val negative = frame(0x00FD, ByteArray(0))
+        negative[7] = 0x80.toByte()
+        assertNull(Decoder.header(negative))
+    }
+
+    @Test
+    fun ackStatusOutsideZeroToThreeDoesNotDecode() {
+        // PROTOCOL 6.2 and 10 (FZ-3): Link maps such a frame to INCOMPATIBLE itself (LinkTest).
+        for (status in 0..3) {
+            val msg = Decoder.decode(frame(SolStream.Op.HANDSHAKE_ACK, ackPayload(status)))
+            assertEquals(status, (msg as ServerMessage.Ack).ack.status)
+        }
+        for (status in listOf(4, 255, -1, Int.MIN_VALUE)) {   // -1 is u32 0xFFFFFFFF
+            assertNull("status $status", Decoder.decode(frame(SolStream.Op.HANDSHAKE_ACK, ackPayload(status))))
+        }
+    }
+
+    @Test
+    fun stateEnumsOutOfRangeDoNotDecode() {
+        // PROTOCOL 6.14 and 10 (FZ-4): governor 0..3, mode 0..3, ink_source 0..2.
+        val top = Decoder.decode(frame(SolStream.Op.STATE, statePayload(3, 3, 2))) as ServerMessage.State
+        assertEquals(listOf(3, 3, 2), listOf(top.state.governor, top.state.mode, top.state.inkSource))
+        for ((g, m, i) in listOf(Triple(4, 0, 0), Triple(0xFF, 0, 0), Triple(0, 4, 0), Triple(0, 0xFF, 0), Triple(0, 0, 3), Triple(0, 0, 0xFF))) {
+            assertNull("governor $g mode $m ink_source $i", Decoder.decode(frame(SolStream.Op.STATE, statePayload(g, m, i))))
+            assertNull("longer STATE too", Decoder.decode(frame(SolStream.Op.STATE, statePayload(g, m, i, 24))))
+        }
+    }
 }

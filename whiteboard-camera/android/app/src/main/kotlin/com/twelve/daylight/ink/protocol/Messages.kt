@@ -46,8 +46,14 @@ sealed class ServerMessage {
     data class Unknown(val opcode: Int) : ServerMessage()
 }
 
-/** Decodes server-to-client frames. Returns null for a frame that is not SolStream or whose length lies. */
+/**
+ * Decodes server-to-client frames. Returns null for a frame that is not SolStream, whose length lies or exceeds the
+ * 1 MiB payload cap (PROTOCOL 3), or whose enumerated field is outside the values of PROTOCOL 6 and 14 (PROTOCOL 10).
+ */
 object Decoder {
+    /** PROTOCOL 3: payload_len <= 1 MiB. */
+    const val MAX_PAYLOAD_LEN = 1_048_576
+
     fun header(bytes: ByteArray): Header? {
         if (bytes.size < SolStream.HEADER_LEN) return null
         val b = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
@@ -55,6 +61,7 @@ object Decoder {
         if ((b.get().toInt() and 0xFF) != SolStream.VERSION) return null
         val opcode = b.short.toInt() and 0xFFFF
         val len = b.int
+        if (len < 0 || len > MAX_PAYLOAD_LEN) return null
         if (len != bytes.size - SolStream.HEADER_LEN) return null
         return Header(opcode, len, b.long)
     }
@@ -65,24 +72,26 @@ object Decoder {
         return when (h.opcode) {
             SolStream.Op.HANDSHAKE_ACK -> {
                 if (h.payloadLen != 16) return null
-                ServerMessage.Ack(HandshakeAck(b.int, b.int, b.int, b.int))
+                val ack = HandshakeAck(b.int, b.int, b.int, b.int)
+                if (ack.status !in HandshakeAck.OK..HandshakeAck.UNSUPPORTED) return null   // u32 read as Int: >= 2^31 is negative
+                ServerMessage.Ack(ack)
             }
             SolStream.Op.STATE -> {
                 if (h.payloadLen < 20) return null   // longer STATE frames are compatible additions
-                ServerMessage.State(
-                    StateReport(
-                        governor = b.get().toInt() and 0xFF,
-                        flags = b.get().toInt() and 0xFF,
-                        mode = b.get().toInt() and 0xFF,
-                        inkSource = b.get().toInt() and 0xFF,
-                        progress = b.float,
-                        msToReturn = b.int.toLong() and 0xFFFFFFFFL,
-                        pageIndex = b.short.toInt() and 0xFFFF,
-                        strokeCount = b.short.toInt() and 0xFFFF,
-                        undoDepth = b.short.toInt() and 0xFFFF,
-                        redoDepth = b.short.toInt() and 0xFFFF,
-                    )
+                val state = StateReport(
+                    governor = b.get().toInt() and 0xFF,
+                    flags = b.get().toInt() and 0xFF,
+                    mode = b.get().toInt() and 0xFF,
+                    inkSource = b.get().toInt() and 0xFF,
+                    progress = b.float,
+                    msToReturn = b.int.toLong() and 0xFFFFFFFFL,
+                    pageIndex = b.short.toInt() and 0xFFFF,
+                    strokeCount = b.short.toInt() and 0xFFFF,
+                    undoDepth = b.short.toInt() and 0xFFFF,
+                    redoDepth = b.short.toInt() and 0xFFFF,
                 )
+                if (state.governor > 3 || state.mode > 3 || state.inkSource > 2) return null   // PROTOCOL 6.14
+                ServerMessage.State(state)
             }
             SolStream.Op.PONG -> {
                 if (h.payloadLen != 16) return null

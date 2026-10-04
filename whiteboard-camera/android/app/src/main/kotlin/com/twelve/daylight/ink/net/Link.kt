@@ -16,7 +16,7 @@ enum class Phase {
     PENDING,        // ACK 1: the Mac shows the Allow panel; ink is not sent
     LIVE,           // ACK 0
     DENIED,         // ACK 2: no re-dial until the owner taps the chip
-    INCOMPATIBLE,   // ACK 3 or the server did not echo solstream.v1: no re-dial until tapped
+    INCOMPATIBLE,   // ACK 3, an ACK that does not decode, or the server did not echo solstream.v1: no re-dial until tapped
 }
 
 /** What the state machine asks the platform layer to do. */
@@ -135,8 +135,23 @@ class Link(
                 actions.pong(msg.sequence, rtt)
             }
             is ServerMessage.Mirror -> if (phase == Phase.LIVE) actions.mirrorControl(msg.control)
-            is ServerMessage.Unknown, null -> {}      // PROTOCOL 10: unknown opcodes are ignored
+            is ServerMessage.Unknown -> {}            // PROTOCOL 10: unknown opcodes are ignored
+            null -> if (awaitingAck() && Decoder.header(bytes)?.opcode == SolStream.Op.HANDSHAKE_ACK) unreadableAck()
         }
+    }
+
+    /** CONNECTING (HANDSHAKE sent) or PENDING (the owner's answer is still to come): the next ACK decides the phase. */
+    private fun awaitingAck(): Boolean = currentUrl != null && (phase == Phase.CONNECTING || phase == Phase.PENDING)
+
+    /**
+     * A HANDSHAKE_ACK whose header is sound but whose payload does not decode (a status outside 0..3 or a wrong size).
+     * PROTOCOL 10 drops the frame; dropping it silently would leave the chip at "connecting" forever, since only an ACK
+     * moves the phase on. A Mac that answers with an ACK this build cannot read speaks a newer protocol, so this is
+     * "Update Daylight" (PROTOCOL 6.14), handled like a missing subprotocol echo: close and wait for the owner's tap.
+     */
+    private fun unreadableAck() {
+        actions.close(1002, "unreadable handshake ack")
+        setPhase(Phase.INCOMPATIBLE)
     }
 
     private fun ack(a: HandshakeAck) {

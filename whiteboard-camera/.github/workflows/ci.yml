@@ -234,7 +234,9 @@ jobs:
     continue-on-error: true
     concurrency:
       group: wbc-android-emulator-${{ github.ref }}
-      cancel-in-progress: true
+      # Like the mac job: a started run finishes (the emulator needs about 20 minutes and the branch takes pushes from
+      # several teams), with at most one newer run waiting behind it.
+      cancel-in-progress: false
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7

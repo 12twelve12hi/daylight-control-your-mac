@@ -295,11 +295,11 @@ Engineering tickets that follow the owner's decisions of 2026-10-03, ready to be
 
 | # | Item | Fallback in place | Owner, or how the owner confirms |
 |---|---|---|---|
-| R4-1 | OV-5: after "Segmentation quality" changes, the pipeline renders Overlay again, but the menu keeps the row 48 line and the status says Studio Split. | Turning Overlay off and on clears both. | Mac UI VP: handoff request 1. |
-| R4-2 | DX-6: the self-test child's stdout is fully buffered, so a hang or crash loses the lines naming the failing probe in `self-test.txt`. | Row 46 still says the self-test timed out or was killed by signal N. | Mac UI VP: handoff request 2 (`setvbuf` in `SelfTest.run`). |
+| R4-1 | CLOSED in 4aee796 (Phase 4 integration; `OverlayAppModelTests.testAQualityChangeClearsTheLineOnlyWhileAControllerExists`). OV-5: after "Segmentation quality" changes, the pipeline renders Overlay again, but the menu keeps the row 48 line and the status says Studio Split. | Turning Overlay off and on clears both. | Mac UI VP: handoff request 1. |
+| R4-2 | CLOSED in bb4ba81 (Phase 4 integration; `DiagnosticsExportTests.testASelfTestEndedAtTheTimeoutKeepsItsFirstLines`). DX-6: the self-test child's stdout is fully buffered, so a hang or crash loses the lines naming the failing probe in `self-test.txt`. | Row 46 still says the self-test timed out or was killed by signal N. | Mac UI VP: handoff request 2 (`setvbuf` in `SelfTest.run`). |
 | R4-3 | CLOSED in ed354b2 (LOOSE_ENDS EM-12). Kotlin codec divergences FZ-1 (no 1 MiB cap), FZ-3 (ACK status above 3), FZ-4 (STATE enums out of range), FZ-5 (MIRROR_CONTROL command above 3). They are pinned in `FuzzCorpusTest.kt` as expected failures. | No Mac sends any of them. | Emulator VP: handoff request 3, then delete the `knownDivergent` entries. |
 | R4-4 | The listener has no cap on concurrent connections; each idle one is closed after 10 s (AF-1). | Head and body deadlines. | Product decision on a max-connections cap. |
-| R4-5 | CI-1: one mac-26 crash in `PipelineSmokeTests.testMirrorSourceIsComposedWhenSelected` (run 37179989574, artifact 11294917131). It passed on mac in that run and on both mac jobs in two later runs. | c7f7280 makes a recurrence a reported failure with the pipeline state. | Scripts owner: handoff request 4 (crash lines in the job log). Then read the frame and fix it if it is in Pipeline. |
+| R4-5 | CI-1: mac-26 crashes in `PipelineSmokeTests`: `testMirrorSourceIsComposedWhenSelected` (run 37179989574, artifact 11294917131) and again `testThreeHundredTicksMeasured` (run 37185248641, job 111386118101, "Restarting after unexpected exit"). macos-15 passed both runs. | c7f7280 makes a failed wait report the pipeline state; request 4 is done in a78fea3: `scripts/crash-summary.sh` prints the crash lines and the crashed thread of each new `.ips` report into the job log and copies the reports into `xcodebuild-logs-macos-26`. | Pipeline owner: read the frame from the next mac-26 crash's log and fix it if it is in Pipeline; until then mac-26 stays non-blocking (MU-6, H2). |
 | R4-6 | OV-8: while the Overlay fallback draws Studio Split, the first press of D only changes the preferred layout (SPEC D46). | A second press returns to camera; Esc and O work. | Owner: a SPEC wording decision, if wanted. |
 | R4-7 | OV-7, tuning: masks older than 0.5 s show the rectangle, so a Mac that segments slower than about 0.23 s alternates between matte and rectangle. | The `perf overlay` line shows `mask_age_ms` and the state. | Session 6, together with E30 (segmentation time per quality). |
 
@@ -314,7 +314,7 @@ Engineering tickets that follow the owner's decisions of 2026-10-03, ready to be
 | EM-9 | OnboardingActivity reconnects on every keystroke in the host field. | Harmless: the last address wins. | Android owner, optional: debounce by 500 ms. |
 | EM-10 | `OverlayService.onCreate` calls `startForeground` unguarded; a plain `startService` from the background would throw on Android 12 and later. Only Settings sends one, from the foreground. | None needed today. | Android owner, optional: wrap it like `ScreenStreamService`. |
 | EM-11 | CLOSED: blocking since runs 37183448543, 37183673841 and 37184526410 were green in a row (STATUS, section "Emulator"). | None needed. | None. |
-| EM-12 | The R4-3 Kotlin codec divergences are closed in ed354b2 (`FuzzCorpusTest.knownDivergent` empty); `protocol/fuzz/README.md` "Known expected failures" still lists them. | The Kotlin test is the truth. | Protocol owner: change that README section to "none". |
+| EM-12 | CLOSED in 2ad87e6 (the README says "None"). The R4-3 Kotlin codec divergences are closed in ed354b2 (`FuzzCorpusTest.knownDivergent` empty); `protocol/fuzz/README.md` "Known expected failures" still lists them. | The Kotlin test is the truth. | Protocol owner: change that README section to "none". |
 
 ## MU. The Mac app's windows on the CI runner (phase 4, 2026-10-04)
 
@@ -330,3 +330,13 @@ Engineering tickets that follow the owner's decisions of 2026-10-03, ready to be
 | MU-6 | The mac-26 leg does not run the UI suite. | macos-15 runs it and blocks. | Promote it together with H2 when mac-26 becomes required. |
 | MU-7 | The preview window is identified by its title (Pipeline owns `PreviewWindow`). | Title match. | Pipeline owner: handoff request 1 in vp-mac-ui.md. |
 
+## P4. Phase 4 integration (2026-10-04)
+
+`docs/STATUS.md` section "Phase 4 integration" says what the integrator verified in the four phase 4 handoffs and what it corrected (a78fea3, 4aee796, bb4ba81, 2ad87e6, 65a8f97, f28ce03 and the docs commit of that section). The rows below stay open.
+
+| # | Item | Fallback in place | Owner, or how the owner confirms |
+|---|---|---|---|
+| P4-1 | The docs-to-UI check asserts the Share tab's strings only since a78fea3 and the chains of OWNER-NEXT-STEPS step 8c item 4 (59 strings, all three Share toggles among them); its first green runs with them are this integration's (STATUS, "Phase 4 integration"). | The suite's accessibility dump of Settings > Share already listed all three toggles and "Show share window" (run 37186129238). | None once that run is green. |
+| P4-2 | mac-26 failed once in `WifiMirrorSourceTests.testReleaseOnQuitWaitsUntilTheServerClosedTheConnection` ("release returned only after forget", run 37182692894, job 111378699572); macos-15 passed it in the same run and every later run. Not in any handoff. | mac-26 is non-blocking; the Wi-Fi release on quit is also TESTING-CHECKLIST 4b (quitting releases the tablet's share). | Mirror owner: make the test's wait for the server close explicit, or find the ordering in `WifiMirrorSource.release(timeout:)` on macOS 26. |
+| P4-3 | `testASelfTestEndedAtTheTimeoutKeepsItsFirstLines` runs the real `Daylight --self-test` child for 3 s. If a runner ever starts the binary slower than that, it fails without a DX-6 regression. | The first line is printed before Metal is touched. | Raise the timeout if it ever fails with `timedOut=true` and empty output. |
+| P4-4 | Nothing records a green run of `mac-ui-test` on mac-26 or of the share window on a real screen; the share window has never been shared in a real call. | macos-15 runs the UI suite and blocks. | Owner: OWNER-NEXT-STEPS step 8c, TESTING-CHECKLIST Session 7 (7.7 on the signed build). |

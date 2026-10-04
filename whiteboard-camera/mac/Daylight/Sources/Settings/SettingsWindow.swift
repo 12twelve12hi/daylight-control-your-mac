@@ -255,8 +255,11 @@ struct SettingsView: View {
         }
     }
 
+    /// A VStack, not a Form: inside the ScrollView the two-column Form took its ideal width, wider than the window, so
+    /// the popups and sliders ran past the right edge and the row labels past the left (UI test run 37181876257). The
+    /// VStack is offered the scroll view's width; the UI suite's frame check guards it.
     private var overlayForm: some View {
-        Form {
+        VStack(alignment: .leading, spacing: 12) {
             Toggle("Enable overlay mode", isOn: $store.settings.overlayEnabled)
             Group {
                 Picker("Segmentation quality", selection: $store.settings.overlayQuality) {
@@ -287,8 +290,10 @@ struct SettingsView: View {
             }
             .disabled(!store.settings.overlayEnabled)
             Text("Overlay shows the whiteboard full frame with you cut out of your background in a corner; if you cannot be found it shows Studio Split.").font(.footnote).foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier(SettingsTab.overlay.lastElementID)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
     }
 
@@ -388,10 +393,26 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             w.styleMask = [.titled, .closable, .miniaturizable]
             w.isReleasedWhenClosed = false
             w.delegate = self
-            w.center()
+            SettingsWindowController.placeCentered(w, content: hosting.view)
             window = w
         }
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate()
+    }
+
+    /// Sizes the window to its SwiftUI content before centring it, then keeps it inside the screen's visible frame.
+    /// `NSWindow(contentViewController:)` alone centred a window that was still zero wide: its left edge sat at the
+    /// middle of the screen and on a 1024 pt wide screen the right part (the last tabs) was off screen (UI test runs
+    /// 37180339019 and 37181876257, window x = 511 at both widths). The UI suite asserts every window lies on screen.
+    static func placeCentered(_ window: NSWindow, content: NSView) {
+        content.layoutSubtreeIfNeeded()
+        let size = content.fittingSize
+        if size.width > 0, size.height > 0 { window.setContentSize(size) }
+        window.center()
+        guard let visible = (window.screen ?? NSScreen.main)?.visibleFrame else { return }
+        var origin = window.frame.origin
+        origin.x = min(max(origin.x, visible.minX), max(visible.minX, visible.maxX - window.frame.width))
+        origin.y = min(max(origin.y, visible.minY), max(visible.minY, visible.maxY - window.frame.height))
+        window.setFrameOrigin(origin)
     }
 }

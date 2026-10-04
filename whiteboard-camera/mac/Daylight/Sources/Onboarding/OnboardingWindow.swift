@@ -131,7 +131,9 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
             w.styleMask = [.titled, .closable, .miniaturizable]
             w.isReleasedWhenClosed = false
             w.delegate = self
-            w.center()
+            // Sized to the content before centring, and kept on screen (same defect as Settings; the UI suite asserts
+            // every window lies on screen).
+            SettingsWindowController.placeCentered(w, content: hosting.view)
             window = w
         }
         window?.makeKeyAndOrderFront(nil)

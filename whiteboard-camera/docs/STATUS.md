@@ -522,3 +522,16 @@ Runs of the job that finished (cancelled runs do not count). Promoted to blockin
 | 37183448543 | 5874bbf | 111380456579 | green, streak 1 |
 | 37183673841 | b121134 | 111381109320 | green, streak 2 |
 | 37184526410 | 5302551 | 111383580460 | green, streak 3: `continue-on-error` removed from both workflows |
+
+## Mac UI on the CI runner (phase 4, 2026-10-04)
+
+The XCUITest suite `mac/DaylightUITests` (`make mac-ui-test`, a blocking step of the mac job after `make mac-smoke`) launches the unsigned Release app on the macos-15 runner in light and dark appearance and walks the Welcome window, the menu bar item and its submenus, all nine Settings tabs (scrolled to the bottom), the preview, Diagnostics and the Allow panel, with a screenshot at every step (artifact `mac-screenshots`, described in `docs/SCREENSHOTS.md`). It fails when a window is off screen, a tab is not clickable, an element leaves its window or overlaps another, a tab's content is not top-aligned, a popup is covered, or a menu item, tab, label or option that `docs/OWNER-NEXT-STEPS.md`, `docs/SETUP.md` or `docs/TESTING-CHECKLIST.md` quotes is not in the UI as written (55 strings). It found and fixed seven defects: the Settings window half off a small screen, nine tabs too wide for 560 pt (now 720), the Advanced and Overlay rows running past the right edge, the Mirror crop view drawn over the Quality row, Saving's split columns and the vertically centred tabs, 40 pt hotkey fields, and hotkey fields that read as disabled to VoiceOver. Details: `docs/handoff/vp-mac-ui.md`; open items: LOOSE_ENDS MU.
+
+| Run | Commit | mac job | Result |
+|---|---|---|---|
+| 37180339019 | ea26915 | 111371850861 | first run, non-blocking: 4 failures per appearance (round 1) |
+| 37182692894 | cdab9e7 | 111378699546 | green, streak 1 (168 s) |
+| 37183673841 | b121134 | 111381458448 | green, streak 2 (195 s) |
+| 37184558756 | a0d8aa9 | 111384053539 | green, streak 3 (177 s): promoted to blocking in 2f7fec1 |
+| 37185248641 | 2f7fec1 | 111386117975 | green with the step blocking |
+

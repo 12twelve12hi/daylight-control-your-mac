@@ -315,3 +315,18 @@ Engineering tickets that follow the owner's decisions of 2026-10-03, ready to be
 | EM-10 | `OverlayService.onCreate` calls `startForeground` unguarded; a plain `startService` from the background would throw on Android 12 and later. Only Settings sends one, from the foreground. | None needed today. | Android owner, optional: wrap it like `ScreenStreamService`. |
 | EM-11 | CLOSED: blocking since runs 37183448543, 37183673841 and 37184526410 were green in a row (STATUS, section "Emulator"). | None needed. | None. |
 | EM-12 | The R4-3 Kotlin codec divergences are closed in ed354b2 (`FuzzCorpusTest.knownDivergent` empty); `protocol/fuzz/README.md` "Known expected failures" still lists them. | The Kotlin test is the truth. | Protocol owner: change that README section to "none". |
+
+## MU. The Mac app's windows on the CI runner (phase 4, 2026-10-04)
+
+`docs/handoff/vp-mac-ui.md` lists the seven UI defects the screenshots showed, all fixed and each guarded by an assertion in `mac/DaylightUITests`. The rows below stay open.
+
+| # | Item | Fallback in place | Owner, or how the owner confirms |
+|---|---|---|---|
+| MU-1 | The suite runs the app with `--ui-test`: no camera, extension, mirror, hotkeys or network listener, so live states (a webcam picture, a connected tablet, a pending Allow from a real client, the mirror crop with a frame) are not on the screenshots. | The Allow panel is shown with a fixture tablet; the rest is TESTING-CHECKLIST. | Owner: Sessions 1 to 4b. |
+| MU-2 | Artifacts and raw job logs are on productionresultssa17.blob.core.windows.net, which the cloud sessions' network policy blocks. | The mac job log carries every screenshot as a base64 JPEG line and an accessibility dump per surface. | Owner, optional: allow that host in the cloud environment's network settings. |
+| MU-3 | The runner screen is 1024 by 768 at one scale; a smaller or scaled display, or a larger system text size, is not exercised. | Windows are kept on screen; labels wrap; the overflow and overlap checks run on every surface. | TESTING-CHECKLIST Session 1 on the owner's Mac. |
+| MU-4 | The Diagnostics report is checked through the pasteboard; a later macOS may ask before another app reads it. | The window's first lines are also checked directly. | UI suite owner, if a macOS 26 runner prompts. |
+| MU-5 | The `--ui-test-open menu` fallback (`performClick` on the status item button) has never run: the real status item was reachable on every run. | The suite uses the real click first. | None needed while the status item stays reachable. |
+| MU-6 | The mac-26 leg does not run the UI suite. | macos-15 runs it and blocks. | Promote it together with H2 when mac-26 becomes required. |
+| MU-7 | The preview window is identified by its title (Pipeline owns `PreviewWindow`). | Title match. | Pipeline owner: handoff request 1 in vp-mac-ui.md. |
+

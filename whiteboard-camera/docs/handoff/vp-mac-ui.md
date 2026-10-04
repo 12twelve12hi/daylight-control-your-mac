@@ -4,33 +4,41 @@ Owner of the `DaylightUITests` XCUITest target (`mac/project.yml`), `mac/Dayligh
 
 ## Status
 
+Acceptance met: the UI suite was green three times in a row and is blocking; `mac-screenshots` holds every window in light and dark; the docs-to-UI check passes (55 of 55); the defects the screenshots showed are fixed, each with an assertion; open items are in LOOSE_ENDS section MU.
+
 | Item | State | Proof |
 |---|---|---|
-| Design contract (below) | written | this file |
 | App side: `--ui-test` mode and identifiers (e2f00dd) | built; UITestModeTests green | run 37180339019, mac and mac-26 jobs |
-| Suite, scripts, CI step (a3fba2a) | first run: compiled, ran in 195 s, 76 screenshots, status item menu reached directly (no fallback needed); 4 failures per appearance (round 2 below) | run 37180339019, mac job 111371850861 |
+| Suite, scripts, CI step (a3fba2a) | first run compiled and ran (195 s, 76 screenshots, the status item menu reached by a real click; the `--ui-test-open menu` fallback was never needed); 4 failures per appearance | run 37180339019, mac job 111371850861 |
+| Round 2 (77c7ab6, 725eea1, 71531cb, e7b7897) | green, streak 1: `TEST SUCCEEDED in 168 s` | run 37182692894, mac job 111378699546 |
+| Round 3 (e70f64b, cf7b3c6) | green, streak 2: `TEST SUCCEEDED in 195 s`; I decoded and looked at all 42 images | run 37183673841, mac job 111381458448 |
+| Round 4 (a0d8aa9) | green, streak 3: `TEST SUCCEEDED in 177 s` | run 37184558756, mac job 111384053539 |
+| Promoted to blocking (2f7fec1), accessibility fix (757a18d) | green with the step blocking | run 37185248641, mac job 111386117975 (its mac-26 leg crashed in `PipelineSmokeTests.testThreeHundredTicksMeasured`, Pipeline owner's R4-5, not this change) |
 
-| Round 2 (77c7ab6, 725eea1, 71531cb, e7b7897): fixes below, generic overflow and on-screen checks, docs check 55 of 55 | UI step green, `mac-ui-test: TEST SUCCEEDED in 168 s` (green run 1 of 3) | run 37182692894, mac job 111378699546 |
+Suite time: 168 to 195 s for both appearances (budget 6 minutes, step limit 12).
 
-### Round 2 defects fixed (each guarded by an assertion)
+## Defects found and fixed (each guarded by an assertion)
 
-- Settings and Welcome windows were centred while still zero wide, so on the runner's 1024 by 768 screen the Settings window's right part (the last tabs) was off screen: now sized before centring and kept on screen (guard: every window inside the screen; tab not reachable fails).
-- Nine tabs did not fit 560 pt: Settings is 720 by 520 (same guards).
-- Advanced "Perf log" label ran past the right edge; Overlay's Form laid out wider than the window on both sides: both are plain stacks now (guard: generic horizontal overflow check on every surface).
-- Test-side corrections: Form popups carry no label (found by label or value, options compared exactly); the Diagnostics report is read from the pasteboard.
+| Defect | Fix | Guard |
+|---|---|---|
+| Settings and Welcome windows were centred while still zero wide, so on the runner's 1024 by 768 screen the Settings window's right part (the last tabs) was off screen | sized to content before centring, kept on screen | every window inside the screen; a tab not reachable by a click fails |
+| Nine tabs (Share arrived this phase) did not fit 560 pt | Settings is 720 by 520 | same |
+| Advanced "Perf log" label ran past the right edge; Overlay's Form laid out wider than the window | plain stacks with wrapping labels; no text changed | every element horizontally inside its window, on every surface |
+| Mirror: the crop view (400 pt intrinsic in a 260 pt row) drew over "Quality" and the footnote and under the window bottom | the crop view takes the offered size and clips; the tab is a stack | no two visible elements overlap (the crop view carries `daylight.settings.mirror.cropview`); every popup hittable after scrolling to it |
+| Saving: two misaligned columns; Saving and Share vertically centred with an empty band | one left-aligned column; every tab top-aligned at the container | the first element of each tab starts within 40 pt of the tab bar |
+| Hotkeys: each chord field grew to about 40 pt with the chord at its bottom | fixed 220 by 24 pt, chord centred | each field 20 to 30 pt tall, its label centred on it within 4 pt |
+| Hotkeys: the chord fields read as disabled to accessibility (VoiceOver would say dimmed) | `setAccessibilityEnabled(true)` | each field enabled |
 
-### Round 3 defects seen in the screenshots (in progress)
+Test-side corrections (not UI defects): Form popups carry no label (found by label or value, options compared exactly); the Diagnostics text view exposes only about 512 characters to accessibility, so the report is checked on the pasteboard after "Copy diagnostics".
 
-- Settings > Mirror: the crop view is drawn over the "Quality" row and the footnote, and runs under the window bottom.
-- Settings > Saving: two misaligned columns; Saving and Share content vertically centred with an empty band at the top.
+## Reading the results from a cloud session
 
-### Round 1 findings (run 37180339019)
+Artifacts and raw logs are on productionresultssa17.blob.core.windows.net, which this cloud environment's network policy blocks. `mcp__github__get_job_logs` (return_content, tail_lines 5000) still works: the mac job's log carries every image as one base64 JPEG line between `UI-THUMB-BEGIN <path>` and `UI-THUMB-END` (42 images, about 1.2 MB), then the suite's notes and an accessibility dump per surface (`DaylightUITests [<appearance>] ax <surface>:`), then the verdict.
 
-- Defect: Settings > Advanced "Perf log (one line per second, kept for Diagnostics and the export)" runs past the right edge of the window (label frame x 771 to 1191, window 511 to 1103).
-- Settings > Diagnostics tab not clickable by the suite (suspected: the eight tabs do not fit the 560 pt window).
-- Overlay popups matched only by label; SwiftUI popups expose an empty label.
-- Diagnostics window: the suite did not find the "log (last N lines):" line.
-- Artifacts and raw logs are on productionresultssa17.blob.core.windows.net, which this cloud environment's network policy blocks; the suite therefore also prints accessibility dumps and JPEG thumbnails into the job log.
+## Requests for other owners
+
+1. Pipeline owner: `PreviewWindow.makeWindow()` could call `w.setAccessibilityIdentifier("daylight.window.preview")`; today `UITestMode.tagPreviewWindow()` finds the window by its title.
+2. Share owner: `ShareSettingsView` is top-aligned from the Settings container; if it gains rows, keep its labels wrapping so the overflow check stays green.
 
 ## Design contract
 
@@ -60,4 +68,4 @@ Owner of the `DaylightUITests` XCUITest target (`mac/project.yml`), `mac/Dayligh
 
 ### CI
 
-`make mac-ui-test` runs after `make mac-smoke` in the mac job of both workflows (`continue-on-error: true` until green three times in a row, then blocking), with its own time limit; the suite budget is 6 minutes.
+`make mac-ui-test` runs after `make mac-smoke` in the mac job of both workflows blocking since runs 37182692894, 37183673841 and 37184558756 (it was `continue-on-error: true` until then), with a 12 minute step limit and the script's own 480 s limit; the suite budget is 6 minutes. The mac-26 leg does not run it.

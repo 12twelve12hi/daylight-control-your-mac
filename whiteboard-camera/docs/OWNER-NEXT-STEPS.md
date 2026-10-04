@@ -4,6 +4,8 @@ This is the one page to open first. It walks from "I have a Mac without Xcode an
 
 Writing rules: no em-dashes; LivePaper is a transflective LCD; the backlight is DC dimming; VRR is 45 to 90 Hz.
 
+Coming back after a break? `docs/WHATS-NEW.md` lists what changed (Wi-Fi mirror, adb source, Overlay, Export diagnostics, Send facts to Mac) and the two steps that are still yours.
+
 ## What you have and what you do not, in one paragraph
 
 Every component is built and green in CI (`docs/STATUS.md`), but nothing has run on real hardware. Two things only you can do: sign the Mac app with your Apple Developer account (without it the virtual camera cannot appear in any call; the unsigned build still shows everything in a preview window), and put the DC-1 next to the Mac to confirm the tablet facts the code guessed (`docs/LOOSE_ENDS.md` section D). You need no Xcode at any point: GitHub Actions builds, signs and notarizes; your Mac only needs Keychain Access, Terminal and the `gh` command.

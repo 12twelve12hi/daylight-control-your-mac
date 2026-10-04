@@ -288,3 +288,17 @@ Engineering tickets that follow the owner's decisions of 2026-10-03, ready to be
 | TS-5 | The share window has no global hotkey: a new `HotkeyAction` belongs to the Kit settings schema (`Settings.swift`, another team's file). | menu bar > "Share the whiteboard" > "Show share window", and "Open the share window when the whiteboard slides in". | Kit settings owner: add `HotkeyAction.shareWindow` (suggested chord Ctrl+Opt+Cmd+S); the handoff names the lines. |
 | TS-6 | Whether the macOS green-button "Share" item appears for Zoom (with "Use Mac System Picker" on) or Teams ("Use macOS content sharing"), and not only for FaceTime, is UNVERIFIED. It would make sharing our window two clicks. | The call app's own share button. | Step 8c item 5. |
 | TS-7 | The share window copies both 1200 x 1600 layers (about 15 MB) per redraw on its own queue, at most 30 times a second while the canvas changes; the CPU cost on the owner's Mac is unmeasured. | Redraws happen only when the canvas seed changes. | Activity Monitor while drawing with the share window open (TESTING-CHECKLIST owner, optional row). |
+
+## R4. Review round 4 (2026-10-04)
+
+`docs/handoff/vp-review-4.md` lists every finding, verdict and fix. The rows below are what round 4 left open.
+
+| # | Item | Fallback in place | Owner, or how the owner confirms |
+|---|---|---|---|
+| R4-1 | OV-5: after "Segmentation quality" changes, the pipeline renders Overlay again, but the menu keeps the row 48 line and the status says Studio Split. | Turning Overlay off and on clears both. | Mac UI VP: handoff request 1. |
+| R4-2 | DX-6: the self-test child's stdout is fully buffered, so a hang or crash loses the lines naming the failing probe in `self-test.txt`. | Row 46 still says the self-test timed out or was killed by signal N. | Mac UI VP: handoff request 2 (`setvbuf` in `SelfTest.run`). |
+| R4-3 | Kotlin codec divergences FZ-1 (no 1 MiB cap), FZ-3 (ACK status above 3), FZ-4 (STATE enums out of range), FZ-5 (MIRROR_CONTROL command above 3). They are pinned in `FuzzCorpusTest.kt` as expected failures. | No Mac sends any of them. | Emulator VP: handoff request 3, then delete the `knownDivergent` entries. |
+| R4-4 | The listener has no cap on concurrent connections; each idle one is closed after 10 s (AF-1). | Head and body deadlines. | Product decision on a max-connections cap. |
+| R4-5 | CI-1: one mac-26 crash in `PipelineSmokeTests.testMirrorSourceIsComposedWhenSelected` (run 37179989574, artifact 11294917131). It passed on mac in that run and on both mac jobs in two later runs. | c7f7280 makes a recurrence a reported failure with the pipeline state. | Scripts owner: handoff request 4 (crash lines in the job log). Then read the frame and fix it if it is in Pipeline. |
+| R4-6 | OV-8: while the Overlay fallback draws Studio Split, the first press of D only changes the preferred layout (SPEC D46). | A second press returns to camera; Esc and O work. | Owner: a SPEC wording decision, if wanted. |
+| R4-7 | OV-7, tuning: masks older than 0.5 s show the rectangle, so a Mac that segments slower than about 0.23 s alternates between matte and rectangle. | The `perf overlay` line shows `mask_age_ms` and the state. | Session 6, together with E30 (segmentation time per quality). |

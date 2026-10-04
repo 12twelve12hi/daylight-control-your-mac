@@ -196,7 +196,27 @@ object SettingsFacts {
         else -> textRefused(code)
     }
 
+    /**
+     * One POST at a time: while "Sending to your Mac." is shown, another tap is ignored, so a double tap cannot send
+     * twice or let an older answer overwrite a newer one. Main thread only (the tap and the posted answer both run there).
+     */
+    class SendGate {
+        var busy: Boolean = false
+            private set
+
+        /** True when a send may start (and marks it started); false while one is in flight. */
+        fun tryBegin(): Boolean {
+            if (busy) return false
+            busy = true
+            return true
+        }
+
+        fun end() { busy = false }
+    }
+
     // ---- Android ----
+
+    private val gate = SendGate()
 
     /** The last socket URL that was PENDING or LIVE when the button was tapped ("last connected to"). */
     @Volatile private var lastReachedUrl: String? = null
@@ -211,6 +231,7 @@ object SettingsFacts {
 
     /** Main thread. Reads the facts, posts them on OkHttp's thread and hands the feedback line to [show] on the main thread. */
     fun send(context: Context, conn: InkConnection, show: (String) -> Unit) {
+        if (gate.busy) return                     // "Sending to your Mac." is on screen: this tap is ignored
         val prefs = Prefs(context)
         val phase = conn.phase
         if (phase == Phase.PENDING || phase == Phase.LIVE) conn.currentUrl?.let { lastReachedUrl = it }
@@ -225,18 +246,19 @@ object SettingsFacts {
             show(TEXT_UNREACHABLE)
             return
         }
+        if (!gate.tryBegin()) return
         show(TEXT_SENDING)
         http.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
                 Log.i(TAG, "facts post failed: ${e.javaClass.simpleName}")
-                main.post { show(resultText(null)) }
+                main.post { gate.end(); show(resultText(null)) }
             }
 
             override fun onResponse(call: Call, response: Response) {
                 val code = response.code
                 response.close()
                 Log.i(TAG, "facts post answered $code")
-                main.post { show(resultText(code)) }
+                main.post { gate.end(); show(resultText(code)) }
             }
         })
     }

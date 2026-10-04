@@ -184,4 +184,22 @@ class SettingsFactsTest {
         assertTrue(f.contains(".callTimeout(CALL_TIMEOUT_S, TimeUnit.SECONDS)") && f.contains("const val CALL_TIMEOUT_S = 5L"))
         assertTrue(f.contains(".enqueue(") && f.contains("main.post {"))
     }
+
+    @Test
+    fun aSecondTapWhileSendingIsIgnored() {
+        val g = SettingsFacts.SendGate()
+        assertFalse(g.busy)
+        assertTrue(g.tryBegin())                 // first tap: "Sending to your Mac."
+        assertTrue(g.busy)
+        assertFalse(g.tryBegin())                // second tap while sending: ignored
+        g.end()                                  // the answer arrived on the main thread
+        assertFalse(g.busy)
+        assertTrue(g.tryBegin())                 // a tap after the answer sends again
+        // send() checks the gate before anything else, begins it with the "Sending" line and ends it before each answer.
+        val f = java.io.File(ManifestTest.locate("src/main/kotlin/com/twelve/daylight/ink"), "ui/SettingsFacts.kt").readText()
+        val body = f.substringAfter("fun send(context: Context, conn: InkConnection, show: (String) -> Unit) {")
+        assertTrue(body.trimStart().startsWith("if (gate.busy) return"))
+        assertTrue(body.contains("if (!gate.tryBegin()) return\n        show(TEXT_SENDING)"))
+        assertEquals(2, Regex("main\\.post \\{ gate\\.end\\(\\); show\\(resultText\\(").findAll(body).count())
+    }
 }

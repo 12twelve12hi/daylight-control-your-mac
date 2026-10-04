@@ -37,6 +37,7 @@ final class CompositorTests: XCTestCase {
         XCTAssertTrue(SelfTest.close(SelfTest.pixel(target, 1000, 540), SelfTest.pixel(presenter, 680, 540)), "presenter crop is 1:1, no scaling")
         let divider = SelfTest.pixel(target, 639, 540)
         XCTAssertLessThan(Int(divider.r), 160, "divider at half alpha darkens the presenter: " + SelfTest.describe(divider))
+        XCTAssertEqual(divider.a, 255, "the divider fades its colour, never the frame's alpha (review F3)")
     }
 
     /// Review 4 CI-1 (the crash frame of mac-26 run 37189486118): a frame in flight released its CVMetalTextures on

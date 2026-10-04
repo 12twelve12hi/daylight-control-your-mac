@@ -58,4 +58,23 @@ final class LaserTrailTests: XCTestCase {
         XCTAssertEqual(z.w, 40, accuracy: 1e-9)
         XCTAssertNil(LaserTrail.place(LaserTrail.Dot(x: 900, y: 1200, radius: 10, alpha: 1), through: zoomed), "outside the visible part")
     }
+
+    /// Review F5: a dot whose centre is within one radius outside the visible part is kept (the compositor clips it to
+    /// the canvas quad, so it slides out of a followed view); one radius or more beyond the edge, nothing of it shows.
+    func testPlaceKeepsADotWhoseBodyStillShows() {
+        // The top-left quarter of the page, magnified 2 times: the visible part is canvas x 0...600, y 0...800.
+        let zoomed = QuadSpec(dest: PixelRect(x: 0, y: 0, w: 1200, h: 1600), uv: UVRect(u0: 0, v0: 0, u1: 0.5, v1: 0.5))
+        let right = LaserTrail.place(LaserTrail.Dot(x: 605, y: 400, radius: 10, alpha: 1), through: zoomed)
+        XCTAssertNotNil(right, "centre 5 px beyond the right edge: half the dot still shows")
+        XCTAssertEqual(right?.x ?? 0, (605 - 10) * 2, accuracy: 1e-9, "placed by its rectangle, which starts inside the view")
+        XCTAssertEqual(right?.w ?? 0, 40, accuracy: 1e-9)
+        XCTAssertNotNil(LaserTrail.place(LaserTrail.Dot(x: 300, y: 809, radius: 10, alpha: 1), through: zoomed), "below the bottom edge, inside one radius")
+        XCTAssertNotNil(LaserTrail.place(LaserTrail.Dot(x: 610, y: 810, radius: 10, alpha: 1), through: zoomed), "exactly one radius out on both axes")
+        XCTAssertNil(LaserTrail.place(LaserTrail.Dot(x: 611, y: 400, radius: 10, alpha: 1), through: zoomed), "more than one radius beyond the edge")
+        XCTAssertNil(LaserTrail.place(LaserTrail.Dot(x: 300, y: 811, radius: 10, alpha: 1), through: zoomed))
+        // A view whose left edge is inside the page: a dot just left of it is kept too.
+        let middle = QuadSpec(dest: PixelRect(x: 0, y: 0, w: 1200, h: 1600), uv: UVRect(u0: 0.25, v0: 0.25, u1: 0.75, v1: 0.75))
+        XCTAssertNotNil(LaserTrail.place(LaserTrail.Dot(x: 295, y: 800, radius: 10, alpha: 1), through: middle))
+        XCTAssertNil(LaserTrail.place(LaserTrail.Dot(x: 289, y: 800, radius: 10, alpha: 1), through: middle))
+    }
 }

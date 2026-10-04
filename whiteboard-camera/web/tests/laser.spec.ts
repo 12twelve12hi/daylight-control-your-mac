@@ -62,3 +62,70 @@ test("Laser: hover and contact send LASER_POINT, no stroke, nothing drawn; Pen s
   expect((await fake.framesNamed("LASER_POINT")).length).toBe(before);
   expect(await debugValue<number>(page, "visibleStrokes")).toBe(1);
 });
+
+// Review F8: LASER_POINT is meaningful now or never. While the Mac has not allowed the page (ACK 1) every point is
+// dropped on the control path: nothing on the wire, nothing in the ring, nothing replayed after ACK 0.
+test("Laser while not live: points are dropped, never ringed, never replayed; live again they go out", async ({ page, request }) => {
+  const fake = new FakeMac(request);
+  await fake.scenario({ ack: 1 });
+  await openWhiteboard(page, { waitFor: "pending" });
+  await page.locator("#tool-laser").click();
+  await expect(page.locator("#tool-laser")).toHaveAttribute("aria-pressed", "true");
+
+  const box = await paperBox(page);
+  await penHover(page, [toPage(box, 300, 400), toPage(box, 320, 420)]);
+  await page.waitForTimeout(100);
+  await penStroke(page, [{ ...toPage(box, 600, 800), p: 0.6 }, { ...toPage(box, 640, 840), p: 0.6 }], { hoverFirst: false });
+  await page.waitForTimeout(200);
+
+  expect((await fake.frames()).map((f) => f.name)).toEqual(["HANDSHAKE"]);
+  expect((await debugValue<{ opcodes: number[] }>(page, "ring")).opcodes).toEqual([]);
+  expect((await debugValue<{ controlDropped: number }>(page, "client")).controlDropped).toBeGreaterThanOrEqual(1);
+  expect((await debugValue<{ laserPoints: number }>(page, "ink")).laserPoints).toBe(0);
+
+  // The owner clicks Allow: nothing of the laser is replayed.
+  await fake.ack(0);
+  await expect.poll(() => debugValue<string>(page, "phase")).toBe("live");
+  await page.waitForTimeout(300);
+  expect(await fake.framesNamed("LASER_POINT")).toEqual([]);
+  expect((await fake.frames()).filter((f) => f.name.startsWith("STROKE_"))).toEqual([]);
+
+  // Live: the next hover goes out.
+  await penHover(page, [toPage(box, 500, 500)]);
+  const lasers = await waitForFrames(fake, "LASER_POINT", 1);
+  expect(lasers[0]!.intensity).toBe(0.5);
+  expect((await debugValue<{ laserPoints: number }>(page, "ink")).laserPoints).toBe(lasers.length);
+});
+
+// Review F7, rule 3 on the page: picking Laser while a stroke is open lets that stroke run to its own pen-up and
+// commit with every point (never a STROKE_CANCEL, so the Mac keeps it); the laser starts with the next sample.
+test("Laser picked mid-stroke: the open stroke ends normally, then the pen points", async ({ page, request }) => {
+  const fake = new FakeMac(request);
+  await openWhiteboard(page);
+  const box = await paperBox(page);
+  const a = toPage(box, 100, 100);
+  const b = toPage(box, 200, 140);
+  const c = toPage(box, 300, 180);
+  await penStroke(page, [{ ...a, p: 0.5 }, { ...b, p: 0.5 }], { release: false });
+  await waitForFrames(fake, "STROKE_START");
+  // A script click, not a pointer: the pen stays down on the paper.
+  await page.evaluate(() => document.getElementById("tool-laser")!.click());
+  await expect(page.locator("#tool-laser")).toHaveAttribute("aria-pressed", "true");
+  await penMove(page, [{ ...c, p: 0.5 }]);
+  await page.waitForTimeout(100);
+  await penRelease(page, c.x, c.y);
+
+  const commits = await waitForFrames(fake, "STROKE_COMMIT");
+  expect(commits.length).toBe(1);
+  expect(commits[0]!.pointCount).toBe(3);
+  expect(await fake.framesNamed("STROKE_CANCEL")).toEqual([]);
+  expect(await fake.framesNamed("LASER_POINT")).toEqual([]);
+  expect(await debugValue<number>(page, "visibleStrokes")).toBe(1);
+  expect(await inkAlphaAt(page, 300, 180)).toBeGreaterThan(0);
+
+  // The stroke is over: the pen now points.
+  await penHover(page, [toPage(box, 500, 600)]);
+  const lasers = await waitForFrames(fake, "LASER_POINT", 1);
+  expect(lasers[0]!.intensity).toBe(0.5);
+  expect((await fake.framesNamed("STROKE_START")).length).toBe(1);
+});

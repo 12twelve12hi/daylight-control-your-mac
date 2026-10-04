@@ -6,10 +6,11 @@ import android.view.View
 import com.twelve.daylight.ink.prefs.Prefs
 
 /**
- * MotionEvent -> StrokeSession, shared by the wet and dry views (whichever is on top receives the events).
- * SPEC E6: only TOOL_TYPE_STYLUS and TOOL_TYPE_ERASER draw; hover never draws; ACTION_CANCEL and FLAG_CANCELED cancel;
- * a pressure-0 down never starts a stroke (PROTOCOL 11). Fingers are swallowed so nothing under the canvas scrolls.
- * With the Laser tool selected the pen moves the [LaserPointer] instead and nothing reaches the session.
+ * MotionEvent -> [PenRouter] -> StrokeSession or LaserPointer, shared by the wet and dry views (whichever is on top
+ * receives the events). SPEC E6: only TOOL_TYPE_STYLUS and TOOL_TYPE_ERASER draw; hover never draws; ACTION_CANCEL and
+ * FLAG_CANCELED cancel; a pressure-0 down never starts a stroke (PROTOCOL 11). Fingers are swallowed so nothing under
+ * the canvas scrolls. Which events reach the session and which move the laser is decided in [PenRouter] (pure, tested
+ * on the JVM by PenRouterTest); this class only reads MotionEvents, logs the device facts and draws the wet layer.
  */
 class PenInput(
     private val session: StrokeSession,
@@ -19,27 +20,22 @@ class PenInput(
     companion object { const val TAG = "DaylightInk.ink" }
 
     var unbufferedPerStroke: Boolean = true
-    private var penPointerId: Int = -1
     private var factPressureLogged = false
     private var factButtonLogged = false
     private var lastViewX = 0f
     private var lastViewY = 0f
     private var wetStroke: LocalStroke? = null
+    private val router = PenRouter(session)
 
     /** Set by the activity; while null the Laser tool sends nothing. */
-    var laser: LaserPointer? = null
+    var laser: LaserPointer?
+        get() = router.laser
+        set(v) { router.laser = v }
 
-    /** The Laser tool is selected: stylus contact and hover go to [laser], never to the session or the wet layer. */
-    var laserMode: Boolean = false
-        set(v) {
-            if (v == field) return
-            if (penPointerId >= 0) {
-                penPointerId = -1
-                if (!field) { session.cancel(); wet?.cancel() }    // a stroke still open when the laser was picked
-            }
-            field = v
-            if (!v) laser?.reset()
-        }
+    /** The Laser tool is selected (see [PenRouter.laserMode] for what happens to a stroke still open). */
+    var laserMode: Boolean
+        get() = router.laserMode
+        set(v) { router.laserMode = v }
 
     /** Adapter so [MotionSamples] (pure) can read a MotionEvent. One instance, no allocation per event. */
     private val adapter = object : MotionLike {
@@ -62,48 +58,54 @@ class PenInput(
     }
 
     fun onTouch(view: View, e: MotionEvent): Boolean {
-        if (laserMode) return laserTouch(view, e)
         val idx = e.actionIndex
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
                 if (!isPen(e, idx)) return true                 // fingers and palms: swallowed, never drawn
-                if (penPointerId >= 0) session.cancel()
-                penPointerId = e.getPointerId(idx)
                 if (unbufferedPerStroke) view.requestUnbufferedDispatch(e)
                 val raw = e.getPressure(idx)
-                logPressureFact(raw)
-                if ((e.buttonState and (MotionEvent.BUTTON_STYLUS_PRIMARY or MotionEvent.BUTTON_STYLUS_SECONDARY)) != 0) logButtonFact(e.buttonState, "buttonState while touching")
+                if (!router.laserMode) {
+                    logPressureFact(raw)
+                    if ((e.buttonState and (MotionEvent.BUTTON_STYLUS_PRIMARY or MotionEvent.BUTTON_STYLUS_SECONDARY)) != 0) logButtonFact(e.buttonState, "buttonState while touching")
+                }
                 lastViewX = e.getX(idx); lastViewY = e.getY(idx)
-                session.down(lastViewX, lastViewY, raw, e.eventTime, eraserPointer = e.getToolType(idx) == MotionEvent.TOOL_TYPE_ERASER)
-                wetStroke = null
+                val eraserPointer = e.getToolType(idx) == MotionEvent.TOOL_TYPE_ERASER
+                if (router.down(e.getPointerId(idx), lastViewX, lastViewY, raw, e.eventTime, eraserPointer)) wetStroke = null
             }
             MotionEvent.ACTION_MOVE -> {
-                if (penPointerId < 0) return true
-                val pi = e.findPointerIndex(penPointerId)
+                val id = router.penPointerId
+                if (id < 0) return true
+                val pi = e.findPointerIndex(id)
                 if (pi < 0) return true
+                if (router.laserTakesContact) {
+                    // The newest position is the laser (older history would be coalesced away anyway).
+                    router.laserMove(e.getX(pi), e.getY(pi))
+                    return true
+                }
                 adapter.e = e
                 samples.clear()
                 MotionSamples.unpack(adapter, pi, samples)
                 for (s in samples) {
-                    val wasDrawing = session.isDrawing
-                    session.point(s.x, s.y, s.pressure, s.timeMs)
-                    if (wasDrawing && session.isDrawing && session.tool != Tools.ERASER) wetSegment(s)
+                    if (router.sample(s.x, s.y, s.pressure, s.timeMs)) wetSegment(s)
                     lastViewX = s.x; lastViewY = s.y
                 }
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP -> {
-                if (e.getPointerId(idx) != penPointerId) return true
-                penPointerId = -1
                 val canceled = (e.flags and MotionEvent.FLAG_CANCELED) != 0
-                if (canceled) { session.cancel(); wet?.cancel() } else { session.up(); wet?.commit() }
+                settleWet(router.up(e.getPointerId(idx), canceled))
             }
-            MotionEvent.ACTION_CANCEL -> {
-                penPointerId = -1
-                session.cancel()
-                wet?.cancel()
-            }
+            MotionEvent.ACTION_CANCEL -> settleWet(router.cancel())
         }
         return true
+    }
+
+    /** The wet layer follows the session: a normal end hands the stroke over, a cancel drops it. */
+    private fun settleWet(end: PenRouter.End) {
+        when (end) {
+            PenRouter.End.UP -> wet?.commit()
+            PenRouter.End.CANCEL -> wet?.cancel()
+            PenRouter.End.NONE -> {}
+        }
     }
 
     /** Hover and the barrel button arrive here. Hover never draws (SPEC D3); the button is logged once (LOOSE_ENDS D4). */
@@ -115,37 +117,12 @@ class PenInput(
         return false
     }
 
-    /** Stylus hover. It never draws (SPEC D3); with the Laser tool selected it moves the laser at hover intensity. */
+    /**
+     * Stylus hover. It never draws (SPEC D3); with the Laser tool selected a stylus hover moves the laser at hover
+     * intensity, an eraser end in the air never does ([PenRouter.hover]).
+     */
     fun onHover(e: MotionEvent): Boolean {
-        if (!laserMode || e.getToolType(0) != MotionEvent.TOOL_TYPE_STYLUS) return false
-        if (e.actionMasked == MotionEvent.ACTION_HOVER_MOVE) laser?.hover(e.x, e.y)
-        return true
-    }
-
-    /** The Laser tool: the pen pointer's newest position is the laser (older history would be coalesced away anyway). */
-    private fun laserTouch(view: View, e: MotionEvent): Boolean {
-        val idx = e.actionIndex
-        when (e.actionMasked) {
-            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
-                if (!isPen(e, idx)) return true                 // fingers and palms: swallowed
-                penPointerId = e.getPointerId(idx)
-                if (unbufferedPerStroke) view.requestUnbufferedDispatch(e)
-                laser?.contact(e.getX(idx), e.getY(idx))
-            }
-            MotionEvent.ACTION_MOVE -> {
-                if (penPointerId < 0) return true
-                val pi = e.findPointerIndex(penPointerId)
-                if (pi < 0) return true
-                laser?.contact(e.getX(pi), e.getY(pi))
-            }
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP -> {
-                if (e.getPointerId(idx) == penPointerId) penPointerId = -1
-            }
-            MotionEvent.ACTION_CANCEL -> {
-                penPointerId = -1
-            }
-        }
-        return true
+        return router.hover(stylus = e.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS, move = e.actionMasked == MotionEvent.ACTION_HOVER_MOVE, viewX = e.x, viewY = e.y)
     }
 
     private fun wetSegment(s: RawSample) {

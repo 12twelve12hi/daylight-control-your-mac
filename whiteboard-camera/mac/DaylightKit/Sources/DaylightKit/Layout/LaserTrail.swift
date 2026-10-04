@@ -75,11 +75,14 @@ public struct LaserTrail {
     public var isEmpty: Bool { return samples.isEmpty }
 
     /// The output rectangle of a dot drawn through a canvas quad (`dest` in output pixels, `uv` the canvas part it
-    /// shows); nil when the dot lies outside the visible part of the canvas.
+    /// shows); nil when no part of the dot can show: its centre more than one radius outside the visible part of the
+    /// canvas. A dot whose centre lies just outside (a followed view's edge) is kept; the compositor clips it to the
+    /// canvas quad, so it slides out of the frame instead of vanishing whole.
     public static func place(_ dot: Dot, through quad: QuadSpec, canvasWidth: Double = Double(SolStream.canvasWidth), canvasHeight: Double = Double(SolStream.canvasHeight)) -> PixelRect? {
         let u0 = quad.uv.u0 * canvasWidth, u1 = quad.uv.u1 * canvasWidth
         let v0 = quad.uv.v0 * canvasHeight, v1 = quad.uv.v1 * canvasHeight
-        guard u1 > u0, v1 > v0, dot.x >= u0, dot.x <= u1, dot.y >= v0, dot.y <= v1 else { return nil }
+        let r0 = max(dot.radius, 0)
+        guard u1 > u0, v1 > v0, dot.x >= u0 - r0, dot.x <= u1 + r0, dot.y >= v0 - r0, dot.y <= v1 + r0 else { return nil }
         let sx = quad.dest.w / (u1 - u0)
         let sy = quad.dest.h / (v1 - v0)
         let cx = quad.dest.x + (dot.x - u0) * sx

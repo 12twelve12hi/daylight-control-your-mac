@@ -41,8 +41,8 @@ State: DONE. Acceptance met in run https://github.com/12twelve12hi/daylight-cont
 
 What changed:
 - `DaylightKit/Layout/FollowFrame.swift`: the rest zone per layout (Studio Split 1280 x 1080 at x 0, Whiteboard Only the whole frame, Overlay none), the slide offset, and `apply`, which swaps a frame's canvas quad for the follow quad moved by the slide offset and keeps the border lines on the quad's edges only while they lie inside the zone. At the full page it reproduces today's frames (tested through the slide).
-- `Pipeline/FollowPen.swift`: `FollowPenSwitch` (process-wide, UserDefaults key `com.twelve.daylight.followPen.v1`), `InkActivity` (the rasterizer's inbox: segment boxes and page clears, ink.queue to render queue under a lock, at most 64 boxes between frames), `FollowDriver` (render queue: drains the inbox, stamps boxes with the frame time, `FollowCamera` for FP1 to FP9, reset on Clear and a new page, `setGeometry` without animation on a layout change, returns the layout's own frame untouched when off, for mirror pictures, for Overlay, and at rest on the full page).
-- `Pipeline/InkRasterizer.swift`: `.drawSegments` reports the box of the new points, `.clearAll` (Clear and new page) reports a clear; erase, undo and redo redraws are not writing and report nothing.
+- `Pipeline/FollowPen.swift`: `FollowPenSwitch` (process-wide, UserDefaults key `com.twelve.daylight.followPen.v1`), `InkActivity` (the rasterizer's inbox: segment boxes and page clears, ink.queue to render queue under a lock, at most 64 boxes between frames), `FollowDriver` (render queue: drains the inbox, takes each box at the time it was reported on ink.queue but never later than the frame (review F4; it used to stamp the frame time), `FollowCamera` for FP1 to FP9, reset on Clear and a new page, `setGeometry` without animation on a layout change, returns the layout's own frame untouched when off, for mirror pictures, for Overlay, and at rest on the full page).
+- `Pipeline/InkRasterizer.swift`: `.drawSegments` reports the box of the new points, `.clearAll` (Clear and new page) reports a clear; erase, undo and redo redraws are not writing and report nothing (redo since review F1: it returns `.redrawSegments`, see Review fixes).
 - `Pipeline/FramePipeline.swift`: `renderFrame` passes the laid-out frame through `follow.frame(...)`; the perf log prints `follow: zoom <z> centre (<x>, <y>) <full page|following>` once a second while the switch is on.
 - Zero copy holds: only the canvas quad's `dest` and `uv` change; the same two IOSurface-backed textures are sampled in the same single pass.
 - Settings > Advanced (first row): "Follow the pen on camera", with the sentence under it: "On camera, the board zooms in on the area you are writing in, up to 2.5 times, and returns to the full page after 30 s without ink, on Clear and on a new page." Off by default. The menu bar has nothing.
@@ -57,17 +57,79 @@ Measured cost (run 37232483589, GPU mean of 60 frames): Whiteboard Only full pag
 
 State: built on all three sides; the Mac draws it once the router calls it (request R1 below). CI: run https://github.com/12twelve12hi/daylight-control-your-mac/actions/runs/37232483589 (10a7c89): golden, web, android, kit-linux, mac (mac-test, mac-smoke PASS, UI suite) and mac-26 green. Two of my own test slips cost cycles: run 37232225890 failed kit-linux (a LaserTrail "outside" probe sat exactly on the visible edge) and android-emulator in both runs failed `WhiteboardTest.toolbarLeavesTheCanvasMostOfTheScreen`, which counts the toolbar pills (9, now 10 with Laser); 82caef5 sets 10 and asserts the Laser pill, proved by run 37233524706 or the run of the docs commit after it (same code).
 
-- Mac: `DaylightKit/Layout/LaserTrail.swift` (up to 48 samples; each fades linearly from its intensity over its decay, 0.5 s when the message carries 0, capped at 3 s; radius 9 canvas px shrinking to half; off-canvas, non-finite and zero-intensity samples dropped; `place` maps a dot through the canvas quad, so it follows the pen camera). `InkRasterizer.laser(x:y:intensity:decay:)` adds a sample to `CanvasSurfaces.laser` and touches neither the canvas surfaces nor the store: never saved, undone or erased. `FramePipeline.laserDots` places the dots; the compositor draws them inside the panel scissor with the new `daylight_dot` fragment (a soft-edged disc, colour `0xE5372A`). Mirror pictures and passthrough get none. Tests: `LaserTrailTests` (kit), `LaserTests` (no stroke, no pixel on either layer, no surface lock, the saved PNG is byte-identical to the blank page, the laser is not ink for follow; placement and fade; a compositor probe of the dot and of the faded frame).
-- Web: a "Laser" toolbar button (`web/src/laser.ts`: contact intensity 1.0, hovering pen 0.5, decay 0.5 s, one LASER_POINT per animation frame with the newest point; sent on the now-or-never control path, dropped while not live). Tests: `tests/unit/laser.test.ts` (the golden `laser_point` vector byte for byte, the intensity rule, the throttle), `tests/laser.spec.ts` (Playwright: the fake Mac receives 0x0030 and no STROKE, ERASE or UNDO frame; back to Pen draws again). Verified locally too: 42 unit tests and 62 Playwright tests pass, `make golden-check` unchanged.
-- Daylight Ink (Android): a Laser pill after Erase (`Texts.TOOL_LASER`), `ink/LaserPointer.kt` (contact 1.0, stylus hover 0.5 via `onHoverEvent` on both ink views, decay 0.5 s, coalesced to one message per Choreographer frame, only while the Mac accepts ink; picking Laser cancels an open stroke). Tests: `LaserPointerTest` (golden vector, intensity, mapping like strokes, coalescing, nothing sent when not accepted or after a tool switch, the session untouched). `SourceRulesTest`: the old rule "PenInput never mentions ACTION_HOVER" became "the one ACTION_HOVER branch is `onHover`, it checks the stylus tool type and feeds only the laser; nothing before or after it mentions hover", plus `theLaserToolNeverReachesTheStrokeSession`. That is the same guarantee (hover never reaches the session), stated for the new code; no rule was dropped.
+- Mac: `DaylightKit/Layout/LaserTrail.swift` (up to 48 samples; each fades linearly from its intensity over its decay, 0.5 s when the message carries 0, capped at 3 s; radius 9 canvas px shrinking to half; off-canvas, non-finite and zero-intensity samples dropped; `place` maps a dot through the canvas quad, so it follows the pen camera). `InkRasterizer.laser(x:y:intensity:decay:)` adds a sample to `CanvasSurfaces.laser` and touches neither the canvas surfaces nor the store: never saved, undone or erased. `FramePipeline.laserDots` places the dots; the compositor draws them clipped to the canvas quad (review F5) with the new `daylight_dot` fragment (a soft-edged disc, colour `0xE5372A`). Mirror pictures and passthrough get none. Tests: `LaserTrailTests` (kit), `LaserTests` (no stroke, no pixel on either layer, no surface lock, the saved PNG is byte-identical to the blank page, the laser is not ink for follow; placement and fade; a compositor probe of the dot and of the faded frame).
+- Web: a "Laser" toolbar button (`web/src/laser.ts`: contact intensity 1.0 for the tip or the eraser end at any pressure, hovering pen 0.5 (review F7), decay 0.5 s, one LASER_POINT per animation frame with the newest point; sent on the now-or-never control path, dropped while not live). Tests: `tests/unit/laser.test.ts` (the golden `laser_point` vector byte for byte, the intensity rule, the throttle), `tests/laser.spec.ts` (Playwright: the fake Mac receives 0x0030 and no STROKE, ERASE or UNDO frame; back to Pen draws again). Verified locally too: 42 unit tests and 62 Playwright tests pass, `make golden-check` unchanged.
+- Daylight Ink (Android): a Laser pill after Erase (`Texts.TOOL_LASER`), `ink/LaserPointer.kt` (contact 1.0, stylus hover 0.5 via `onHoverEvent` on both ink views, decay 0.5 s, coalesced to one message per Choreographer frame, only while the Mac accepts ink; picking Laser lets an open stroke end normally at its pen-up, review F7; it used to cancel it). Tests: `LaserPointerTest` (golden vector, intensity, mapping like strokes, coalescing, nothing sent when not accepted or after a tool switch, the session untouched). `SourceRulesTest`: the old rule "PenInput never mentions ACTION_HOVER" became "the one ACTION_HOVER branch is `onHover`, it checks the stylus tool type and feeds only the laser; nothing before or after it mentions hover", plus `theLaserToolNeverReachesTheStrokeSession`. That is the same guarantee (hover never reaches the session), stated for the new code; no rule was dropped.
 - UNVERIFIED (Android): `View.onHoverEvent` delivery of stylus hover on the DC-1 (the source comment said `onGenericMotion`; Android delivers hover to a view through `dispatchHoverEvent`/`onHoverEvent`). Fallback: contact still drives the laser.
 - UNVERIFIED (web): pointer hover events from the DC-1's pen in its browser. Fallback: contact still drives the laser.
 - `make golden-check` unchanged: the existing opcode, no protocol change.
 
+## Review fixes (review of 5653043 to 90d58ad)
+
+Each finding of the read-only review, what changed and the test that proves it. CI proof: the push's kit-linux, mac,
+mac-26, web and android jobs (run number to be added after the CEO's push).
+
+- F1, redo counted as fresh ink. `StrokeStore.redo` now returns a new `CanvasOp.redrawSegments(strokeID:)` (same
+  signature, a different op); `InkRasterizer` draws it exactly like `drawSegments` from index 0 but reports nothing to
+  `InkActivity`, like undo and erase. Tests: `FollowPenTests.testRedoIsNotInk` (mac: the redone stroke is back on the
+  ink layer, the inbox is empty, and undo plus redo through the driver never move the camera);
+  `StrokeStoreTests.testUndoRedoDepths` (kit-linux and mac) expects `.redrawSegments`; `InkRasterizerTests
+  .testUndoClearsAndRedoRestores` still proves the pixels come back.
+- F2, the camera copied per frame. `FollowDriver` mutates its `FollowCamera?` in place (`camera?.noteInk`,
+  `camera?.update`, `camera?.quad`, `camera?.reset`) instead of `guard var cam = camera ... camera = cam`, so the
+  history buffer keeps one owner and appends and prunes never copy it. Behaviour is identical: `FollowPenTests`
+  (the scripted sequence, layout refit, off, mirror, Overlay) is unchanged. `docs/PERFORMANCE.md` section 6 describes
+  the CPU side as it is and keeps the measured GPU numbers.
+- F3, the laser dot left the frame partly transparent. The shared blended pipeline (solid and dot) now keeps the
+  target's alpha (source alpha factor 0, destination alpha factor 1, as the overlay pipeline does); the clear and the
+  textured and canvas fragments write alpha 1, so every output pixel stays at alpha 255, around the dots and under a
+  fading divider alike. Tests: `LaserTests.testCompositorDrawsTheDotOverThePageAndNothingAfterTheDecay` asserts alpha
+  255 at the dot centre, on its soft edge, in a corner of its quad (fragment alpha 0), at the centre of a half-faded
+  dot and after the fade; `CompositorTests.testStudioSplitAtHalfProgressProbesCreamPaperDividerAndPresenter` asserts
+  alpha 255 under the half-alpha divider.
+- F4, ink drawn while the board was not rendering stamped later as fresh. `InkActivity.noteInk(_:at:)` stamps each box
+  on ink.queue with `CACurrentMediaTime()` (the render clock); the 64-box overflow merge keeps the newest stamp;
+  `FollowDriver` absorbs each box at its own stamp, never later than the frame and never earlier than the newest box
+  already absorbed. Boxes older than FP3 (20 s) when the frames resume are already stale. Tests:
+  `FollowPenTests.testInkReportedWhileNoFrameRendersKeepsItsAge` (a box reported, the clock advanced 25 s with no
+  frame, then drained: no zoom, with the same boxes drained fresh as the control that does zoom) and
+  `testInkStampIsNeverLaterThanTheFrame` (the stamp, the overflow stamp, and a future stamp clamped to the frame).
+- F5, the laser clipped to the panel and popping at a followed view's edge. The compositor draws the dots inside
+  `canvasClip` intersected with the canvas quad, before the border lines; `LaserTrail.place` keeps a dot whose centre
+  is within one radius outside the visible part (it is clipped, so it slides out of the frame). Tests:
+  `LaserTrailTests.testPlaceKeepsADotWhoseBodyStillShows` (kit-linux and mac) and
+  `LaserTests.testCompositorClipsTheDotToThePage` (a dot on the page's left edge: red on the page, the margin cream,
+  the border line on top, alpha 255).
+- F7, the clients disagreed. One rule on both: any pen contact, the tip or the eraser end, pressure 0 included, is
+  intensity 1.0; stylus hover 0.5; the eraser end in the air never points (Daylight Ink; the web page cannot see it,
+  LOOSE_ENDS IL-9); picking Laser mid-stroke lets the open stroke run to its own pen-up and commit (Daylight Ink used to
+  send STROKE_CANCEL, so the Mac deleted the stroke). Web: `laserIntensity` reads the tip and eraser `buttons` bits,
+  `laserTakesSample` is the routing rule `ink.ts` uses. Daylight Ink: the routing moved out of `PenInput` into the
+  pure `ink/PenRouter.kt`, which `PenInput` calls for every contact. Tests: web `tests/unit/laser.test.ts` (rules 1,
+  2 and 3) and `tests/laser.spec.ts` "Laser picked mid-stroke: the open stroke ends normally, then the pen points"
+  (Playwright: the COMMIT carries all three points, no STROKE_CANCEL, no LASER_POINT during the stroke); Android
+  `PenRouterTest` (`anyContactIsFullIntensityStylusHoverHalfAndAnEraserEndInTheAirNeverPoints`,
+  `pickingLaserMidStrokeEndsTheStrokeNormallyAtItsPenUp`, `anOpenStrokeCancelledBySystemAfterTheSwitchIsStillACancel`,
+  `pickingAnotherToolWhileTheLaserTouchesDrawsNothingUntilTheNextDown`).
+- F8, tests weaker than the claims. Web: `tests/laser.spec.ts` "Laser while not live: points are dropped, never
+  ringed, never replayed; live again they go out" (ACK 1: only HANDSHAKE on the wire, the ring empty,
+  `controlDropped` counted, nothing replayed after ACK 0, the next hover goes out). Android:
+  `PenRouterTest.laserToolContactAndHoverNeverReachTheStrokeSession` drives the real `StrokeSession` and
+  `LaserPointer` through the router with stylus and eraser contacts, moves, lifts, a cancel and hover: only
+  LASER_POINT on the wire, no stroke, no wet or dry ink, undo and redo depths and the tool untouched.
+  `SourceRulesTest.theLaserToolNeverReachesTheStrokeSession` now asserts that `PenInput` hands every contact to
+  `PenRouter` and never calls the session's contact methods itself, so the tested code is the shipped code.
+- F6 is recorded as an amendment to R1 below (LOOSE_ENDS IL-10). F9 (UI test fragility) is unchanged: it concerns
+  `DaylightUITests.swift`, outside these fixes.
+
+Verified here: `make scripts-check`, `make golden-check`, the web unit tests and Playwright (`tests/laser.spec.ts`
+and the full suite), and `PenRouterTest`, `LaserPointerTest` and `SourceRulesTest` compiled with kotlinc 2.3.10 and run
+on the JVM. The Swift and Metal changes are proved only by the CI mac jobs.
+
 ## Requests for other domains
 
 - R1 (owner of `Sources/Ink/InkRouter.swift`), blocks the laser on the Mac: replace `case .laserPoint:` with
-  `case let .laserPoint(x, y, intensity, decayS):` and add `rasterizer?.laser(x: Double(x), y: Double(y), intensity: Double(intensity), decay: Double(decayS))` before `pipeline.post(.activity)`. One line; every other piece is in and tested. A router test can then assert that a LASER_POINT leaves `store.committedCount` at 0.
+  `case let .laserPoint(x, y, intensity, decayS):` and add `rasterizer?.laser(x: Double(x) * c.scale.0, y: Double(y) * c.scale.1, intensity: Double(intensity), decay: Double(decayS))` before `pipeline.post(.activity)`. One line; every other piece is in and tested. A router test can then assert that a LASER_POINT leaves `store.committedCount` at 0. Amended after review F6: apply the client's canvas scale exactly as strokes do (`InkRouter.swift`, `c.scale`), and add a router test with a handshake that declares a canvas other than 1200 x 1600 (LOOSE_ENDS IL-10).
 - R2 DONE (phase 5A integration; CI proof: kit-linux `FollowPenSettingsTests`, mac `FollowPenTests`): `Settings.followPen` (default false, decoded like every other Bool, a missing key keeps false); `SettingsStore.init` moves a true under `com.twelve.daylight.followPen.v1` into a blob without the key, saves, then removes the old key (once; a blob that has the key wins); Settings > Advanced binds `$store.settings.followPen`; `FramePipeline` keeps it in its flags from `init` and `updateSettings`, `followEnabled` reads it; `FollowPenSwitch` is deleted. Original request: add `followPen: Bool = false` to `Settings` (CodingKeys, lenient decode) and migrate `com.twelve.daylight.followPen.v1` into it; then `SettingsStore.followPen` becomes `settings.followPen` and `FramePipeline.followEnabled` reads the pipeline's settings.
 - R3 (Ink, `PNGExporter.swift`): the same camera line weight for the saved PNG is one call to `CameraLineWeight.cameraWidth(_:tool:)` per segment and dot. Not applied: the page stays true to the tablet. Decide after the legibility test.
 - R4 (SPEC owner): numbers for D14 (2.5 and 6.0 output px at 1080p, live outputs only), follow the pen (FP1 to FP9 as SPEC rows, off by default, Advanced) and the laser (default decay 0.5 s, cap 3 s, 48 samples, radius 9 canvas px, colour 0xE5372A, contact 1.0 and hover 0.5 on both clients).

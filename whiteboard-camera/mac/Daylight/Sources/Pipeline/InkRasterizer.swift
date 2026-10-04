@@ -32,7 +32,11 @@ final class InkRasterizer {
         switch op {
         case let .drawSegments(strokeID, fromIndex):
             guard let stroke = store.stroke(id: strokeID), stroke.style.tool != .eraser else { return }
-            drawSegments(of: stroke, fromIndex: fromIndex)
+            drawSegments(of: stroke, fromIndex: fromIndex, isWriting: true)
+        case let .redrawSegments(strokeID):
+            // Redo: the same pixels as a fresh draw, but not writing, so follow the pen hears nothing (like undo).
+            guard let stroke = store.stroke(id: strokeID), stroke.style.tool != .eraser else { return }
+            drawSegments(of: stroke, fromIndex: 0, isWriting: false)
         case let .redraw(dirty):
             guard let rect = dirty.clipped(toWidth: surfaces.width, height: surfaces.height) else { return }
             redraw(rect: rect, store: store)
@@ -57,7 +61,8 @@ final class InkRasterizer {
 
     // MARK: Drawing
 
-    private func drawSegments(of stroke: Stroke, fromIndex: Int) {
+    /// `isWriting` is false for a redo: the segments are drawn but not reported to follow the pen.
+    private func drawSegments(of stroke: Stroke, fromIndex: Int, isWriting: Bool) {
         let points = stroke.points
         guard !points.isEmpty else { return }
         withLayer(stroke.style.tool) { ctx in
@@ -65,13 +70,13 @@ final class InkRasterizer {
             if points.count == 1 {
                 if stroke.isCommitted {
                     fillDot(ctx, stroke)
-                    noteActivity(points[0...0])
+                    if isWriting { noteActivity(points[0...0]) }
                 }
                 return
             }
             let start = max(fromIndex, 1)
             if start >= points.count { return }
-            noteActivity(points[(start - 1)...])
+            if isWriting { noteActivity(points[(start - 1)...]) }
             for i in start..<points.count {
                 strokeSegment(ctx, from: points[i - 1], to: points[i], width: InkRasterizer.cameraWidth(stroke, at: i, canvasHeight: surfaces.height))
                 stats.segments += 1

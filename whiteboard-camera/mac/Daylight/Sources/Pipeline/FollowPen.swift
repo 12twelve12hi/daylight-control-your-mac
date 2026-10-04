@@ -1,33 +1,46 @@
 import DaylightKit
 import Foundation
 import os
+import QuartzCore
 
-/// What the rasterizer saw on ink.queue since the last frame: the boxes of new segments and whether the page was
-/// cleared (Clear or a new page). The render queue drains it once per frame.
+/// What the rasterizer saw on ink.queue since the last frame: the boxes of new segments, each stamped with the time it
+/// was reported, and whether the page was cleared (Clear or a new page). The render queue drains it once per frame.
+/// The stamp is taken on ink.queue with the render clock (`CACurrentMediaTime()`), so ink drawn while no board frame
+/// renders (the camera held, auto-engage off) keeps its own age and is already stale when the frames resume.
 final class InkActivity {
-    struct Pending {
-        var boxes: [PixelRect] = []
-        var cleared = false
+    /// One reported box and when it was reported.
+    struct Ink {
+        var box: PixelRect
+        var at: Double
     }
 
-    /// More boxes than this between two frames are merged into one (a frame is 33 ms; this never happens with a pen).
+    struct Pending {
+        var ink: [Ink] = []
+        var cleared = false
+
+        /// The boxes alone, oldest first.
+        var boxes: [PixelRect] { return ink.map { $0.box } }
+    }
+
+    /// More boxes than this between two frames are merged into one (a frame is 33 ms; this never happens with a pen,
+    /// only when no frame drains the inbox). The merged box carries the newest stamp.
     static let maxPendingBoxes = 64
 
     private let pending = Locked(Pending())
 
-    func noteInk(_ box: PixelRect) {
+    func noteInk(_ box: PixelRect, at now: Double = CACurrentMediaTime()) {
         pending.withLock { p in
-            if p.boxes.count >= InkActivity.maxPendingBoxes, let last = p.boxes.popLast() {
-                p.boxes.append(FollowRegion.union(last, box))
+            if p.ink.count >= InkActivity.maxPendingBoxes, let last = p.ink.popLast() {
+                p.ink.append(Ink(box: FollowRegion.union(last.box, box), at: max(last.at, now)))
             } else {
-                p.boxes.append(box)
+                p.ink.append(Ink(box: box, at: now))
             }
         }
     }
 
     func noteCleared() {
         pending.withLock { p in
-            p.boxes.removeAll()
+            p.ink.removeAll()
             p.cleared = true
         }
     }
@@ -41,10 +54,12 @@ final class InkActivity {
     }
 }
 
-/// Owns the `FollowCamera` for the ink canvas on the render queue: drains `InkActivity` each frame (stamping boxes
-/// with the frame time), snaps to the full page on Clear and a new page, refits without animation when the layout
-/// changes, and swaps the canvas quad of Studio Split and Whiteboard Only frames. Off, it keeps the history (so
-/// turning it on mid-call follows at once) but returns frames unchanged. Render queue only.
+/// Owns the `FollowCamera` for the ink canvas on the render queue: drains `InkActivity` each frame (each box keeps the
+/// time it was reported, never later than the frame), snaps to the full page on Clear and a new page, refits without
+/// animation when the layout changes, and swaps the canvas quad of Studio Split and Whiteboard Only frames. Off, it
+/// keeps the history (so turning it on mid-call follows at once) but returns frames unchanged. The camera is mutated
+/// in place (never copied out and written back), so its history buffer stays uniquely referenced and an append or a
+/// prune never copies it. Render queue only.
 final class FollowDriver {
     private let activity: InkActivity
     private let canvasWidth: Double
@@ -80,26 +95,27 @@ final class FollowDriver {
             lastLayout = layout
         }
         absorb(pending, now: now)
-        guard var cam = camera else { return frame }
+        guard camera != nil else { return frame }
         guard enabled, followable, frame.canvas != nil else {
-            cam.update(now: now)   // keeps the history pruned to FP3 while nothing is drawn with it
-            camera = cam
+            camera?.update(now: now)   // keeps the history pruned to FP3 while nothing is drawn with it
             return frame
         }
-        let quad = cam.quad(now: now)
-        camera = cam
+        guard let quad = camera?.quad(now: now) else { return frame }
         // At rest on the full page the layout's own frame is drawn, bit for bit what it was before follow existed.
-        if cam.isFullPage && cam.isSettled { return frame }
+        if isFullPage && camera?.isSettled == true { return frame }
         return FollowFrame.apply(quad, to: frame, layout: layout, progress: progress)
     }
 
     private func absorb(_ pending: InkActivity.Pending, now: Double) {
-        guard var cam = camera else { return }
+        guard camera != nil else { return }
         if pending.cleared {
-            cam.reset(at: now)
+            camera?.reset(at: now)
             log.debug("follow: page cleared, full page")
         }
-        for box in pending.boxes { cam.noteInk(box, at: now) }
-        camera = cam
+        for ink in pending.ink {
+            // Never later than this frame, never earlier than the newest box already absorbed (the history is ordered).
+            let floor = camera?.history.last?.0 ?? -Double.infinity
+            camera?.noteInk(ink.box, at: max(min(ink.at, now), floor))
+        }
     }
 }

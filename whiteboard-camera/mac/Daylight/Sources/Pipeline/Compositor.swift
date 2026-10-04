@@ -50,7 +50,8 @@ final class Compositor {
     /// The amber outline's distance from the person, in mask texels.
     static let defaultHaloRadius: Float = 3
 
-    /// One laser pointer dot in output pixels (LOOSE_ENDS F3), drawn over the canvas quad, inside the panel scissor.
+    /// One laser pointer dot in output pixels (LOOSE_ENDS F3), drawn over the canvas quad and clipped to it (the page,
+    /// never the cream margin or the border lines around it).
     struct LaserDot: Equatable {
         var rect: PixelRect
         var alpha: Double
@@ -126,13 +127,16 @@ final class Compositor {
         let attachment = descriptor.colorAttachments[0]
         attachment?.pixelFormat = .bgra8Unorm
         if blending {
+            // Colour blends sourceAlpha / oneMinusSourceAlpha; the target's alpha is kept, as the overlay pipeline does.
+            // Every pass before a blended one writes alpha 1 (the clear, the textured and canvas fragments), so the
+            // frame stays opaque under the divider at any fade and around every laser dot (review F3).
             attachment?.isBlendingEnabled = true
             attachment?.rgbBlendOperation = .add
             attachment?.alphaBlendOperation = .add
             attachment?.sourceRGBBlendFactor = .sourceAlpha
-            attachment?.sourceAlphaBlendFactor = .one
             attachment?.destinationRGBBlendFactor = .oneMinusSourceAlpha
-            attachment?.destinationAlphaBlendFactor = .zero
+            attachment?.sourceAlphaBlendFactor = .zero
+            attachment?.destinationAlphaBlendFactor = .one
         }
         do {
             return try device.makeRenderPipelineState(descriptor: descriptor)
@@ -183,8 +187,8 @@ final class Compositor {
         }
 
         // 2. The studio panel, scissored to its visible part.
-        if let clip = frame.canvasClip, let scissor = Compositor.scissor(clip, width: width, height: height) {
-            encoder.setScissorRect(scissor)
+        if let clip = frame.canvasClip, let panelScissor = Compositor.scissor(clip, width: width, height: height) {
+            encoder.setScissorRect(panelScissor)
             // Cream behind the paper (Whiteboard Only slides over the presenter).
             drawSolid(encoder, rect: clip, color: cream, alpha: 1)
             if let canvasQuad = frame.canvas {
@@ -213,17 +217,24 @@ final class Compositor {
                     drawSolid(encoder, rect: canvasQuad.dest, color: Tokens.paperBg, alpha: 1)
                 }
             }
-            for border in frame.borders {
-                drawSolid(encoder, rect: border, color: Tokens.borderSubtle, alpha: 1)
-            }
-            // The laser pointer: over the page, never in it (the canvas surfaces and the store never see it).
-            if frame.canvas != nil, !inputs.laser.isEmpty {
+            // The laser pointer: over the page, never in it (the canvas surfaces and the store never see it). Clipped
+            // to the canvas quad inside the panel and drawn before the border lines, so a dot at the page edge never
+            // spills over the margin or the border, and a dot half out of a followed view is cut at the frame edge
+            // (review F5).
+            if let canvasQuad = frame.canvas, !inputs.laser.isEmpty,
+               let dotScissor = Compositor.scissor(FollowRegion.intersect(clip, canvasQuad.dest), width: width, height: height) {
+                encoder.setScissorRect(dotScissor)
                 encoder.setRenderPipelineState(dotPipeline)
                 for dot in inputs.laser where dot.rect.w > 0 && dot.rect.h > 0 {
                     var c = Compositor.float4(LaserTrail.color, alpha: min(max(dot.alpha, 0), 1))
                     encoder.setFragmentBytes(&c, length: MemoryLayout<SIMD4<Float>>.size, index: 0)
                     drawQuad(encoder, dest: dot.rect, uv: .full)
                 }
+            }
+            // Restore the panel scissor for the border lines.
+            encoder.setScissorRect(panelScissor)
+            for border in frame.borders {
+                drawSolid(encoder, rect: border, color: Tokens.borderSubtle, alpha: 1)
             }
             encoder.setScissorRect(fullScissor)
         }

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { Encoder, Opcode, toHex } from "../../src/protocol.js";
-import { LASER_CONTACT_INTENSITY, LASER_DECAY_S, LASER_HOVER_INTENSITY, LaserThrottle, laserIntensity, type LaserPoint } from "../../src/laser.js";
+import { LASER_CONTACT_INTENSITY, LASER_DECAY_S, LASER_HOVER_INTENSITY, LaserThrottle, PEN_ERASER_BUTTON, PEN_TIP_BUTTON, laserIntensity, laserTakesSample, type LaserPoint } from "../../src/laser.js";
 
 interface Manifest {
   timestamp_us: number;
@@ -35,10 +35,42 @@ test("LASER_POINT (600, 800, contact, decay) encodes byte for byte as the golden
 test("intensity: pen contact 1.0, pen hover 0.5, fingers and mice never point", () => {
   assert.equal(laserIntensity({ pointerType: "pen", buttons: 1, pressure: 0.6 }), LASER_CONTACT_INTENSITY);
   assert.equal(laserIntensity({ pointerType: "pen", buttons: 0, pressure: 0 }), LASER_HOVER_INTENSITY);
-  // A side button in the air (or a digitizer's first unpressured sample) is still a hover.
-  assert.equal(laserIntensity({ pointerType: "pen", buttons: 1, pressure: 0 }), LASER_HOVER_INTENSITY);
   assert.equal(laserIntensity({ pointerType: "touch", buttons: 1, pressure: 0.5 }), null);
   assert.equal(laserIntensity({ pointerType: "mouse", buttons: 1, pressure: 0.5 }), null);
+  assert.equal(laserIntensity({ pointerType: "touch", buttons: 0, pressure: 0 }), null, "a finger never hovers a laser");
+});
+
+// Review F7, the rule both clients share (Daylight Ink: PenRouterTest pins the same three rules).
+test("rule 1: any pen contact is 1.0 whatever the pressure, pressure 0 included", () => {
+  assert.equal(PEN_TIP_BUTTON, 1);
+  assert.equal(PEN_ERASER_BUTTON, 32);
+  // A digitizer's first contact sample may carry pressure 0 (LOOSE_ENDS D4): still contact, still 1.0.
+  assert.equal(laserIntensity({ pointerType: "pen", buttons: PEN_TIP_BUTTON, pressure: 0 }), LASER_CONTACT_INTENSITY);
+  assert.equal(laserIntensity({ pointerType: "pen", buttons: PEN_TIP_BUTTON, pressure: 1 }), LASER_CONTACT_INTENSITY);
+  // The tip down with the barrel button held is contact too.
+  assert.equal(laserIntensity({ pointerType: "pen", buttons: PEN_TIP_BUTTON | 2, pressure: 0.3 }), LASER_CONTACT_INTENSITY);
+  // The barrel button pressed in the air is a hover, not a contact.
+  assert.equal(laserIntensity({ pointerType: "pen", buttons: 2, pressure: 0 }), LASER_HOVER_INTENSITY);
+});
+
+test("rule 2: the eraser end on contact points at 1.0; an eraser end in the air is not reported by the browser", () => {
+  assert.equal(laserIntensity({ pointerType: "pen", buttons: PEN_ERASER_BUTTON, pressure: 0.5 }), LASER_CONTACT_INTENSITY);
+  assert.equal(laserIntensity({ pointerType: "pen", buttons: PEN_ERASER_BUTTON, pressure: 0 }), LASER_CONTACT_INTENSITY);
+  // Pointer Events carry no eraser state while hovering (buttons 0), so the page cannot tell it from the tip: 0.5
+  // (LOOSE_ENDS IL-9; Daylight Ink, which can, sends nothing for an eraser end in the air).
+  assert.equal(laserIntensity({ pointerType: "pen", buttons: 0, pressure: 0 }), LASER_HOVER_INTENSITY);
+});
+
+test("rule 3: picking Laser mid-stroke lets the open stroke end normally; the laser takes the next contact", () => {
+  // A stroke or an erase is open: its samples stay with it until its own pen-up (a COMMIT, never a CANCEL).
+  assert.equal(laserTakesSample("laser", true), false);
+  // Nothing open: the laser takes contact and hover.
+  assert.equal(laserTakesSample("laser", false), true);
+  // Any other tool: never the laser, open contact or not.
+  for (const tool of ["pen", "highlighter", "eraser"]) {
+    assert.equal(laserTakesSample(tool, false), false, tool);
+    assert.equal(laserTakesSample(tool, true), false, tool);
+  }
 });
 
 /** A fake animation frame: callbacks run only when the test says a frame passed. */

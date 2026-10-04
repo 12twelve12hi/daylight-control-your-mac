@@ -56,24 +56,36 @@ class SourceRulesTest {
         assertTrue(s.contains("MotionEvent.ACTION_CANCEL ->"))
         assertTrue(s.contains("(e.flags and MotionEvent.FLAG_CANCELED) != 0"))
         assertTrue(s.contains("ACTION_BUTTON_PRESS"))                     // barrel button is observed, never drawn
-        // Hover never reaches the session: the one ACTION_HOVER branch is onHover, and it feeds only the laser pointer.
+        // Hover never reaches the session: the one ACTION_HOVER branch is onHover, and it feeds only PenRouter.hover,
+        // which moves only the laser pointer (PenRouterTest runs it).
         val hover = s.substringAfter("fun onHover(").substringBefore("\n    }\n")
-        assertTrue(hover.contains("MotionEvent.ACTION_HOVER_MOVE") && hover.contains("laser?.hover("))
-        assertTrue(hover.contains("e.getToolType(0) != MotionEvent.TOOL_TYPE_STYLUS"))
+        assertTrue(hover.contains("MotionEvent.ACTION_HOVER_MOVE") && hover.contains("router.hover("))
+        assertTrue(hover.contains("e.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS"))
         assertFalse(hover.contains("session."))
         assertFalse(s.substringBefore("fun onHover(").contains("ACTION_HOVER"))
         assertFalse(s.substringAfter("fun onHover(").substringAfter("\n    }\n").contains("ACTION_HOVER"))
+        val routerHover = read("ink/PenRouter.kt").substringAfter("fun hover(").substringBefore("\n    }\n")
+        assertTrue(routerHover.contains("laser?.hover("))
+        assertFalse(routerHover.contains("session."))
     }
 
     @Test
     fun theLaserToolNeverReachesTheStrokeSession() {
         // LOOSE_ENDS F3: with Laser selected the pen moves the laser only (no stroke, no wet or dry ink, no undo).
+        // The behaviour is PenRouterTest's (a JVM test of the routing itself). Here: PenInput hands every contact to
+        // the router and never calls the session's contact methods itself, so what PenRouterTest runs is what ships.
         val s = read("ink/PenInput.kt")
-        assertTrue(s.contains("if (laserMode) return laserTouch(view, e)"))
-        val laserTouch = s.substringAfter("private fun laserTouch(").substringBefore("\n    }\n")
-        assertTrue(laserTouch.contains("laser?.contact("))
-        assertFalse(laserTouch.contains("session."))
-        assertFalse(laserTouch.contains("wet"))
+        assertTrue(s.contains("private val router = PenRouter(session)"))
+        for (call in listOf("router.down(", "router.laserTakesContact", "router.laserMove(", "router.sample(", "router.up(", "router.cancel()")) {
+            assertTrue("PenInput calls $call", s.contains(call))
+        }
+        for (call in listOf("session.down(", "session.point(", "session.up(", "session.cancel(")) {
+            assertFalse("PenInput must leave $call to PenRouter", s.contains(call))
+        }
+        val move = s.substringAfter("MotionEvent.ACTION_MOVE ->").substringBefore("MotionEvent.ACTION_UP")
+        assertTrue("the laser branch returns before any sample reaches the session", move.indexOf("return true\n                }") in 0 until move.indexOf("router.sample("))
+        val router = read("ink/PenRouter.kt")
+        assertFalse("PenRouter is pure", router.contains("import android"))
         assertFalse(read("ink/LaserPointer.kt").contains("StrokeSession"))
         assertFalse(read("ink/LaserPointer.kt").contains("InkSink"))
         val select = read("ui/MainActivity.kt").substringAfter("override fun selectTool(").substringBefore("\n    }\n")

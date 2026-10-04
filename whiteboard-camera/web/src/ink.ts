@@ -4,7 +4,7 @@
 // The Laser tool sends LASER_POINT (PROTOCOL 6.9) instead: nothing drawn, no stroke, no undo.
 
 import { clampPressure, strokeHitsSegment, strokeWidth, type LocalPoint } from "./geometry.js";
-import { LASER_DECAY_S, LaserThrottle, laserIntensity, type LaserPoint } from "./laser.js";
+import { LASER_DECAY_S, LaserThrottle, laserIntensity, laserTakesSample, type LaserPoint } from "./laser.js";
 import { Encoder, MAX_POINTS_PER_CHUNK, newUuid16, toHex, type WirePoint } from "./protocol.js";
 import type { Tool } from "./tools.js";
 
@@ -376,7 +376,7 @@ export class InkCanvas {
 
   private down(e: PointerEvent): void {
     this.armed = null;
-    if (this.tool === "laser" && !this.active && !this.erasing) {
+    if (laserTakesSample(this.tool, this.active !== null || this.erasing !== null)) {
       if (this.pointLaser(e)) e.preventDefault();
       else this.stats.ignored++;
       return;
@@ -450,7 +450,7 @@ export class InkCanvas {
 
   private sample(e: PointerEvent, samples: readonly PointerEvent[]): void {
     if (e.pointerType !== "pen") return;
-    if (this.tool === "laser" && !this.active && !this.erasing) {
+    if (laserTakesSample(this.tool, this.active !== null || this.erasing !== null)) {
       // Only the newest sample matters: the throttle keeps one point per frame anyway.
       this.pointLaser(samples[samples.length - 1] ?? e);
       return;

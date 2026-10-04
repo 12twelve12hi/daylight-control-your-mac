@@ -130,7 +130,7 @@ final class StrokeStoreTests: XCTestCase {
         XCTAssertEqual(store.undoDepth, 1)
         XCTAssertEqual(store.redoDepth, 1)
         XCTAssertEqual(store.strokes.map { $0.id }, [a], "the last committed stroke goes first")
-        XCTAssertEqual(store.redo(now: 3), .drawSegments(strokeID: b, fromIndex: 0))
+        XCTAssertEqual(store.redo(now: 3), .redrawSegments(strokeID: b), "redo draws the whole stroke again as a redraw, not as new writing")
         XCTAssertEqual(store.undoDepth, 2)
         XCTAssertEqual(store.redoDepth, 0)
         XCTAssertNil(store.redo(), "nothing left to redo")

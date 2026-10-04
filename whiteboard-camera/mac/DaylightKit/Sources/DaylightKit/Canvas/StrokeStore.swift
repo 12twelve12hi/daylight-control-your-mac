@@ -183,13 +183,13 @@ public struct StrokeStore {
         return .redraw(DirtyRect(rect: removed.dirtyBounds))
     }
 
-    /// Re-applies the last undone stroke; the whole stroke is drawn again.
+    /// Re-applies the last undone stroke; the whole stroke is drawn again (`redrawSegments`: a redraw, not writing).
     public mutating func redo(now: Double? = nil) -> CanvasOp? {
         guard let stroke = redoStack.popLast() else { return nil }
         strokes.append(stroke)
         commitOrder.append(stroke.id)
         if let now = now { lastInkAt = now }
-        return .drawSegments(strokeID: stroke.id, fromIndex: 0)
+        return .redrawSegments(strokeID: stroke.id)
     }
 
     /// Clears both layers and the undo stack; the page keeps its id and index (SPEC section 7, Clear).

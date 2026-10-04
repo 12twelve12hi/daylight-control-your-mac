@@ -108,6 +108,9 @@ public enum CanvasOp: Equatable {
     /// Draw the segments of stroke `strokeID` from point index `fromIndex` (the segment into it from `fromIndex - 1` included;
     /// a committed one-point stroke is a dot).
     case drawSegments(strokeID: UUID, fromIndex: Int)
+    /// Draw the whole of stroke `strokeID` again (redo): the same pixels as `drawSegments` from index 0, but not new
+    /// writing, so follow the pen does not count it as ink.
+    case redrawSegments(strokeID: UUID)
     /// Clear the rectangle and re-stroke every stroke intersecting it.
     case redraw(DirtyRect)
     case clearAll

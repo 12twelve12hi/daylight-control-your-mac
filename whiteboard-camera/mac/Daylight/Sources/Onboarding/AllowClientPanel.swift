@@ -27,6 +27,7 @@ final class AllowClientPanel: NSPanel {
             backing: .buffered,
             defer: false)
         title = "Daylight"
+        setAccessibilityIdentifier("daylight.panel.allow")
         level = .floating
         isFloatingPanel = true
         hidesOnDeactivate = false

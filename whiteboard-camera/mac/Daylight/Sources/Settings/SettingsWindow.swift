@@ -9,6 +9,28 @@ struct CameraOption: Identifiable, Equatable {
     let name: String
 }
 
+/// The Settings tabs, by their titles. `named` reads a title in any letter case (`--ui-test-settings-tab`).
+enum SettingsTab: String, CaseIterable, Equatable, Hashable {
+    case general = "General"
+    case hotkeys = "Hotkeys"
+    case network = "Network"
+    case mirror = "Mirror"
+    case overlay = "Overlay"
+    case saving = "Saving"
+    case advanced = "Advanced"
+    case diagnostics = "Diagnostics"
+
+    static func named(_ name: String) -> SettingsTab? {
+        let wanted = name.lowercased()
+        return SettingsTab.allCases.first { $0.rawValue.lowercased() == wanted }
+    }
+
+    /// The accessibility identifier on the last element of the tab, `daylight.settings.<tab>.last`.
+    var lastElementID: String {
+        return "daylight.settings.\(rawValue.lowercased()).last"
+    }
+}
+
 /// What the Settings window needs from the rest of the app, as closures (Settings/ never references App/).
 final class SettingsContext: ObservableObject {
     @Published var allowedClients: [ClientRegistry.Record] = []
@@ -16,6 +38,7 @@ final class SettingsContext: ObservableObject {
     @Published var hotkeyConflicts: [HotkeyAction: String] = [:]
     @Published var diagnosticsText = ""
     @Published var mirrorAvailable = false
+    @Published var selectedTab: SettingsTab = .general
     var cameras: () -> [CameraOption] = { [] }
     var forget: (String) -> Void = { _ in }
     var latestMirrorFrame: () -> CVPixelBuffer? = { nil }
@@ -30,15 +53,15 @@ struct SettingsView: View {
     @StateObject private var adbSourceModel = AdbSourceModel()
 
     var body: some View {
-        TabView {
-            generalTab.tabItem { Text("General") }
-            hotkeysTab.tabItem { Text("Hotkeys") }
-            networkTab.tabItem { Text("Network") }
-            mirrorTab.tabItem { Text("Mirror") }
-            overlayTab.tabItem { Text("Overlay") }
-            savingTab.tabItem { Text("Saving") }
-            advancedTab.tabItem { Text("Advanced") }
-            diagnosticsTab.tabItem { Text("Diagnostics") }
+        TabView(selection: $context.selectedTab) {
+            generalTab.tabItem { Text("General") }.tag(SettingsTab.general)
+            hotkeysTab.tabItem { Text("Hotkeys") }.tag(SettingsTab.hotkeys)
+            networkTab.tabItem { Text("Network") }.tag(SettingsTab.network)
+            mirrorTab.tabItem { Text("Mirror") }.tag(SettingsTab.mirror)
+            overlayTab.tabItem { Text("Overlay") }.tag(SettingsTab.overlay)
+            savingTab.tabItem { Text("Saving") }.tag(SettingsTab.saving)
+            advancedTab.tabItem { Text("Advanced") }.tag(SettingsTab.advanced)
+            diagnosticsTab.tabItem { Text("Diagnostics") }.tag(SettingsTab.diagnostics)
         }
         .frame(width: 560, height: 520)
         .padding()
@@ -68,6 +91,7 @@ struct SettingsView: View {
             Toggle("Open the preview window at launch", isOn: $store.settings.previewOnLaunch)
             Toggle("Preview window floats above other windows", isOn: $store.settings.previewFloats)
             Toggle("Launch at login", isOn: Binding(get: { store.launchAtLogin }, set: { enabled in _ = try? store.setLaunchAtLogin(enabled) }))
+                .accessibilityIdentifier(SettingsTab.general.lastElementID)
             if store.launchAtLoginRequiresApproval {
                 Button("Approve in System Settings") { store.openLoginItemsSettings() }
             }
@@ -90,6 +114,7 @@ struct SettingsView: View {
             }
             Button("Reset to defaults") { store.settings.hotkeys = Settings.defaultHotkeys }
             Text("Pressing the active layout hotkey again returns to the camera (unpinning first).").font(.footnote).foregroundColor(.secondary)
+                .accessibilityIdentifier(SettingsTab.hotkeys.lastElementID)
         }
         .padding()
     }
@@ -118,6 +143,7 @@ struct SettingsView: View {
             Section(header: Text("Allowed tablets")) {
                 if context.allowedClients.isEmpty {
                     Text("No tablet has been allowed yet.").foregroundColor(.secondary)
+                        .accessibilityIdentifier(SettingsTab.network.lastElementID)
                 }
                 ForEach(context.allowedClients, id: \.id) { record in
                     HStack {
@@ -128,6 +154,7 @@ struct SettingsView: View {
                         Spacer()
                         Button("Forget") { context.forget(record.id) }
                     }
+                    .accessibilityIdentifier(record.id == context.allowedClients.last?.id ? SettingsTab.network.lastElementID : "daylight.settings.network.tablet")
                 }
             }
         }
@@ -194,11 +221,15 @@ struct SettingsView: View {
                     Stepper("Top \(store.settings.mirrorCropInsetsPortrait.top)", value: $store.settings.mirrorCropInsetsPortrait.top, in: 0...800)
                     Stepper("Bottom \(store.settings.mirrorCropInsetsPortrait.bottom)", value: $store.settings.mirrorCropInsetsPortrait.bottom, in: 0...800)
                 }
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier(context.mirrorAvailable ? SettingsTab.mirror.lastElementID : "daylight.settings.mirror.crop")
                 if !context.mirrorAvailable {
                     if store.settings.mirrorTransport == .wifiStream {
                         Text(FailureText.sentence(.wifiStreamNoTablet)).font(.footnote).foregroundColor(.secondary)
+                            .accessibilityIdentifier(SettingsTab.mirror.lastElementID)
                     } else {
                         Text("Mirror mode becomes active when a Daylight with USB debugging is plugged in.").font(.footnote).foregroundColor(.secondary)
+                            .accessibilityIdentifier(SettingsTab.mirror.lastElementID)
                     }
                 }
             }
@@ -247,6 +278,7 @@ struct SettingsView: View {
             }
             .disabled(!store.settings.overlayEnabled)
             Text("Overlay shows the whiteboard full frame with you cut out of your background in a corner; if you cannot be found it shows Studio Split.").font(.footnote).foregroundColor(.secondary)
+                .accessibilityIdentifier(SettingsTab.overlay.lastElementID)
         }
         .padding()
     }
@@ -263,6 +295,7 @@ struct SettingsView: View {
             Toggle("Save the strokes as JSON next to each PNG", isOn: $store.settings.saveStrokesJSON)
             Stepper("Autosave every \(store.settings.autosaveSeconds) s while drawing", value: $store.settings.autosaveSeconds, in: Settings.autosaveRange, step: 15)
             Text("Pages are saved when the board returns to the camera, on Clear, on New page, every autosave interval while dirty, on Hold: Camera and on quit.").font(.footnote).foregroundColor(.secondary)
+                .accessibilityIdentifier(SettingsTab.saving.lastElementID)
         }
         .padding()
     }
@@ -277,6 +310,7 @@ struct SettingsView: View {
             Toggle("Frame reuse (measure first)", isOn: $store.settings.frameReuse)
             Toggle("Deadline idling (measure first)", isOn: $store.settings.deadlineIdle)
             Toggle("Perf log (one line per second, kept for Diagnostics and the export)", isOn: $store.settings.perfLog)
+                .accessibilityIdentifier(SettingsTab.advanced.lastElementID)
         }
         .padding()
     }
@@ -295,6 +329,8 @@ struct SettingsView: View {
                     NSPasteboard.general.setString(context.diagnosticsText, forType: .string)
                 }
             }
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier(SettingsTab.diagnostics.lastElementID)
         }
         .padding()
         .onAppear { context.refreshDiagnostics() }
@@ -317,6 +353,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             let hosting = NSHostingController(rootView: SettingsView(store: store, context: context))
             let w = NSWindow(contentViewController: hosting)
             w.title = "Daylight Settings"
+            w.setAccessibilityIdentifier("daylight.window.settings")
             w.styleMask = [.titled, .closable, .miniaturizable]
             w.isReleasedWhenClosed = false
             w.delegate = self

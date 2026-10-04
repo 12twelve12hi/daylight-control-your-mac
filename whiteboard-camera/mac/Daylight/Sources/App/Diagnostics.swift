@@ -96,6 +96,7 @@ final class DiagnosticsWindowController: NSObject, NSWindowDelegate {
     private func makeWindow() {
         let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 760, height: 560), styleMask: [.titled, .closable, .resizable, .miniaturizable], backing: .buffered, defer: false)
         w.title = "Daylight Diagnostics"
+        w.setAccessibilityIdentifier(UITestMode.diagnosticsWindowID)
         w.isReleasedWhenClosed = false
         w.delegate = self
         let content = NSView(frame: w.contentLayoutRect)

@@ -16,7 +16,14 @@ final class MenuBar: NSObject, NSMenuDelegate {
         super.init()
         menu.delegate = self
         item.menu = menu
+        item.button?.setAccessibilityIdentifier(UITestMode.statusItemID)
         updateIcon()
+    }
+
+    /// `--ui-test-open menu`: opens the menu as a click on the status item would (UNVERIFIED that `performClick` on
+    /// a status item button with a menu opens it; the suite also reads the menu from the status item directly).
+    func openForUITest() {
+        item.button?.performClick(nil)
     }
 
     func updateIcon() {

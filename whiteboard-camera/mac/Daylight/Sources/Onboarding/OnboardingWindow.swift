@@ -127,6 +127,7 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
             let hosting = NSHostingController(rootView: OnboardingView(model: model))
             let w = NSWindow(contentViewController: hosting)
             w.title = "Welcome to Daylight"
+            w.setAccessibilityIdentifier("daylight.window.welcome")
             w.styleMask = [.titled, .closable, .miniaturizable]
             w.isReleasedWhenClosed = false
             w.delegate = self

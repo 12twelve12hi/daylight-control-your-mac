@@ -52,7 +52,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         signed = (bundle.object(forInfoDictionaryKey: "DaylightBuildSigned") as? Bool) ?? false
         let version = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
         let build = bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0"
-        settingsStore = SettingsStore(unsignedBuild: !signed)
+        if arguments.uiTest {
+            // `--ui-test`: a throwaway suite, emptied, so the launch is a first launch (docs/handoff/vp-mac-ui.md).
+            let store = SettingsStore(defaults: UITestMode.freshDefaults(), unsignedBuild: !signed)
+            if arguments.uiTestOptions.overlayEnabled { store.settings.overlayEnabled = true }
+            settingsStore = store
+        } else {
+            settingsStore = SettingsStore(unsignedBuild: !signed)
+        }
         telemetry = Telemetry(perfLog: arguments.perfLog || settingsStore.settings.perfLog)
         model = AppModel(settingsStore: settingsStore, signed: signed, version: version, build: build)
         onboardingModel = OnboardingModel(inputs: OnboardingSteps.Inputs(bundlePath: bundle.bundlePath, signed: signed))
@@ -69,6 +76,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: Launch
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if arguments.uiTest {
+            launchForUITest()
+            return
+        }
         // `--self-test` exits in main.swift before this object exists; the hosted test bundle never looks at, quits or
         // defers to another copy.
         if AppDelegate.isUnderTest || arguments.selfTest {
@@ -176,6 +187,56 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if settingsStore.settings.previewOnLaunch || !signed { preview.show() }
         startCaptureIfAuthorized()
         if !settingsStore.settings.onboardingDone { showOnboarding(force: false) }
+    }
+
+    // MARK: UI test mode
+
+    /// `--ui-test` (docs/handoff/vp-mac-ui.md, "Design contract"): every window and the status item, nothing that
+    /// touches the camera, TCC, the extension installer, the mirror, global hotkeys, the network or another running
+    /// copy. The preview opens only when asked for (`--ui-test-open preview`) so it never covers another surface.
+    private func launchForUITest() {
+        UITestMode.apply(arguments.uiTestOptions.appearance)
+        telemetry.note("app", "ui test run: camera, installer, mirror, hotkeys and server are not started")
+        model.telemetry = telemetry
+        model.preview = preview
+        menuBar = MenuBar(model: model)
+        menuBar?.onExportDiagnostics = { [weak self] in self?.diagnosticsExport.start() }
+        model.onOpenSettings = { [weak self] in self?.showSettings() }
+        model.onOpenDiagnostics = { [weak self] in self?.showDiagnostics() }
+        model.onSetupAgain = { [weak self] in self?.showOnboarding(force: true) }
+        model.onAllowRequested = { [weak self] item in self?.showAllowPanel(for: item) }
+        wireSettings()
+        if let tab = arguments.uiTestOptions.settingsTab { settingsContext.selectedTab = tab }
+        model.start()
+        preview.floats = settingsStore.settings.previewFloats
+        if !settingsStore.settings.onboardingDone { showOnboarding(force: false) }
+        // After the run loop is up: the status item button can take a click and the windows are ordered in.
+        DispatchQueue.main.async { [weak self] in self?.openUITestSurface() }
+    }
+
+    private func openUITestSurface() {
+        guard let surface = arguments.uiTestOptions.open else { return }
+        switch surface {
+        case .welcome:
+            showOnboarding(force: false)
+        case .settings:
+            showSettings()
+        case .preview:
+            preview.show()
+            UITestMode.tagPreviewWindow()
+        case .diagnostics:
+            showDiagnostics()
+        case .allow:
+            if allowPanel == nil { allowPanel = AllowClientPanel() }
+            guard let panel = allowPanel else { return }
+            panel.onAllow = {}
+            panel.onNotNow = {}
+            panel.onDismissed = {}
+            allowPanelItem = nil
+            panel.show(label: UITestMode.allowLabel, address: UITestMode.allowAddress)
+        case .menu:
+            menuBar?.openForUITest()
+        }
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
@@ -375,6 +436,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func requestCameraAccess() {
+        // No TCC prompt on the UI test runner.
+        if arguments.uiTest { return }
         AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
             DispatchQueue.main.async {
                 guard let self = self else { return }
@@ -708,6 +771,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         actions.setLaunchAtLogin = { [weak self] enabled in
             guard let self = self else { return }
+            // The UI test runner's login items are never changed.
+            if self.arguments.uiTest { return }
             do {
                 try self.settingsStore.setLaunchAtLogin(enabled)
             } catch {

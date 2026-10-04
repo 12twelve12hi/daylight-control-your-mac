@@ -49,11 +49,18 @@ final class MaskProcessor {
     private var smoothedTextures: [MTLTexture] = []
     private var smoothedIndex = 0
     private var hasHistory = false
+    /// `at` of the mask the history ends with; a history older than `OverlayLayout.staleMaskSeconds` is not blended.
+    private var historyAt: Double = 0
     private var scratch: MTLTexture?
     private var outputs: [MTLTexture] = []
     private var outputIndex = 0
     private var copyTexture: MTLTexture?
     private var copyFallbackLogged = false
+    /// Masks wrapped since the last `CVMetalTextureCacheFlush` (the header says the flush "must be made
+    /// periodically"; the same interval as the Compositor's camera cache).
+    private var masksSinceFlush = 0
+    /// Flushes so far (tests).
+    private(set) var textureCacheFlushes = 0
     /// Called once when a mask buffer cannot be wrapped as a texture and is copied instead.
     var onLog: ((String) -> Void)?
 
@@ -103,6 +110,14 @@ final class MaskProcessor {
         var cvTexture: CVMetalTexture?
         var source: MTLTexture?
         if let cache = textureCache {
+            // Before creating this frame's texture, so no texture made from this cache is in use by the GPU: every
+            // earlier `process` waited for its command buffer.
+            masksSinceFlush += 1
+            if masksSinceFlush >= Compositor.textureCacheFlushInterval {
+                masksSinceFlush = 0
+                textureCacheFlushes += 1
+                CVMetalTextureCacheFlush(cache, 0)
+            }
             let status = CVMetalTextureCacheCreateTextureFromImage(kCFAllocatorDefault, cache, mask, nil, .r8Unorm, w, h, 0, &cvTexture)
             if status == kCVReturnSuccess, let created = cvTexture {
                 source = CVMetalTextureGetTexture(created)
@@ -141,10 +156,13 @@ final class MaskProcessor {
         guard let commandBuffer = commandQueue.makeCommandBuffer(), let encoder = commandBuffer.makeComputeCommandEncoder() else {
             throw MaskProcessorError.commandBuffer("could not create a command buffer")
         }
-        let previous = hasHistory ? smoothedTextures[smoothedIndex] : source
+        // A history older than the staleness limit (the board was down, or another layout ran) would bring back a
+        // silhouette from back then at weight k^n: the new mask is taken as is instead (SPEC 6.7 health rule).
+        let blend = hasHistory && at - historyAt <= OverlayLayout.staleMaskSeconds
+        let previous = blend ? smoothedTextures[smoothedIndex] : source
         let nextIndex = 1 - smoothedIndex
         let smoothed = smoothedTextures[nextIndex]
-        var k = Float(hasHistory ? min(max(t.smoothing, 0), 1) : 0)
+        var k = Float(blend ? min(max(t.smoothing, 0), 1) : 0)
         encoder.setComputePipelineState(iirPipeline)
         encoder.setTexture(source, index: 0)
         encoder.setTexture(previous, index: 1)
@@ -175,6 +193,7 @@ final class MaskProcessor {
         }
         smoothedIndex = nextIndex
         hasHistory = true
+        historyAt = at
         outputIndex = (outputIndex + 1) % MaskProcessor.outputCount
         let output = Output(texture: out, at: at, coverage: coverage)
         published.withLock { $0 = output }

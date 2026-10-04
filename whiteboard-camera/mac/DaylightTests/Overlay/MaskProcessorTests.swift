@@ -35,14 +35,31 @@ final class MaskProcessorTests: XCTestCase {
         let out1 = try processor.process(source: a, at: 1, coverage: 0.5)
         let got1 = try XCTUnwrap(MaskProcessor.readBack(out1.texture, device: device))
         assertClose(got1, OverlaySelfTest.reference(previous: nil, current: first, width: width, height: height, smoothing: 0.6, feather: 2).blurred, "first mask: no history, blur only")
-        let out2 = try processor.process(source: b, at: 2, coverage: 0.6)
+        let out2 = try processor.process(source: b, at: 1.033, coverage: 0.6)
         let got2 = try XCTUnwrap(MaskProcessor.readBack(out2.texture, device: device))
         let expected = OverlaySelfTest.reference(previous: first, current: second, width: width, height: height, smoothing: 0.6, feather: 2)
         assertClose(got2, expected.blurred, "second mask: IIR 0.6 then the 5-tap blur")
         XCTAssertEqual(expected.smoothed[0], Float(0.6 * 1 + 0.4 * 0), accuracy: 1e-6, "OverlayLayout.smoothed at (0, 0)")
         XCTAssertFalse(out1.texture === out2.texture, "rotating outputs")
-        XCTAssertEqual(processor.latest?.at, 2)
+        XCTAssertEqual(processor.latest?.at, 1.033)
         XCTAssertEqual(processor.latest?.coverage, 0.6)
+    }
+
+    /// OV-4: a history older than `staleMaskSeconds` (the board was down, or another layout ran) is not blended into
+    /// the next mask; one within the limit is.
+    func testAStaleHistoryIsNotBlended() throws {
+        let device = try OverlayFakes.device()
+        let ones = try XCTUnwrap(MaskProcessor.makeMaskTexture(device: device, width: width, height: height, values: mask { _, _ in 1 }))
+        let zeros = try XCTUnwrap(MaskProcessor.makeMaskTexture(device: device, width: width, height: height, values: mask { _, _ in 0 }))
+        let processor = try MaskProcessor(device: device, smoothing: 0.6, feather: 1)
+        _ = try processor.process(source: ones, at: 10, coverage: 1)
+        let late = try processor.process(source: zeros, at: 10 + OverlayLayout.staleMaskSeconds + 0.5, coverage: 0)
+        let gotLate = try XCTUnwrap(MaskProcessor.readBack(late.texture, device: device))
+        XCTAssertEqual(Double(gotLate.max() ?? 1), 0, accuracy: 0.005, "a stale history is dropped: the new mask as is")
+        _ = try processor.process(source: ones, at: 20, coverage: 1)
+        let soon = try processor.process(source: zeros, at: 20 + OverlayLayout.staleMaskSeconds - 0.1, coverage: 0)
+        let gotSoon = try XCTUnwrap(MaskProcessor.readBack(soon.texture, device: device))
+        XCTAssertEqual(Double(gotSoon[0]), OverlayLayout.smoothed(previous: 1, new: 0, smoothing: 0.6), accuracy: 0.005, "a fresh history is blended")
     }
 
     func testRadiusZeroAndNoSmoothingPassTheMaskThrough() throws {
@@ -64,7 +81,7 @@ final class MaskProcessorTests: XCTestCase {
         _ = try processor.process(source: ones, at: 0, coverage: 1)
         var expected = 1.0
         for i in 1...3 {
-            let out = try processor.process(source: zeros, at: Double(i), coverage: 0)
+            let out = try processor.process(source: zeros, at: Double(i) / 30, coverage: 0)
             expected = OverlayLayout.smoothed(previous: expected, new: 0, smoothing: 0.5)
             let got = try XCTUnwrap(MaskProcessor.readBack(out.texture, device: device))
             XCTAssertEqual(Double(got[0]), expected, accuracy: 0.005, "step \(i)")
@@ -85,6 +102,19 @@ final class MaskProcessorTests: XCTestCase {
             XCTAssertEqual(got[15], 0, accuracy: 0.005, "iosurface=\(iosurface)")
             XCTAssertEqual(out.coverage, 0.5, accuracy: 1e-9)
         }
+    }
+
+    /// OV-3: the mask texture cache is flushed periodically, like the Compositor's camera cache, so wrapped Vision
+    /// buffers do not pile up in it.
+    func testTheMaskTextureCacheIsFlushedPeriodically() throws {
+        let device = try OverlayFakes.device()
+        let processor = try MaskProcessor(device: device, smoothing: 0.6, feather: 1)
+        let interval = Compositor.textureCacheFlushInterval
+        for i in 0..<(2 * interval) {
+            let buffer = OverlayFakes.maskBuffer(width: 16, height: 8, value: UInt8(i % 2 == 0 ? 255 : 0))
+            _ = try processor.process(mask: buffer, at: Double(i) / 30, coverage: 0.5)
+        }
+        XCTAssertEqual(processor.textureCacheFlushes, 2, "one flush per \(interval) masks")
     }
 
     func testCoverageSamplesEveryFourthPixel() {

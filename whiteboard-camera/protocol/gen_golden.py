@@ -5,9 +5,9 @@ Regenerates protocol/golden/solstream-v1.json with Python struct (the same forma
 prototype's solstream_wire.py, plus <16sQ for UNDO/REDO and <BBBBfIHHHH for STATE).
 Usage: python3 protocol/gen_golden.py [output-path]   (default: protocol/golden/solstream-v1.json)
 See docs/PROTOCOL.md section 12. No dependencies beyond the standard library.
+Importing this module (protocol/fuzz/gen_fuzz.py does, for the struct layouts) builds the case lists and writes nothing.
 """
 import os, sys
-OUT = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(os.path.abspath(__file__)), "golden", "solstream-v1.json")
 import struct, uuid, hashlib, base64, json
 H = struct.Struct("<BBHIQ"); P = struct.Struct("<iiBH")
 TS = 1760000000123456
@@ -19,7 +19,7 @@ def q8(p): return max(0, min(255, int(round(max(0.0, min(1.0, p)) * 255))))
 def pt(x, y, p, d): return P.pack(int(round(x*32)), int(round(y*32)), q8(p), max(0, min(65535, d)))
 pts = [(10.5, -3.25, 0.73, 0), (100.0, 200.25, 0.2, 8), (1199.96875, 1599.0, 1.0, 70000)]
 cases = []
-VERBOSE = "-v" in sys.argv
+VERBOSE = __name__ == "__main__" and "-v" in sys.argv
 def add(name, op, direction, fields, payload, decode_only=False, note=""):
     b = frame(op, payload)
     cases.append(dict(name=name, opcode=op, direction=direction, fields=fields, hex=b.hex(), decode_only=decode_only, note=note))
@@ -96,7 +96,9 @@ if VERBOSE: print("accept", base64.b64encode(hashlib.sha1((key + "258EAFA5-E914-
 if VERBOSE: print("f32 3.2 ->", struct.pack("<f", 3.2).hex(), " 0.73 ->", struct.pack("<f", 0.73).hex(), " 12.0 ->", struct.pack("<f",12.0).hex(), " 0.5 ->", struct.pack("<f",0.5).hex())
 if VERBOSE: print("q8(0.73)=", q8(0.73), "q8(0.2)=", q8(0.2))
 websocket = dict(sha1_abc=hashlib.sha1(b"abc").hexdigest(), key=key, accept=base64.b64encode(hashlib.sha1((key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode()).digest()).decode(), guid="258EAFA5-E914-47DA-95CA-C5AB0DC85B11")
-with open(OUT, "w", encoding="utf-8") as f:
-    json.dump(dict(version=1, generator="gen_golden.py", timestamp_us=TS, stroke_id=str(SID), page_id=str(PID), websocket=websocket, cases=cases, mirror_cases=mirror_cases), f, indent=1, ensure_ascii=False)
-    f.write("\n")
-print(f"wrote {len(cases)} cases and {len(mirror_cases)} mirror_cases to {OUT}")
+if __name__ == "__main__":
+    OUT = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(os.path.abspath(__file__)), "golden", "solstream-v1.json")
+    with open(OUT, "w", encoding="utf-8") as f:
+        json.dump(dict(version=1, generator="gen_golden.py", timestamp_us=TS, stroke_id=str(SID), page_id=str(PID), websocket=websocket, cases=cases, mirror_cases=mirror_cases), f, indent=1, ensure_ascii=False)
+        f.write("\n")
+    print(f"wrote {len(cases)} cases and {len(mirror_cases)} mirror_cases to {OUT}")

@@ -6,7 +6,7 @@ DAYLIGHT_BUNDLE_ADB ?= 1
 export DAYLIGHT_BUNDLE_ADB
 .DEFAULT_GOAL := help
 
-.PHONY: help web web-test android android-emulator-build android-emulator kit-test mac-generate mac-debug mac-test mac-smoke mac-release fetch-tools embed-apk ci ci-linux ci-mac golden golden-check scripts-check doctor clean
+.PHONY: help web web-test android android-emulator-build android-emulator kit-test mac-generate mac-debug mac-test mac-smoke mac-release fetch-tools embed-apk ci ci-linux ci-mac golden golden-check fuzz-corpus fuzz-check scripts-check doctor clean
 
 help: ## list targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-14s %s\n", $$1, $$2}'
@@ -56,13 +56,19 @@ golden: ## regenerate protocol/golden/solstream-v1.json and copy it into the thr
 golden-check: ## regenerate to a temp file and diff all four copies
 	scripts/check-golden.sh
 
+fuzz-corpus: ## regenerate protocol/fuzz/corpus.json (seeded) and copy it into the three test trees
+	scripts/fuzz-corpus.sh
+
+fuzz-check: ## regenerate the fuzz corpus to a temp file and diff all four copies
+	scripts/fuzz-check.sh
+
 scripts-check: ## bash tests for the script gates (mac-release secrets gate, ci-env DEVELOPER_DIR, license text, kit-test crash retry); runs on Linux
 	scripts/scripts-check.sh
 
 doctor: ## print which tools exist here and which targets can run
 	scripts/ci-env.sh
 
-ci-linux: golden-check scripts-check web web-test kit-test android ## what the Linux jobs run
+ci-linux: golden-check fuzz-check scripts-check web web-test kit-test android ## what the Linux jobs run
 
 ci-mac: fetch-tools embed-apk web mac-generate kit-test mac-debug mac-test mac-smoke mac-release ## what the macOS job runs
 

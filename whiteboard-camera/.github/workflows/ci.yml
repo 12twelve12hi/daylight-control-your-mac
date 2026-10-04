@@ -223,3 +223,78 @@ jobs:
           name: xcodebuild-logs-macos-26
           path: build/xcodebuild-logs
           if-no-files-found: ignore
+
+  # Instrumented tests of Daylight Ink on an emulated Android 13 tablet shaped like the Daylight DC-1 (docs/SCREENSHOTS.md):
+  # API 33 google_apis x86_64 on the "Nexus 10" profile, forced to 1200x1600 at 200 dpi by scripts/android-emulator.sh.
+  # Uses reactivecircus/android-emulator-runner@v2 with its README's KVM step and AVD snapshot cache recipe. Non-blocking
+  # for now: continue-on-error keeps a red run from failing the workflow; it is promoted to blocking after three green
+  # runs in a row. No other job needs it.
+  android-emulator:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    concurrency:
+      group: wbc-android-emulator-${{ github.ref }}
+      cancel-in-progress: true
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v6
+      - run: scripts/ci-env.sh
+      - name: Enable KVM group perms
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      # Both APKs exist before the emulator boots, so the emulator's minutes go to the tests only.
+      - run: make android-emulator-build
+      # Bump the trailing -r1 whenever an emulator-runner input below or the avd-config phase of the script changes.
+      - name: AVD cache
+        uses: actions/cache@v6
+        id: avd-cache
+        with:
+          path: |
+            ~/.android/avd/*
+            ~/.android/adb*
+          key: avd-33-google_apis-x86_64-nexus10-r1
+      - name: Create AVD and generate snapshot for caching
+        if: steps.avd-cache.outputs.cache-hit != 'true'
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 33
+          target: google_apis
+          arch: x86_64
+          profile: Nexus 10
+          ram-size: 4096M
+          disk-size: 6000M
+          force-avd-creation: false
+          emulator-boot-timeout: 900
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: false
+          pre-emulator-launch-script: scripts/android-emulator.sh avd-config
+          script: echo "Generated AVD snapshot for caching."
+      # The action runs each script line separately with sh -c, in working-directory, with ANDROID_SERIAL set.
+      - name: Instrumented tests on the emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 33
+          target: google_apis
+          arch: x86_64
+          profile: Nexus 10
+          ram-size: 4096M
+          disk-size: 6000M
+          force-avd-creation: false
+          emulator-boot-timeout: 900
+          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          pre-emulator-launch-script: scripts/android-emulator.sh avd-config
+          script: make android-emulator
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: android-screenshots
+          path: build/android-emulator
+          if-no-files-found: warn

@@ -6,7 +6,7 @@ DAYLIGHT_BUNDLE_ADB ?= 1
 export DAYLIGHT_BUNDLE_ADB
 .DEFAULT_GOAL := help
 
-.PHONY: help web web-test android kit-test mac-generate mac-debug mac-test mac-smoke mac-release fetch-tools embed-apk ci ci-linux ci-mac golden golden-check scripts-check doctor clean
+.PHONY: help web web-test android android-emulator-build android-emulator kit-test mac-generate mac-debug mac-test mac-smoke mac-release fetch-tools embed-apk ci ci-linux ci-mac golden golden-check scripts-check doctor clean
 
 help: ## list targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-14s %s\n", $$1, $$2}'
@@ -19,6 +19,12 @@ web-test: ## unit tests (node --test) + Playwright smoke test against the built 
 
 android: ## ./gradlew assembleDebug testDebugUnitTest (needs an Android SDK; CI ubuntu runner has one)
 	scripts/android.sh
+
+android-emulator-build: ## assemble the debug APK and the instrumented-test APK (run before the emulator boots; needs an Android SDK)
+	scripts/android-emulator.sh build
+
+android-emulator: ## instrumented tests on a booted Android 13 emulator shaped like the DC-1; screenshots, logcat, ANR traces in build/android-emulator (docs/SCREENSHOTS.md; CI job android-emulator, not part of ci-linux)
+	scripts/android-emulator.sh run
 
 kit-test: ## swift test in mac/DaylightKit (Linux or macOS)
 	scripts/kit-test.sh

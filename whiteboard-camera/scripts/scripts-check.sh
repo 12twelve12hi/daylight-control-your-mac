@@ -12,6 +12,9 @@
 #                        apart from the appendix copyright lines (scrcpy's attribution there, the template here).
 #   kit-test.sh:         a crash of swift-package (exit 139) is retried with the whole suite and a log line; a test
 #                        failure (exit 1) is never retried; a crash on every attempt still fails (a stub swift).
+#   android-emulator.sh: parses; the am instrument rule (OK passes; FAILURES!!!, INSTRUMENTATION_FAILED, Process crashed,
+#                        no OK line and OK (0 tests) fail); the logcat rule (a FATAL EXCEPTION or ANR in the app fails,
+#                        another package's crash does not).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 fails=0; passes=0
@@ -170,6 +173,33 @@ check_eq "adb switch: fetch-tools.sh leaves adb out on DAYLIGHT_BUNDLE_ADB=0" \
   "$(grep -c 'if \[\[ "$DAYLIGHT_BUNDLE_ADB" == "0" \]\]; then' scripts/fetch-tools.sh)" "1"
 check_eq "adb switch: the Swift key name matches project.yml" \
   "$(sed -n 's/.*static let bundlesAdbInfoKey = "\([^"]*\)".*/\1/p' "$swift_src")" "DaylightBundlesAdb"
+
+# android-emulator.sh: the pass/fail rules the CI emulator job applies (no adb needed for these phases).
+emu() { # $1 phase, $2 fixture text
+  printf '%b' "$2" > "$tmpdir/emu.txt"
+  set +e; out="$(env -u CI bash scripts/android-emulator.sh "$1" "$tmpdir/emu.txt" 2>&1)"; rc=$?; set -e
+}
+bash -n scripts/android-emulator.sh && { echo "ok    android-emulator.sh parses"; passes=$((passes + 1)); } || { echo "FAIL  android-emulator.sh has a syntax error"; fails=$((fails + 1)); }
+emu check-instrument 'INSTRUMENTATION_STATUS_CODE: 1\nINSTRUMENTATION_STATUS_CODE: 0\nINSTRUMENTATION_RESULT: stream=\n\nOK (3 tests)\n\nINSTRUMENTATION_CODE: -1\n'
+expect "emulator: OK (3 tests) passes" 0 ""
+emu check-instrument 'OK (1 test)\n'
+expect "emulator: OK (1 test) passes" 0 ""
+emu check-instrument 'INSTRUMENTATION_STATUS_CODE: -2\nFAILURES!!!\nTests run: 3,  Failures: 1\n'
+expect "emulator: FAILURES!!! fails" 1 "FAILURES!!! \\(Tests run: 3"
+emu check-instrument 'INSTRUMENTATION_FAILED: com.twelve.daylight.ink.test/androidx.test.runner.AndroidJUnitRunner\n'
+expect "emulator: INSTRUMENTATION_FAILED fails" 1 "INSTRUMENTATION_FAILED"
+emu check-instrument 'INSTRUMENTATION_RESULT: shortMsg=Process crashed.\nINSTRUMENTATION_CODE: 0\n'
+expect "emulator: Process crashed fails" 1 "Process crashed"
+emu check-instrument 'INSTRUMENTATION_STATUS_CODE: 1\n'
+expect "emulator: output without an OK line fails" 1 "no 'OK \\(' line"
+emu check-instrument 'OK (0 tests)\n'
+expect "emulator: OK (0 tests) fails" 1 "no test ran"
+emu check-logcat '10-04 12:00:00.400   777   777 E AndroidRuntime: FATAL EXCEPTION: main\n10-04 12:00:00.401   777   777 E AndroidRuntime: Process: com.android.other, PID: 777\n10-04 12:00:01.000   500   520 E ActivityManager: ANR in com.android.other\n'
+expect "emulator: another package's crash and ANR pass" 0 ""
+emu check-logcat '10-04 12:00:00.400  4321  4321 E AndroidRuntime: FATAL EXCEPTION: main\n10-04 12:00:00.401  4321  4321 E AndroidRuntime: Process: com.twelve.daylight.ink, PID: 4321\n'
+expect "emulator: a FATAL EXCEPTION in the app fails" 1 "FATAL EXCEPTION in com.twelve.daylight.ink"
+emu check-logcat '10-04 12:00:01.000   500   520 E ActivityManager: ANR in com.twelve.daylight.ink (com.twelve.daylight.ink/.ui.MainActivity)\n'
+expect "emulator: an ANR in the app fails" 1 "ANR in com.twelve.daylight.ink"
 
 echo "scripts-check: $passes passed, $fails failed"
 (( fails == 0 ))

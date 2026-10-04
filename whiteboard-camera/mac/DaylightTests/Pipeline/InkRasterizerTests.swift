@@ -1,4 +1,5 @@
 import DaylightKit
+import IOSurface
 import XCTest
 @testable import Daylight
 
@@ -137,4 +138,87 @@ final class InkRasterizerTests: XCTestCase {
         rasterizer.apply(.drawSegments(strokeID: id, fromIndex: 0), store: store)
         XCTAssertEqual(CanvasSurfaces.pixel(surfaces.ink, x: 100, y: 100).a, 0)
     }
+
+    // MARK: Camera line weight (D14)
+
+    /// Integrated alpha across a horizontal line in column `x`: the line's covered width in canvas pixels.
+    private func coverage(_ surface: IOSurfaceRef, x: Int, rows: ClosedRange<Int>) -> Double {
+        return rows.reduce(0.0) { $0 + Double(CanvasSurfaces.pixel(surface, x: x, y: $1).a) / 255 }
+    }
+
+    private func drawLine(_ rasterizer: InkRasterizer, _ store: inout StrokeStore, tool: SolStream.Tool = .pen, color: UInt32 = 0xFF11_1111, base: Float, y: Double) -> UUID {
+        let id = UUID()
+        start(&store, id: id, tool: tool, color: color, width: base)
+        // Pressure 0.5 makes the tablet width exactly the base: base * (0.55 + 0.9 * 0.5).
+        let op = store.append(id: id, points: [SolStream.Point(x: 200, y: y, pressure: 0.5, deltaMs: 0), SolStream.Point(x: 1000, y: y, pressure: 0.5, deltaMs: 5)], now: 1)!
+        rasterizer.apply(op, store: store)
+        _ = store.commit(id: id, pointCount: 2)
+        return id
+    }
+
+    func testOnePixelStrokeCoversTheCameraMinimumAt1080pAnd720p() throws {
+        let surfaces = try CanvasSurfaces(device: nil)
+        let rasterizer = InkRasterizer(surfaces: surfaces)
+        var store = makeStore()
+        let id = drawLine(rasterizer, &store, base: 1, y: 400.5)
+        XCTAssertEqual(store.stroke(id: id)!.width(at: 1), 1, accuracy: 1e-9, "the tablet width stays 1 px")
+        let canvas = coverage(surfaces.ink, x: 600, rows: 380...420)
+        let minimum = CameraLineWeight.minimumCanvasWidth(for: .pen)
+        print("camera line weight: 1 px stroke covers \(canvas) canvas px (minimum \(minimum))")
+        XCTAssertGreaterThanOrEqual(canvas, minimum - 0.05)
+        XCTAssertLessThan(canvas, minimum + 0.5)
+        XCTAssertGreaterThanOrEqual(CameraLineWeight.outputWidth(canvasWidth: canvas, outputHeight: 1080), 2.5 - 0.04, "2.5 output px at 1080p")
+        XCTAssertGreaterThanOrEqual(CameraLineWeight.outputWidth(canvasWidth: canvas, outputHeight: 720), 2.5 * 720 / 1080 - 0.03, "1.7 output px at 720p")
+    }
+
+    func testSixPixelStrokeIsUnchanged() throws {
+        let surfaces = try CanvasSurfaces(device: nil)
+        let rasterizer = InkRasterizer(surfaces: surfaces)
+        var store = makeStore()
+        let id = drawLine(rasterizer, &store, base: 6, y: 700.5)
+        let stroke = store.stroke(id: id)!
+        XCTAssertEqual(InkRasterizer.cameraWidth(stroke, at: 1), stroke.width(at: 1), "no clamp above the minimum")
+        let canvas = coverage(surfaces.ink, x: 600, rows: 680...720)
+        XCTAssertEqual(canvas, 6, accuracy: 0.1)
+    }
+
+    func testHighlighterHasItsOwnLargerMinimum() throws {
+        let surfaces = try CanvasSurfaces(device: nil)
+        let rasterizer = InkRasterizer(surfaces: surfaces)
+        var store = makeStore()
+        _ = drawLine(rasterizer, &store, tool: .highlighter, color: 0xFFD9_7706, base: 1, y: 1000.5)
+        let canvas = coverage(surfaces.highlight, x: 600, rows: 970...1030)
+        let minimum = CameraLineWeight.minimumCanvasWidth(for: .highlighter)
+        XCTAssertGreaterThan(minimum, CameraLineWeight.minimumCanvasWidth(for: .pen))
+        XCTAssertEqual(canvas, minimum, accuracy: 0.1)
+        XCTAssertEqual(coverage(surfaces.ink, x: 600, rows: 970...1030), 0, "the highlighter stays on its own layer")
+    }
+
+    func testEraseOfAClampedThinStrokeLeavesNoEdgeBehind() throws {
+        let surfaces = try CanvasSurfaces(device: nil)
+        let rasterizer = InkRasterizer(surfaces: surfaces)
+        var store = makeStore()
+        _ = drawLine(rasterizer, &store, base: 1, y: 300.5)
+        XCTAssertGreaterThan(coverage(surfaces.ink, x: 600, rows: 290...310), 3)
+        let op = store.erase(x1: 600, y1: 290, x2: 600, y2: 310, radius: 12, hint: [], now: 2)
+        XCTAssertNotNil(op)
+        rasterizer.apply(op!, store: store)
+        XCTAssertEqual(store.committedCount, 0)
+        for x in [200, 600, 1000] {
+            XCTAssertEqual(coverage(surfaces.ink, x: x, rows: 290...310), 0, "the bolder camera edge is erased too at x=\(x)")
+        }
+    }
+
+    func testOnePixelDotIsDrawnAtTheMinimum() throws {
+        let surfaces = try CanvasSurfaces(device: nil)
+        let rasterizer = InkRasterizer(surfaces: surfaces)
+        var store = makeStore()
+        let id = UUID()
+        start(&store, id: id, width: 1)
+        _ = store.append(id: id, points: [SolStream.Point(x: 500.5, y: 500.5, pressure: 0.5, deltaMs: 0)], now: 1)
+        rasterizer.apply(store.commit(id: id, pointCount: 1)!, store: store)
+        let column = coverage(surfaces.ink, x: 500, rows: 490...510)
+        XCTAssertGreaterThan(column, CameraLineWeight.minimumCanvasWidth(for: .pen) - 0.6, "the dot's diameter is raised to the minimum")
+    }
 }
+

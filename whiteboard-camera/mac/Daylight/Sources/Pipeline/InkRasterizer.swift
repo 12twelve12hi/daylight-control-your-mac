@@ -5,8 +5,9 @@ import IOSurface
 
 /// Draws `CanvasOp`s from the stroke model into the two canvas IOSurfaces with CoreGraphics (ARCHITECTURE 4):
 /// one `IOSurfaceLock` per op, a cached `CGContext` per layer (`byteOrder32Little | premultipliedFirst`, y-flipped CTM
-/// so canvas coordinates are y-down), per-segment widths `base * (0.55 + 0.9 * pressure)` with round caps and joins.
-/// Runs on ink.queue only.
+/// so canvas coordinates are y-down), per-segment widths `base * (0.55 + 0.9 * pressure)` with round caps and joins,
+/// never thinner than the camera line weight (`CameraLineWeight`, D14): these surfaces feed only the live outputs, the
+/// PNG export renders the store at the true widths. Runs on ink.queue only.
 final class InkRasterizer {
     struct Stats {
         var locks: UInt64 = 0
@@ -59,13 +60,17 @@ final class InkRasterizer {
             let start = max(fromIndex, 1)
             if start >= points.count { return }
             for i in start..<points.count {
-                strokeSegment(ctx, from: points[i - 1], to: points[i], width: stroke.width(at: i))
+                strokeSegment(ctx, from: points[i - 1], to: points[i], width: InkRasterizer.cameraWidth(stroke, at: i, canvasHeight: surfaces.height))
                 stats.segments += 1
             }
         }
     }
 
-    private func redraw(rect: PixelRect, store: StrokeStore) {
+    private func redraw(rect dirty: PixelRect, store: StrokeStore) {
+        // A clamped line can reach past the true-width dirty bounds: grow the cleared area and the hit test alike.
+        let margin = CameraLineWeight.redrawMargin(canvasHeight: Double(surfaces.height))
+        let grown = PixelRect(x: dirty.x - margin, y: dirty.y - margin, w: dirty.w + 2 * margin, h: dirty.h + 2 * margin)
+        let rect = DirtyRect(rect: grown).clipped(toWidth: surfaces.width, height: surfaces.height) ?? dirty
         let cgRect = CGRect(x: rect.x, y: rect.y, width: rect.w, height: rect.h)
         stats.redrawPixels += UInt64(max(0, rect.w * rect.h))
         for tool in [SolStream.Tool.pen, SolStream.Tool.highlighter] {
@@ -75,7 +80,7 @@ final class InkRasterizer {
                 ctx.clear(cgRect)
                 for stroke in store.strokes where InkRasterizer.layer(for: stroke.style.tool) == tool && !stroke.points.isEmpty {
                     let bounds = stroke.dirtyBounds
-                    let strokeRect = CGRect(x: bounds.x, y: bounds.y, width: bounds.w, height: bounds.h)
+                    let strokeRect = CGRect(x: bounds.x - margin, y: bounds.y - margin, width: bounds.w + 2 * margin, height: bounds.h + 2 * margin)
                     guard strokeRect.intersects(cgRect) else { continue }
                     setColor(ctx, stroke.style.colorARGB)
                     if stroke.points.count == 1 {
@@ -83,7 +88,7 @@ final class InkRasterizer {
                         continue
                     }
                     for i in 1..<stroke.points.count {
-                        strokeSegment(ctx, from: stroke.points[i - 1], to: stroke.points[i], width: stroke.width(at: i))
+                        strokeSegment(ctx, from: stroke.points[i - 1], to: stroke.points[i], width: InkRasterizer.cameraWidth(stroke, at: i, canvasHeight: surfaces.height))
                         stats.segments += 1
                     }
                 }
@@ -101,7 +106,7 @@ final class InkRasterizer {
 
     private func fillDot(_ ctx: CGContext, _ stroke: Stroke) {
         guard let p = stroke.points.first else { return }
-        let d = stroke.dotDiameter
+        let d = CameraLineWeight.cameraWidth(stroke.dotDiameter, tool: stroke.style.tool, canvasHeight: Double(surfaces.height))
         ctx.fillEllipse(in: CGRect(x: p.x - d / 2, y: p.y - d / 2, width: d, height: d))
     }
 
@@ -112,6 +117,11 @@ final class InkRasterizer {
         let b = CGFloat(argb & 0xFF) / 255
         ctx.setStrokeColor(red: r, green: g, blue: b, alpha: a)
         ctx.setFillColor(red: r, green: g, blue: b, alpha: a)
+    }
+
+    /// The camera width of segment `index` (D14): the stroke's own width, raised to the tool's camera minimum.
+    static func cameraWidth(_ stroke: Stroke, at index: Int, canvasHeight: Int = SolStream.canvasHeight) -> Double {
+        return CameraLineWeight.cameraWidth(stroke.width(at: index), tool: stroke.style.tool, canvasHeight: Double(canvasHeight))
     }
 
     // MARK: Layers

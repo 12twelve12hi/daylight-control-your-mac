@@ -145,4 +145,40 @@ final class CompositorTests: XCTestCase {
         XCTAssertNil(Compositor.scissor(PixelRect(x: 0, y: 0, w: 0, h: 1080), width: 1920, height: 1080))
         XCTAssertEqual(Compositor.fourcc(kCVPixelFormatType_32BGRA), "BGRA")
     }
+
+    /// Camera line weight (D14) through the real compositor: a 1 px tablet stroke reaches the 1080p output at least
+    /// 2.5 px wide (bilinear minification of the 0.675 canvas scale costs at most a tenth of a pixel), so a call app's
+    /// 720p downscale still gets 1.7 px; a 6 px stroke keeps its own width (6 x 0.675 = 4.05 output px).
+    func testCameraLineWeightReachesTheOutput() throws {
+        let device = try makeDevice()
+        let compositor = try Compositor(device: device)
+        let surfaces = try CanvasSurfaces(device: device)
+        let pool = try OutputPool()
+        let presenter = SelfTest.gradientBuffer(width: 1920, height: 1080)!
+        var store = StrokeStore()
+        let rasterizer = InkRasterizer(surfaces: surfaces)
+        for (base, y) in [(Float(1), 400.5), (Float(6), 1200.5)] {
+            let id = UUID()
+            _ = store.start(StrokeStart(id: id, tool: .pen, colorARGB: 0xFF11_1111, baseWidth: base, pointer: .stylus, phase: .contact, pressure: 0.5))
+            rasterizer.apply(store.append(id: id, points: [SolStream.Point(x: 100, y: y, pressure: 0.5, deltaMs: 0), SolStream.Point(x: 1100, y: y, pressure: 0.5, deltaMs: 5)], now: 1)!, store: store)
+        }
+        let target = pool.acquire()!
+        defer { pool.release(target) }
+        let frame = StudioLayout.frame(progress: 1, layout: .whiteboardOnly, orientation: .portrait, canvasAspect: 0.75, breath: 0)
+        _ = compositor.renderSync(Compositor.Inputs(presenter: presenter, canvas: .layers(surfaces), frame: frame), into: target)
+        // The page fills the output height: canvas y maps to y * 1080 / 1600; canvas x = 600 is the output's centre.
+        func outputCoverage(centreRow: Int) -> Double {
+            let paper = Tokens.paperBg.r * 255, ink = Tokens.inkBlack.r * 255
+            return ((centreRow - 15)...(centreRow + 15)).reduce(0.0) { sum, y in
+                sum + max(0, (paper - Double(SelfTest.pixel(target, 960, y).r)) / (paper - ink))
+            }
+        }
+        let thin = outputCoverage(centreRow: 270)
+        let wide = outputCoverage(centreRow: 810)
+        print("camera line weight: 1 px stroke covers \(thin) output px at 1080p (\(thin * 720 / 1080) at 720p); 6 px stroke \(wide)")
+        XCTAssertGreaterThanOrEqual(thin, 2.5 - 0.1, "2.5 output px at 1080p")
+        XCTAssertGreaterThanOrEqual(thin * 720 / 1080, 2.5 * 720 / 1080 - 0.07, "1.7 output px at 720p")
+        XCTAssertEqual(wide, 6 * 1080 / 1600, accuracy: 0.15, "a 6 px stroke is unchanged")
+    }
 }
+

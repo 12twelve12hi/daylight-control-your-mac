@@ -218,6 +218,11 @@ run() {
   adb install -r "${test_apks[0]}"
   adb logcat -c
 
+  # A system dialog left from boot ("System UI isn't responding" on a slow emulator) takes focus from the app and
+  # every UI test fails at once (run 37182692894). Close it and say which window holds focus before the tests.
+  adb shell am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS >/dev/null 2>&1 || true
+  adb shell dumpsys window 2>/dev/null | tr -d '\r' | grep -E 'mCurrentFocus|mFocusedApp' | tee "$OUT/focus-before.txt" || true
+
   set +e
   timeout 1500 adb shell am instrument -w -r "$TEST_ID/$RUNNER" 2>&1 | tr -d '\r' | tee "$OUT/instrument.txt"
   set -e
@@ -236,6 +241,12 @@ run() {
     echo "::endgroup::"
     while IFS= read -r line; do [[ "$line" != "  "* ]] && fail "$line"; done <<<"$crashes"
   fi
+
+  # Any process's ANR (a system one covers the app as much as our own) and the trace files, in the job log.
+  echo "::group::ANR lines of every process, /data/anr listing"
+  grep -E ' ANR in ' "$OUT/logcat-full.txt" | head -20 || true
+  cat "$OUT/anr/ls.txt" 2>/dev/null || true
+  echo "::endgroup::"
 
   {
     echo "### android-emulator"

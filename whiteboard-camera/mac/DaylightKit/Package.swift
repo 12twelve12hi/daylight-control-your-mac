@@ -18,7 +18,7 @@ let package = Package(
             name: "DaylightKitTests",
             dependencies: ["DaylightKit"],
             path: "Tests/DaylightKitTests",
-            resources: [.copy("Resources/solstream-v1.json")]
+            resources: [.copy("Resources/solstream-v1.json"), .copy("Resources/fuzz-corpus.json")]
         ),
     ]
 )

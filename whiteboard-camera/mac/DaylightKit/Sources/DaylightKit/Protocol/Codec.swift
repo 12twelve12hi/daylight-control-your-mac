@@ -187,7 +187,12 @@ public enum Codec {
                 throw CodecError.badPayload(opcode: op, reason: "name_len \(nameLength) but \(r.remaining) bytes follow")
             }
             let nameBytes = try r.bytes(nameLength)
+            // PROTOCOL 2: strings are UTF-8. The lossy decode replaces invalid sequences with U+FFFD, so a name whose
+            // UTF-8 differs from the wire bytes was not UTF-8 and the HANDSHAKE does not decode (fuzz FZ-2).
             let name = String(decoding: nameBytes, as: UTF8.self)
+            if Array(name.utf8) != nameBytes {
+                throw CodecError.badPayload(opcode: op, reason: "name is not UTF-8")
+            }
             return .handshake(canvasWidth: cw, canvasHeight: ch, dpi: dpi, name: name)
         case .handshakeAck:
             try exact(opcode, payload, [16])
@@ -326,6 +331,10 @@ public enum Codec {
             let flags = try r.u8()
             let mode = try r.u8()
             let inkSource = try r.u8()
+            // PROTOCOL 6.14 ranges; new values are not a compatible addition (PROTOCOL 10), so they do not decode (fuzz FZ-4).
+            if governor > 3 || mode > 3 || inkSource > 2 {
+                throw CodecError.badPayload(opcode: op, reason: "state governor \(governor), mode \(mode) or ink_source \(inkSource) out of range")
+            }
             let progress = try r.f32()
             let msToReturn = try r.u32()
             let pageIndex = try r.u16()

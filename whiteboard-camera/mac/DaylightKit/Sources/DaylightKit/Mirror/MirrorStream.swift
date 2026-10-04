@@ -195,6 +195,8 @@ public enum MirrorStream {
         case emptyMedia
         case unknownState(UInt8)
         case unknownCommand(UInt8)
+        /// MIRROR_HELLO device name bytes (before the first NUL) that are not UTF-8 (PROTOCOL 2, fuzz FZ-2).
+        case nameNotUTF8
         /// payload_len over the 1 MiB SolStream cap.
         case tooLarge
     }
@@ -226,6 +228,7 @@ public enum MirrorStream {
                 nameBytes.append(b)
             }
             let name = String(decoding: nameBytes, as: UTF8.self)
+            guard Array(name.utf8) == nameBytes else { throw DecodeError.nameNotUTF8 }
             let codec = readBE32(frame, at: p + deviceNameFieldLength)
             return (timestamp, .hello(deviceName: name, codecID: codec))
 

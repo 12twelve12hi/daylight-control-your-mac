@@ -300,7 +300,8 @@ The owner's Allow is recorded by clientId: clicking Allow after the pending sock
 | payload_len mismatch, truncated payload, wrong fixed size for a known opcode | drop message, log once per connection |
 | unknown opcode | ignore, log once per opcode |
 | STROKE_CHUNK count 0 or > 4096; ERASE_STROKES count > 1024; HANDSHAKE name_len 0 or > 200 after the connection has an identity | drop message, log |
-| a first HANDSHAKE that does not decode (name_len 0 or > 200, short payload, payload_len mismatch) | HANDSHAKE_ACK 3, close 1002 |
+| a first HANDSHAKE that does not decode (name_len 0 or > 200, name not valid UTF-8, short payload, payload_len mismatch) | HANDSHAKE_ACK 3, close 1002 |
+| a later HANDSHAKE name or a MIRROR_HELLO device name (bytes before the first NUL) that is not valid UTF-8 | drop message, log |
 | payload > 1 MiB or WebSocket frame > 2 MiB | close 1009 |
 | no HANDSHAKE within 5 s, or a non-HANDSHAKE first | close 1002 |
 | ink from a pending client | decode and drop (bounded cost), STATE keeps flowing |
@@ -314,6 +315,7 @@ The owner's Allow is recorded by clientId: clicking Allow after the pending sock
 
 - `version` byte 0x01 is the only accepted value in v1. A future incompatible layout bumps it to 0x02; the server then answers HANDSHAKE_ACK status 3 to a 0x01 client only if it cannot speak 0x01 any more.
 - Compatible additions (new opcodes, new flag bits, longer STATE with appended fields) keep 0x01. Clients MUST ignore unknown opcodes and unknown flag bits, and MUST accept a STATE longer than 20 bytes by reading the first 20.
+- New values of an enumerated field (HANDSHAKE_ACK status, STATE governor, mode and ink_source, STROKE_START tool, pointer and phase, TOGGLE_PIN value, MIRROR_STATUS state, MIRROR_CONTROL command) are NOT a compatible addition: a decoder drops a message whose enumerated field is outside the ranges in section 6 or 14. Reserved and padding bytes are accepted on decode and sent as 0. The cross-language fuzz corpus (`protocol/fuzz/`, `make fuzz-check`) pins these decisions for all three codecs.
 - The golden manifest carries `"version": 1`; each client's test asserts it.
 
 ---

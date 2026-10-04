@@ -68,6 +68,11 @@ final class DaylightUISession {
         ("Segmentation quality", ["Fast", "Balanced", "Accurate"]),
         ("Position", ["Bottom right", "Bottom left", "Top right", "Top left"]),
     ]
+    /// HotkeyAction raw values and the row labels of Settings > Hotkeys (SettingsWindow.swift title(_:)), overlay enabled.
+    static let hotkeyRows: [(action: String, label: String)] = [
+        ("whiteboardOnly", "Whiteboard Only"), ("studioSplit", "Studio Split"), ("keep", "Keep whiteboard (Pin)"),
+        ("clear", "Clear"), ("camera", "Camera"), ("overlay", "Overlay"),
+    ]
     static let allowPrompt = "Allow 'UI test tablet' to draw on Daylight Camera? It connected from 192.168.1.40."
 
     let testCase: XCTestCase
@@ -476,6 +481,8 @@ final class DaylightUISession {
             selectWiFiTransport(w, app: app)
             shots.take(name + "-wifi", window: w)
             texts += flatten(w).flatMap { $0.texts }
+        case "Hotkeys":
+            checkHotkeyRows(flatten(w))
         case "Overlay":
             let nodes = flatten(w)
             for (label, expected) in DaylightUISession.overlayPopups {
@@ -496,6 +503,25 @@ final class DaylightUISession {
         popups += gatherPopups(w, app: app, surface: "Settings > \(tab)", seen: &seen)
         texts += popups.flatMap { [$0.label] + $0.options }
         settingsTexts[tab] = texts
+    }
+
+    /// Every hotkey field (`daylight.settings.hotkeys.recorder.<action>`) is 20 to 30 pt tall and vertically centred
+    /// on its row label within 4 pt (run 37183673841: fields about 40 pt tall, chord drawn at the bottom).
+    private func checkHotkeyRows(_ nodes: [UINode]) {
+        for row in DaylightUISession.hotkeyRows {
+            let identifier = "daylight.settings.hotkeys.recorder." + row.action
+            guard let field = nodes.first(where: { $0.identifier == identifier }) else {
+                XCTFail("[\(appearance)] Settings > Hotkeys: no field \(identifier)")
+                continue
+            }
+            XCTAssertTrue(field.frame.height >= 20 && field.frame.height <= 30, "[\(appearance)] Settings > Hotkeys: \(identifier) is \(Int(field.frame.height)) pt tall \(rect(field.frame)); expected 20 to 30")
+            guard let label = nodes.first(where: { $0.type == .staticText && $0.shows(row.label) && abs($0.frame.midY - field.frame.midY) < 60 }) else {
+                XCTFail("[\(appearance)] Settings > Hotkeys: no label \"\(row.label)\" near \(identifier) \(rect(field.frame))")
+                continue
+            }
+            let offset = abs(label.frame.midY - field.frame.midY)
+            XCTAssertLessThanOrEqual(offset, 4, "[\(appearance)] Settings > Hotkeys: the label \"\(row.label)\" \(rect(label.frame)) is \(Int(offset)) pt off the vertical centre of its field \(rect(field.frame))")
+        }
     }
 
     /// Opens every enabled popup button of the window (scrolled into view first; one that stays unhittable fails),

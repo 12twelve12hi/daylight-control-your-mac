@@ -124,11 +124,13 @@ struct SettingsView: View {
         Form {
             Text("Click a field, then press the new chord (at least one modifier).").foregroundColor(.secondary)
             ForEach(HotkeyAction.allCases.filter { $0 != .overlay || store.settings.overlayEnabled }, id: \.self) { action in
-                HStack {
+                HStack(alignment: .center) {
                     Text(title(action)).frame(width: 160, alignment: .leading)
                     HotkeyRecorder(binding: Binding(
                         get: { store.settings.hotkeys[action] ?? Settings.defaultHotkeys[action]! },
-                        set: { store.settings.hotkeys[action] = $0 }), conflict: context.hotkeyConflicts[action])
+                        set: { store.settings.hotkeys[action] = $0 }), conflict: context.hotkeyConflicts[action],
+                        identifier: "daylight.settings.hotkeys.recorder.\(action.rawValue)")
+                        .frame(width: HotkeyRecorder.size.width, height: HotkeyRecorder.size.height)
                 }
             }
             Button("Reset to defaults") { store.settings.hotkeys = Settings.defaultHotkeys }

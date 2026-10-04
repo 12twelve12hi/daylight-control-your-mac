@@ -8,16 +8,33 @@ struct HotkeyRecorder: NSViewRepresentable {
     @Binding var binding: HotkeyBinding
     /// "Already used by another app" or "Already used by <action>"; nil when the chord registered.
     var conflict: String?
+    /// The accessibility identifier, `daylight.settings.hotkeys.recorder.<action>` (the UI suite measures each field).
+    var identifier = ""
+
+    /// The field's fixed size: SwiftUI grew the view (only an intrinsic size) to about 40 pt tall, with the chord at
+    /// the bottom of a tall box and every row twice the needed height (UI test run 37183673841).
+    static let size = NSSize(width: 220, height: 24)
 
     func makeNSView(context: Context) -> RecorderView {
         let view = RecorderView()
         view.onRecord = { keyCode, modifiers in binding = HotkeyBinding(keyCode: keyCode, modifiers: modifiers) }
+        view.setContentHuggingPriority(.required, for: .vertical)
+        view.setContentCompressionResistancePriority(.required, for: .vertical)
+        view.setAccessibilityElement(true)
+        view.setAccessibilityRole(.button)
+        view.setAccessibilityIdentifier(identifier)
         return view
     }
 
     func updateNSView(_ view: RecorderView, context: Context) {
         view.text = (conflict.map { $0 + ": " } ?? "") + HotkeyRecorder.describe(binding)
+        view.setAccessibilityLabel(view.text)
+        view.setAccessibilityIdentifier(identifier)
         view.needsDisplay = true
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: RecorderView, context: Context) -> CGSize? {
+        return HotkeyRecorder.size
     }
 
     /// The chord as the menu and onboarding name it, so every key the owner records reads the same everywhere.
@@ -41,7 +58,7 @@ struct HotkeyRecorder: NSViewRepresentable {
         private var recording = false
 
         override var acceptsFirstResponder: Bool { return true }
-        override var intrinsicContentSize: NSSize { return NSSize(width: 220, height: 24) }
+        override var intrinsicContentSize: NSSize { return HotkeyRecorder.size }
 
         override func mouseDown(with event: NSEvent) {
             window?.makeFirstResponder(self)
@@ -70,7 +87,10 @@ struct HotkeyRecorder: NSViewRepresentable {
             NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 4, yRadius: 4).stroke()
             let shown = recording ? "Press the new chord..." : text
             let attributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 12), .foregroundColor: NSColor.labelColor]
-            NSAttributedString(string: shown, attributes: attributes).draw(at: NSPoint(x: 8, y: 5))
+            // Vertically centred in whatever height the view gets.
+            let string = NSAttributedString(string: shown, attributes: attributes)
+            let height = string.size().height
+            string.draw(at: NSPoint(x: 8, y: ((bounds.height - height) / 2).rounded()))
         }
     }
 }

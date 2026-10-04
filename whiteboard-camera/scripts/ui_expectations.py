@@ -7,7 +7,7 @@ Called by scripts/ui-expectations.sh; read by mac/DaylightUITests (the Docs to U
 Chains recognised (Mac only):
   menu bar > "X"                          kind menu
   menu bar > "X" > "Y" [/ "Z" ...]         kind submenu (parent X)
-  Settings > <Tab>                         kind tab (Tab one of the eight Mac tabs)
+  Settings > <Tab>                         kind tab (Tab one of the nine Mac tabs)
   Settings > <Tab> > [switch on|off] "L"   kind setting (tab)
   Settings > <Tab> > "L" > "O" [/ "P"]     kind option (tab, parent L)
   menu bar > "Settings..." > <Tab> > ...   the same as Settings > <Tab> > ...
@@ -26,7 +26,7 @@ import os
 import re
 import sys
 
-TABS = ["General", "Hotkeys", "Network", "Mirror", "Overlay", "Saving", "Advanced", "Diagnostics"]
+TABS = ["General", "Hotkeys", "Network", "Mirror", "Overlay", "Share", "Saving", "Advanced", "Diagnostics"]
 DEFAULT_DOCS = ["docs/OWNER-NEXT-STEPS.md", "docs/SETUP.md", "docs/TESTING-CHECKLIST.md"]
 
 Q = r'"([^"\n]+)"'

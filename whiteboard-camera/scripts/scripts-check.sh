@@ -16,7 +16,10 @@
 #                        no OK line and OK (0 tests) fail); the logcat rule (a FATAL EXCEPTION or ANR in the app fails,
 #                        another package's crash does not).
 #   ui-expectations.sh:  the docs-to-UI string extraction: a fixture gives the exact expected JSON; the real docs give
-#                        at least 40 Mac strings with the known ones (Transport, adb source, Export diagnostics..., Setup again).
+#                        at least 40 Mac strings with the known ones (Transport, adb source, Export diagnostics..., Setup again,
+#                        the Share tab and its menu).
+#   crash-summary.sh:    mac-test.sh's crash lines: a sample test log and a sample .ips report give the exception, the
+#                        crashed thread's frames with their image names; a report older than the start stamp is ignored.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 fails=0; passes=0
@@ -369,16 +372,38 @@ items = json.load(open(sys.argv[1]))
 have = {(i["kind"], i["text"], i.get("tab", "")) for i in items}
 need = [("setting", "Transport", "Mirror"), ("setting", "adb source", "Mirror"), ("menu", "Export diagnostics...", ""),
         ("menu", "Setup again", ""), ("menu", "Settings...", ""), ("submenu", "Mirror the tablet", ""),
-        ("option", "Wi-Fi (Daylight Ink screen stream)", "Mirror"), ("welcome", "Welcome to Daylight", "")]
+        ("option", "Wi-Fi (Daylight Ink screen stream)", "Mirror"), ("welcome", "Welcome to Daylight", ""),
+        ("menu", "Share the whiteboard", ""), ("submenu", "Show share window", ""), ("tab", "Share", ""),
+        ("setting", "Hide the share window's title bar", "Share")]
 missing = [n for n in need if n not in have]
 bad = [i for i in items if i.get("tab") and i["tab"] not in
-       ["General", "Hotkeys", "Network", "Mirror", "Overlay", "Saving", "Advanced", "Diagnostics"]]
+       ["General", "Hotkeys", "Network", "Mirror", "Overlay", "Share", "Saving", "Advanced", "Diagnostics"]]
 leaks = [i for i in items if i["text"] in ("This tablet", "Send facts to Mac", "Video", "Developer options")]
 sources = [i for i in items if not i["source"].startswith("docs/")]
 print("count=%d missing=%s badtabs=%d leaks=%d badsources=%d" % (len(items), missing, len(bad), len(leaks), len(sources)))
 PY
 )"; rc=0
 expect "ui-expectations: at least 40 strings, the known items present, Mac tabs only, no tablet strings" 0 "^count=([4-9][0-9]|[1-9][0-9]{2,}) missing=\\[\\] badtabs=0 leaks=0 badsources=0$"
+
+# crash-summary.sh (Review 4 CI-1): the crash lines of the test log and a summary of each crash report newer than the
+# start stamp; an older report is not read.
+mkdir -p "$tmpdir/crash/reports"
+printf 'Test Case started\nRestarting after unexpected exit, crash, or test timeout\nFatal error: Unexpectedly found nil\n' > "$tmpdir/crash/test.log"
+printf '{"app_name":"Daylight","bug_type":"309"}\n{"procName":"Daylight","old":true}\n' > "$tmpdir/crash/reports/Daylight-old.ips"
+touch -d '2000-01-01 00:00:00' "$tmpdir/crash/reports/Daylight-old.ips"
+touch -d '2000-01-02 00:00:00' "$tmpdir/crash/start.stamp"
+cat > "$tmpdir/crash/reports/Daylight-2026-10-04-072600.ips" <<'IPS'
+{"app_name":"Daylight","bug_type":"309"}
+{"procName":"Daylight","exception":{"type":"EXC_BAD_ACCESS","signal":"SIGSEGV","subtype":"KERN_INVALID_ADDRESS at 0x0"},"termination":{"namespace":"SIGNAL","indicator":"Segmentation fault: 11"},"faultingThread":1,"threads":[{"frames":[]},{"queue":"com.twelve.daylight.render","frames":[{"imageOffset":4096,"symbol":"FramePipeline.renderFrame(now:out:)","symbolLocation":120,"imageIndex":0},{"imageOffset":8192,"imageIndex":1}]}],"usedImages":[{"name":"Daylight"},{"name":"libdispatch.dylib"}]}
+IPS
+set +e; out="$(bash scripts/crash-summary.sh "$tmpdir/crash/test.log" "$tmpdir/crash/start.stamp" "$tmpdir/crash/reports" "$tmpdir/crash/copied" 2>&1)"; rc=$?; set -e
+expect "crash-summary: the test log's crash lines" 0 "Fatal error: Unexpectedly found nil"
+expect "crash-summary: the exception and termination of a new report" 0 "exception: EXC_BAD_ACCESS SIGSEGV KERN_INVALID_ADDRESS at 0x0"
+expect "crash-summary: the crashed thread's frames with image names" 0 " 0 Daylight +FramePipeline.renderFrame\\(now:out:\\) \\+120"
+expect "crash-summary: one report from this run (the older one is skipped)" 0 "crash-summary: 1 crash report\\(s\\) from this run"
+expect_no "crash-summary: the older report is not read" "Daylight-old.ips"
+out="$(ls "$tmpdir/crash/copied" 2>&1)"; rc=0
+expect "crash-summary: the new report is copied for the artifact, the old one is not" 0 "^Daylight-2026-10-04-072600.ips$"
 
 echo "scripts-check: $passes passed, $fails failed"
 (( fails == 0 ))

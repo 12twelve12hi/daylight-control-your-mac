@@ -7,6 +7,7 @@ cd "$(dirname "$0")/.."
 command -v xcodebuild >/dev/null 2>&1 || { echo "mac-test: xcodebuild not found" >&2; exit 2; }
 [[ -d mac/Daylight.xcodeproj ]] || scripts/mac-generate.sh
 mkdir -p build/xcodebuild-logs
+touch build/xcodebuild-logs/test-start.stamp   # crash-summary.sh reads only crash reports newer than this
 xcodebuild test -project mac/Daylight.xcodeproj -scheme DaylightTests -destination 'platform=macOS' \
   -derivedDataPath build/DerivedData CODE_SIGNING_ALLOWED=NO ONLY_ACTIVE_ARCH=NO 2>&1 \
   | tee build/xcodebuild-logs/test.log \
@@ -22,5 +23,7 @@ else
   echo "mac-test: failed test cases, relaunches and the xcodebuild summary:" >&2
   grep -E "' failed \(|Restarting after unexpected exit|Failing tests|^[[:space:]]+[A-Za-z]+Tests\.|^error:|\*\* TEST" build/xcodebuild-logs/test.log \
     | grep -v 'nw_' | head -60 >&2 || true
+  # A crash ("Restarting after unexpected exit") names its frame here, not only in the artifact (Review 4 CI-1).
+  scripts/crash-summary.sh build/xcodebuild-logs/test.log build/xcodebuild-logs/test-start.stamp >&2 || true
   exit 1
 fi

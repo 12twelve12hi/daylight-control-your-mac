@@ -52,8 +52,15 @@ class ScreenStreamService : Service() {
                 return START_NOT_STICKY
             }
             else -> {
-                // A restart without a consent result has nothing to capture with (START_NOT_STICKY makes this rare).
-                if (!foreground) stopSelf()
+                // A start without a consent result has nothing to capture with. When it came through
+                // startForegroundService, stopping before startForeground crashes the app on Android 9 and later
+                // ("did not then call Service.startForeground"), so go foreground first; from the background that
+                // call is refused (Android 12 rule) and the plain stop is the right answer anyway.
+                if (!foreground) {
+                    runCatching { startForeground(NOTIFICATION_ID, notification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION) }
+                        .onFailure { Log.i(TAG, "start without consent, not foreground: $it") }
+                    stopSelf()
+                }
                 return START_NOT_STICKY
             }
         }

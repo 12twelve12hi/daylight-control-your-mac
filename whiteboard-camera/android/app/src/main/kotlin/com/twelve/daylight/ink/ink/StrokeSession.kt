@@ -251,6 +251,47 @@ class StrokeSession(
         }
     }
 
+    // ---- activity recreation ----
+
+    /**
+     * Everything a new session needs to carry on where this one stopped: the committed strokes, the page, the tool and
+     * the sync counters. An open stroke is not part of it (the activity going away cancels it).
+     */
+    class Snapshot(
+        val history: List<LocalStroke>,
+        val visibleCount: Int,
+        val pageIndex: Int,
+        val pageId: UUID,
+        val tool: Int,
+        val undoDepth: Int,
+        val redoDepth: Int,
+        val strokesSinceSync: Int,
+        val pendingDepthChanges: Int,
+        val pendingPageChange: Boolean,
+    )
+
+    fun snapshot(): Snapshot = Snapshot(
+        ArrayList(history), visibleCount, pageIndex, pageId, tool, undoDepth, redoDepth,
+        strokesSinceSync, pendingDepthChanges, pendingPageChange,
+    )
+
+    /** The activity was recreated: take over [s] and redraw its visible strokes (the sink replays them once sized). */
+    fun restore(s: Snapshot) {
+        if (current != null || eraseLastValid) cancel()
+        history.clear()
+        history.addAll(s.history)
+        visibleCount = s.visibleCount.coerceIn(0, history.size)
+        pageIndex = s.pageIndex
+        pageId = s.pageId
+        tool = s.tool
+        undoDepth = s.undoDepth
+        redoDepth = s.redoDepth
+        strokesSinceSync = s.strokesSinceSync
+        pendingDepthChanges = s.pendingDepthChanges
+        pendingPageChange = s.pendingPageChange
+        sink.redraw(visible)
+    }
+
     // ---- internals ----
 
     private fun begin(viewX: Float, viewY: Float, p: Float, timeMs: Long) {

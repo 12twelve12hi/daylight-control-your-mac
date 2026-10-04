@@ -40,6 +40,9 @@ class DryInkView(context: Context) : View(context), InkSink {
     private var wetStroke: LocalStroke? = null
     private val dirty = Rect()
 
+    /** Strokes the bitmap is rebuilt from on a size change (read by the instrumented rotation test too). */
+    val replayCount: Int get() = lastVisible.size
+
     /** Pen events reach whichever layer is on top; both hand them to the same router. */
     var input: PenInput? = null
 
@@ -106,6 +109,9 @@ class DryInkView(context: Context) : View(context), InkSink {
     }
 
     override fun committed(stroke: LocalStroke) {
+        // The replay list must include every committed stroke: a size change (rotation, a toolbar inset change)
+        // recreates the bitmap from it, and pen segments were only ever drawn straight into the old bitmap.
+        lastVisible = lastVisible + stroke
         if (stroke.tool == Tools.HIGHLIGHTER) {
             bitmapCanvas?.let { drawHighlighter(it, stroke) }
             wetPath.reset(); wetStroke = null

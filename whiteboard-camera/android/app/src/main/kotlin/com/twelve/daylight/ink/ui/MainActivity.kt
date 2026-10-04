@@ -33,6 +33,15 @@ class MainActivity : Activity(), InkConnection.Listener, Toolbar.Actions {
         const val TAG = "DaylightInk.ui"
         const val EXTRA_HOST = "host"
         const val HOLDER = "main"
+        const val KEY_ONBOARDING_SHOWN = "onboardingShown"
+
+        /**
+         * The strokes of an instance being recreated (`recreate()` after the front-buffer setting changed, or a
+         * configuration change the manifest does not list), handed to the next instance's onCreate. Only set while
+         * [isChangingConfigurations]; a launch without saved state never picks it up. After real process death the
+         * Mac holds the page and the tablet starts blank (the CI script checks that the app comes back healthy).
+         */
+        private var retained: StrokeSession.Snapshot? = null
     }
 
     private lateinit var prefs: Prefs
@@ -45,6 +54,11 @@ class MainActivity : Activity(), InkConnection.Listener, Toolbar.Actions {
     private lateinit var chip: Chip
     private lateinit var input: PenInput
     private var onboardingShown = false
+    /** True between an onStart that acquired the connection and the matching onStop (onStart may recreate instead). */
+    private var holding = false
+
+    /** Committed strokes on the page (the instrumented tests read it; the UI never does). */
+    val strokeCount: Int get() = if (::session.isInitialized) session.visibleCount else 0
 
     private val frames = object : FrameScheduler {
         override fun requestFrame(callback: () -> Unit) {
@@ -54,6 +68,8 @@ class MainActivity : Activity(), InkConnection.Listener, Toolbar.Actions {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // A recreated instance must not open onboarding a second time on top of the first one.
+        onboardingShown = savedInstanceState?.getBoolean(KEY_ONBOARDING_SHOWN, false) ?: false
         EdgeToEdge.apply(this)
         Facts.logOnce(this)
         prefs = Prefs(this)
@@ -104,10 +120,27 @@ class MainActivity : Activity(), InkConnection.Listener, Toolbar.Actions {
 
         chip = Chip(toolbar.chip, ::chipAction) { conn.returnNow() }
 
+        val kept = retained
+        retained = null
+        if (savedInstanceState != null && kept != null) {
+            session.restore(kept)
+            toolbar.setTool(kept.tool)
+        }
+
         if (!prefs.onboardingDone && !onboardingShown) {
             onboardingShown = true
             startActivity(Intent(this, OnboardingActivity::class.java))
         }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putBoolean(KEY_ONBOARDING_SHOWN, onboardingShown)
+    }
+
+    override fun onDestroy() {
+        if (isChangingConfigurations) retained = session.snapshot()
+        super.onDestroy()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -133,15 +166,20 @@ class MainActivity : Activity(), InkConnection.Listener, Toolbar.Actions {
             recreate()
             return
         }
+        holding = true
         conn.acquire(HOLDER, Identity.ROLE_INK)
         conn.addListener(this)
         conn.mirror.uiStarted()
     }
 
     override fun onStop() {
-        conn.mirror.uiStopped()
-        conn.removeListener(this)
-        conn.release(HOLDER)
+        // After an onStart that chose recreate() nothing was acquired: releasing would steal another screen's count.
+        if (holding) {
+            holding = false
+            conn.mirror.uiStopped()
+            conn.removeListener(this)
+            conn.release(HOLDER)
+        }
         super.onStop()
     }
 

@@ -8,6 +8,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.os.ParcelFileDescriptor
 import android.os.SystemClock
+import android.util.Log
 import android.view.InputDevice
 import android.view.MotionEvent
 import android.view.View
@@ -16,10 +17,12 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry
 import androidx.test.runner.lifecycle.Stage
+import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
 import com.twelve.daylight.ink.net.InkConnection
 import com.twelve.daylight.ink.prefs.Prefs
 import org.junit.Assert.assertTrue
+import java.util.regex.Pattern
 
 /**
  * Shared plumbing of the instrumented tests. The CI script runs them with `am instrument` in one process, in any
@@ -54,6 +57,7 @@ object TestEnv {
     fun resetApp(onboardingDone: Boolean = false, overlayAllowed: Boolean = false) {
         device.wakeUp()
         shell("wm dismiss-keyguard")
+        dismissSystemDialogs()
         runCatching { device.setOrientationNatural() }
         runCatching { device.unfreezeRotation() }
         finishAllActivities()
@@ -104,7 +108,53 @@ object TestEnv {
             cls.isInstance(found)
         }
         assertTrue("${cls.simpleName} never resumed (resumed: ${found?.javaClass?.simpleName})", ok)
-        return cls.cast(found)!!
+        val a = cls.cast(found)!!
+        ensureFocus(a)
+        return a
+    }
+
+    private val NOT_RESPONDING = Pattern.compile("(?i).*isn't responding.*")
+    private val WAIT_BUTTON = Pattern.compile("(?i)wait")
+
+    /**
+     * A foreign system window (on the slow emulator mostly a "System UI isn't responding" dialog, run 37182692894) takes
+     * the focus: injected input and the accessibility tree then go to it. Closes system dialogs and answers up to three
+     * "isn't responding" dialogs with Wait, logging whose they were (a real app ANR still shows in the CI ANR check).
+     */
+    fun dismissSystemDialogs() {
+        shell("am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS")
+        repeat(3) {
+            val dialog = device.findObject(By.text(NOT_RESPONDING)) ?: return
+            Log.w(Screenshots.TAG, "foreign dialog '${dialog.text}' from ${dialog.applicationPackage}: answering Wait")
+            val wait = device.findObject(By.text(WAIT_BUTTON))
+            if (wait == null) {
+                Log.w(Screenshots.TAG, "no Wait button on '${dialog.text}'")
+                return
+            }
+            wait.click()
+            SystemClock.sleep(500)
+        }
+    }
+
+    /** The focused window and app as the window manager sees them (`dumpsys window`, filtered here: no shell pipes). */
+    fun focusReport(): String = shell("dumpsys window").lines()
+        .filter { it.contains("mCurrentFocus") || it.contains("mFocusedApp") }
+        .joinToString(" | ") { it.trim() }
+
+    /**
+     * [activity] must hold the window focus before a test talks to it through Espresso or UI Automator. Waits up to
+     * 10 s, clearing foreign system dialogs on the way; otherwise fails naming the window that has the focus.
+     */
+    fun ensureFocus(activity: Activity) {
+        val focused = waitUntil(WAIT_MS) {
+            if (onMain { activity.hasWindowFocus() }) {
+                true
+            } else {
+                dismissSystemDialogs()
+                false
+            }
+        }
+        assertTrue("${activity.javaClass.simpleName} has no window focus after ${WAIT_MS} ms: ${focusReport()}", focused)
     }
 
     fun finishAllActivities() {

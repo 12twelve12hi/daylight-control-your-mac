@@ -67,7 +67,7 @@ Watch with `gh run watch`, or `gh run list --workflow whiteboard-camera --limit 
 - The team must agree across `DAYLIGHT_TEAM_ID`, the `(TEAMID)` suffix of the certificate and `TeamIdentifier.0` of the app profile (hard error); the app profile should allowlist `com.apple.developer.system-extension.install` and name `com.twelve.daylight` (warnings in `release-logs/profile-check.txt`).
 - `DaylightBuildSigned` is written as false by `project.yml` and flipped to a Bool true with `plutil -replace` on the generated `mac/Daylight/Info.plist` right after `scripts/mac-generate.sh`; the exported app is asserted to carry true and `Contents/embedded.provisionprofile`, so a signed artifact can never behave like the unsigned build.
 - The bundled `Vendor/adb` is signed by hand with the hardened runtime and a timestamp before the archive (notarization wants every executable signed).
-- Notarization: `notarytool submit --wait --timeout 30m` on the DMG, the log fetched whenever a submission id exists, then the DMG is stapled, the exported app is stapled and `Daylight-signed.zip` is re-created from it. The app inside the DMG is not stapled: an online Mac validates it against the notary service on first launch; an offline first launch fails Gatekeeper (LOOSE_ENDS G8).
+- Notarization in two calls: `notarytool submit` on the DMG returns the submission id in seconds (printed as a `notarization submission <id>` annotation and kept in `release-logs/notary-submission-id.txt`), then `notarytool wait <id> --timeout 75m` holds the runner while Apple works (the job budget is 120 minutes on a notarize run). Accepted: the log is fetched, the DMG is stapled, the exported app is stapled and `Daylight-signed.zip` is re-created from it. Invalid: the step fails with the log. Still in progress after the wait: the step fails on purpose, the signed DMG is kept as the `Daylight-dmg-pending` artifact next to `NOTARIZATION-PENDING.txt`, and the notary workflow finishes it later ("A slow notarization" below). The app inside the DMG is not stapled: an online Mac validates it against the notary service on first launch; an offline first launch fails Gatekeeper (LOOSE_ENDS G8).
 - Secrets never reach the log: no `set -x` by default (`RUNNER_DEBUG` enables it for the codesign and xcodebuild part only, and it is off around the `.p8` decode); the decoded `.p12`, `.p8`, profiles and plists are removed on exit, the temporary keychain is deleted, and a local run restores the keychain search list.
 
 ## What success looks like in the run log
@@ -82,7 +82,7 @@ Open the mac job, step "Signed and notarized build (skips itself without secrets
 6. `** ARCHIVE SUCCEEDED **` (about five minutes), then `** EXPORT SUCCEEDED **`.
 7. `mac-release: exported Info.plist DaylightBuildSigned=true` and `mac-release: Contents/embedded.provisionprofile present`.
 8. The `codesign -vvv --deep --strict` block ends with `valid on disk` and `satisfies its Designated Requirement`; `spctl` may still say rejected here (expected before notarization, the script says so).
-9. `mac-release: notarytool submit exit 0` followed by the JSON with `"status": "Accepted"`, then the notarization log JSON with `"status": "Accepted"` and an empty `issues` list, then `stapler` reporting that the staple and validate action worked, for the DMG and for the app.
+9. `mac-release: notarytool submit exit 0` with the JSON holding the `id`, the annotation `notarization submission <id> (run <run id>)`, `mac-release: notarytool wait <id> --timeout 75m`, then `notarytool wait exit 0` with `"status": "Accepted"` (Apple's first submission for a new team can take an hour or more; later ones minutes), the notarization log JSON with `"status": "Accepted"` and an empty `issues` list, then `stapler` reporting that the staple and validate action worked, for the DMG and for the app.
 10. The artifacts `release-logs`, `Daylight-signed` and `Daylight-dmg` on the run page.
 
 ## Every failure and its remedy
@@ -112,6 +112,8 @@ Read the first `mac-release: ERROR` or `WARNING` line of the step; the `release-
 | `notarytool submit exit 1` with `HTTP status code: 403` | the key's role is too low for notarization | make a new Team Key with the Admin role |
 | `"status": "Invalid"` in `notarytool-submit.json` | Apple rejected the binary; `notarization-log.json` lists the `issues` | `The executable does not have the hardened runtime enabled`, `The signature does not include a secure timestamp`, `The binary is not signed with a valid Developer ID certificate`: each names the file; report the log (the project builds with the hardened runtime, a timestamp and signs the bundled adb, so a new issue is a regression) |
 | `"status": "In Progress"` after 30 minutes, exit non-zero | Apple's service is slow today | re-run the workflow later; nothing is wrong with the build |
+| `Warning: mac-release: Apple has not finished notarizing <id> after 75m (status 'In Progress')` and the step fails; the run has a `Daylight-dmg-pending` artifact | Apple's notary service is slow (the first submission of a new team on 2026-10-04 was still in progress after 30 minutes); the DMG is signed and submitted, not yet notarized or stapled | nothing is wrong with the secrets or the build: follow "A slow notarization" below (one dispatch of the notary workflow with the two ids from the warning); do not re-run the whole build, that would be a second submission |
+| `mac-release: notarization failed: notarytool submit exit 1, no submission id` | `notarytool submit` itself failed; `notarytool-submit.err` says why (401, 403, network) | the two rows above |
 | `stapler` exits 65 (`Could not validate ticket`) | the ticket was not yet published when stapling ran | re-run the workflow; the submission itself was accepted |
 | On the Mac: "macOS refused the extension's signature. This build is not notarized." (row 9) | you installed the zip of a plain push | install `Daylight.dmg` from a tag or notarize run |
 | On the Mac: "The camera extension is missing an entitlement (build signing problem)." (row 6) | the app profile lacks System Extension (the warning above was ignored) | as the System Extension row above |
@@ -121,7 +123,22 @@ Read the first `mac-release: ERROR` or `WARNING` line of the step; the `release-
 
 ## How notarization behaves, and the 75 a day cap
 
-Apple's notary service completes most submissions within 5 minutes and 98 percent within 15; the script waits up to 30 minutes and the job has a 60 minute budget. Apple asks teams to limit notarizations to 75 per day: every `v*` tag and every notarize dispatch is one submission, a plain push with the secrets is none (it signs only). Sign on every push if you like; notarize when you intend to install. The ticket is stapled to the DMG and to the app in `Daylight-signed.zip`; an online Mac also checks the ticket with Apple on first launch.
+Apple's notary service completes most submissions within 5 minutes and 98 percent within 15, but the first submission of a new team can take much longer (ours was still in progress after 30 minutes on 2026-10-04); the script waits up to 75 minutes and a notarize run has a 120 minute job budget (a plain push keeps 60). Apple asks teams to limit notarizations to 75 per day: every `v*` tag and every notarize dispatch is one submission, a plain push with the secrets is none (it signs only). Sign on every push if you like; notarize when you intend to install. The ticket is stapled to the DMG and to the app in `Daylight-signed.zip`; an online Mac also checks the ticket with Apple on first launch.
+
+### A slow notarization: finishing it later with the notary workflow
+
+When the mac job ends with the warning `Apple has not finished notarizing <id> after 75m`, the build is fine and Apple is still working. The run holds a `Daylight-dmg-pending` artifact (the signed, submitted, not yet stapled DMG and `NOTARIZATION-PENDING.txt` with both ids). Two ways to finish:
+
+1. Actions > `whiteboard-camera-notary` (in the standalone repo: `notary`) > Run workflow > `submission_id` = the UUID from the warning, `source_run_id` = the number in that run's URL > Run. Or from Terminal:
+
+   ```
+   gh workflow run whiteboard-camera-notary.yml --ref claude/daylight-whiteboard-camera-tzxfjb -f submission_id=<uuid> -f source_run_id=<run id>
+   ```
+
+   The job waits up to 80 more minutes for Apple, fetches the notary log, downloads that run's pending DMG, checks it is the submitted file, staples it and uploads it as `Daylight-dmg`. Still in progress after that: run it again later with the same two inputs. Rejected: `notarization-log.json` in its `release-logs` lists the issues.
+2. Or wait and install the pending DMG as it is: once Apple's status is Accepted, an online Mac fetches the ticket on first launch and the extension loads (`spctl` accepts it); only an offline first launch needs the stapled copy. `notarytool info <id>` tells the status, which the notary workflow prints without a `source_run_id`.
+
+Starting the whole build again instead is a second submission of a new file and a second wait; it costs nothing but time, and the first submission still completes on its own.
 
 Certificate lifetimes: as long as the Developer ID certificate was valid when the build was made, the app keeps launching after the certificate expires; the provisioning profile must stay valid (18 years for Developer ID profiles). The API key does not expire unless revoked.
 
@@ -131,9 +148,10 @@ Certificate lifetimes: as long as the Developer ID certificate was valid when th
 |---|---|---|
 | `Daylight-unsigned` | always | the unsigned app zip (menu bar, preview, web page; no camera) |
 | `xcodebuild-logs` | always | build and test logs, `app-contents.txt`, vendor facts, `self-test.log` |
-| `release-logs` | whenever signing was attempted, even on failure | `archive.log`, `export.log`, `identities.txt`, `profile-check.txt`, `signed-flag.txt`, `codesign-*.txt`, `ExportOptions.plist`, `notarytool-submit.json` and `.err`, `notarization-log.json` |
+| `release-logs` | whenever signing was attempted, even on failure | `archive.log`, `export.log`, `identities.txt`, `profile-check.txt`, `signed-flag.txt`, `codesign-*.txt`, `ExportOptions.plist`, `notarytool-submit.json` and `.err`, `notary-submission-id.txt`, `notarytool-wait.json` and `.err`, `notarytool-info.json` when the wait ran out, `notarization-log.json` once Apple finished, `NOTARIZATION-PENDING.txt` or `stapled.ok` |
 | `Daylight-signed` | signed run | `Daylight-signed.zip` (stapled app on a notarized run) |
-| `Daylight-dmg` | notarized run only | `Daylight.dmg`, signed, notarized and stapled |
+| `Daylight-dmg` | notarized run, or a notary workflow run that stapled | `Daylight.dmg`, signed, notarized and stapled |
+| `Daylight-dmg-pending` | notarize run whose wait ran out | `Daylight-pending.dmg` (signed and submitted, not yet notarized) and `NOTARIZATION-PENDING.txt` with the submission id and the run id for the notary workflow |
 
 ## Day one before signing is done: the fallback
 
@@ -155,4 +173,4 @@ Drag Daylight to Applications and open it from there. The Welcome window asks yo
 - [ ] 🟢 Zoom and FaceTime together: `viewers=2`, both show the picture (⏱️ 1 min)
 - [ ] 🟡 Row 13 on purpose: uninstall the extension, relaunch, read both sentences 30 s apart, approve again, connected without a relaunch (⏱️ 2 min)
 - [ ] 🟢 First app update over a running build: FaceTime keeps showing frames without relaunching Daylight (the sink re-validates its connection every 2 s, LOOSE_ENDS G1)
-- [ ] 📋 Read `release-logs/notarytool-submit.json`, `profile-check.txt` and `signed-flag.txt` once and paste anything surprising into LOOSE_ENDS G
+- [ ] 📋 Read `release-logs/notarytool-submit.json`, `notarytool-wait.json`, `profile-check.txt` and `signed-flag.txt` once and paste anything surprising into LOOSE_ENDS G

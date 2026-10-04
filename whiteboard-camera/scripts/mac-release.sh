@@ -214,26 +214,76 @@ rm -rf build/dmg-root build/Daylight.dmg; mkdir -p build/dmg-root; cp -R "$app" 
 ln -s /Applications build/dmg-root/Applications
 hdiutil create -volname "Daylight" -srcfolder build/dmg-root -format UDZO -ov build/Daylight.dmg
 codesign --force --timestamp --keychain "$kc" -s "$identity" -i com.twelve.daylight.dmg build/Daylight.dmg
-# notarytool exits non-zero on an authentication error (swapped Key ID and Issuer ID is the realistic one), on a
-# network failure or when --wait gives up; capture everything first, then decide. 98 percent of submissions finish
-# within 15 minutes (Apple), so 30 minutes is generous and still well inside the 60 minute job timeout.
+# Notarization in two calls (run 37220975435, the first signed run: Apple took more than 30 minutes for the first
+# submission of a new team, `submit --wait --timeout 30m` exited 124 with the submission id only in the timeout
+# message on stderr, and the id parse read plutil's error text as the id). `submit` returns the id in seconds;
+# `wait` holds the runner for up to DAYLIGHT_NOTARY_WAIT (default 75m, inside the 120 minute notarize job budget).
+# Whatever Apple does, the signed DMG leaves the runner: stapled as Daylight-dmg when accepted, otherwise as
+# Daylight-dmg-pending next to NOTARIZATION-PENDING.txt (the id and this run's id), which the notary workflow
+# (.github/workflows/notary.yml, scripts/notary-resume.sh) turns into the stapled Daylight-dmg once Apple has finished.
+# An accepted but un-stapled DMG already opens on an online Mac: Gatekeeper fetches the ticket from Apple.
+notary_args=(--key "$tmp/AuthKey.p8" --key-id "$ASC_API_KEY_ID" --issuer "$ASC_API_ISSUER_ID" --output-format json)
+json_field() { # $1 key, $2 file -> the value, or nothing (plutil prints its errors on stdout, so check the exit code)
+  local v
+  if [[ -s "$2" ]] && v="$(plutil -extract "$1" raw -o - "$2" 2>/dev/null)"; then printf '%s' "$v"; fi
+}
+is_uuid() { [[ "$1" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]]; }
 set +e
-xcrun notarytool submit build/Daylight.dmg --key "$tmp/AuthKey.p8" --key-id "$ASC_API_KEY_ID" --issuer "$ASC_API_ISSUER_ID" \
-  --wait --timeout 30m --output-format json > "$logs/notarytool-submit.json" 2> "$logs/notarytool-submit.err"
+xcrun notarytool submit build/Daylight.dmg "${notary_args[@]}" > "$logs/notarytool-submit.json" 2> "$logs/notarytool-submit.err"
 rc=$?
 set -e
 echo "mac-release: notarytool submit exit $rc"; cat "$logs/notarytool-submit.json"; echo; cat "$logs/notarytool-submit.err"
-id="$(plutil -extract id raw "$logs/notarytool-submit.json" 2>/dev/null || sed -n 's/.*"id" *: *"\([^"]*\)".*/\1/p' "$logs/notarytool-submit.json" | head -1)"
-status="$(plutil -extract status raw "$logs/notarytool-submit.json" 2>/dev/null || sed -n 's/.*"status" *: *"\([^"]*\)".*/\1/p' "$logs/notarytool-submit.json" | head -1)"
-if [[ -n "$id" ]]; then
+id="$(json_field id "$logs/notarytool-submit.json")"
+if ! is_uuid "${id:-}"; then
+  # The timeout and some errors print their JSON on stderr; one more place to look before giving up.
+  id="$(sed -n 's/.*"id" *: *"\([0-9a-fA-F-]\{36\}\)".*/\1/p' "$logs/notarytool-submit.err" | head -1)"
+fi
+if (( rc != 0 )) || ! is_uuid "${id:-}"; then
+  echo "mac-release: notarization failed: notarytool submit exit $rc, no submission id; see notarytool-submit.err in the release-logs artifact (401: swapped Key ID and Issuer ID or the wrong .p8; 403: the key's role)" >&2
+  exit 1
+fi
+printf '%s\n' "$id" > "$logs/notary-submission-id.txt"
+echo "::notice::mac-release: notarization submission $id (run ${GITHUB_RUN_ID:-local}); the notary workflow can finish it later with these two ids"
+wait_for="${DAYLIGHT_NOTARY_WAIT:-75m}"
+echo "mac-release: notarytool wait $id --timeout $wait_for"
+set +e
+xcrun notarytool wait "$id" --timeout "$wait_for" "${notary_args[@]}" > "$logs/notarytool-wait.json" 2> "$logs/notarytool-wait.err"
+wrc=$?
+set -e
+echo "mac-release: notarytool wait exit $wrc"; cat "$logs/notarytool-wait.json"; echo; cat "$logs/notarytool-wait.err"
+status="$(json_field status "$logs/notarytool-wait.json")"
+if [[ -z "$status" ]]; then
+  # A timeout prints only a message; ask for the current status so the log and the pending note name it.
+  xcrun notarytool info "$id" "${notary_args[@]}" > "$logs/notarytool-info.json" 2> "$logs/notarytool-info.err" || true
+  status="$(json_field status "$logs/notarytool-info.json")"
+fi
+echo "mac-release: notarization status '${status:-unknown}' for $id"
+# The notary log exists once processing has finished (Accepted or Invalid); while In Progress it is empty.
+if [[ "$status" == "Accepted" || "$status" == "Invalid" || "$status" == "Rejected" ]]; then
   xcrun notarytool log "$id" --key "$tmp/AuthKey.p8" --key-id "$ASC_API_KEY_ID" --issuer "$ASC_API_ISSUER_ID" "$logs/notarization-log.json" || echo "mac-release: notarytool log failed for $id"
   [[ -f "$logs/notarization-log.json" ]] && cat "$logs/notarization-log.json"
 fi
-if (( rc != 0 )) || [[ "$status" != "Accepted" ]]; then
-  echo "mac-release: notarization failed: exit $rc, status '${status:-none}', id '${id:-none}'; see notarytool-submit.err and notarization-log.json in the release-logs artifact" >&2
+if [[ "$status" != "Accepted" ]]; then
+  if [[ "$status" == "Invalid" || "$status" == "Rejected" ]]; then
+    echo "mac-release: notarization failed: status '$status', id $id; notarization-log.json in the release-logs artifact lists the issues" >&2
+    exit 1
+  fi
+  # Still In Progress (or unknown): keep the signed DMG, say how to finish, and fail this run honestly.
+  cp build/Daylight.dmg build/Daylight-pending.dmg
+  {
+    echo "submission_id=$id"
+    echo "source_run_id=${GITHUB_RUN_ID:-local}"
+    echo "status=${status:-unknown}"
+    echo "The DMG next to this file is signed and submitted but not yet notarized."
+    echo "Finish: Actions > notary > Run workflow with submission_id=$id and source_run_id=${GITHUB_RUN_ID:-local} (docs/SIGNING.md, 'A slow notarization')."
+  } > "$logs/NOTARIZATION-PENDING.txt"
+  cat "$logs/NOTARIZATION-PENDING.txt"
+  echo "::warning::mac-release: Apple has not finished notarizing $id after $wait_for (status '${status:-unknown}'). The signed DMG is uploaded as Daylight-dmg-pending; run the notary workflow with submission_id=$id source_run_id=${GITHUB_RUN_ID:-local} to staple it once Apple accepts."
+  echo "mac-release: notarization pending: status '${status:-unknown}', id $id; see docs/SIGNING.md 'A slow notarization'" >&2
   exit 1
 fi
 xcrun stapler staple build/Daylight.dmg
+printf '%s\n' "$id" > "$logs/stapled.ok"
 # The ticket covers the app's cdhashes too; staple the exported app and re-zip it so Daylight-signed.zip ships the
 # stapled copy. The app inside Daylight.dmg is the pre-staple copy (validated online on first launch), see LOOSE_ENDS.
 if xcrun stapler staple "$app"; then

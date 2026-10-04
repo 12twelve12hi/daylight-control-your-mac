@@ -5,6 +5,9 @@
 #                        exits 0 on an ordinary push but exits 1 on a v* tag, a notarize dispatch or DO_NOTARIZE=true;
 #                        exit 1 when notarization was requested without the ASC_* secrets; the complete DAYLIGHT_* set
 #                        proceeds to the signed build; check-only mode.
+#   notary-resume.sh:    the notary workflow's gate: missing ASC_* secrets or inputs exit 1 naming them, a submission id
+#                        that is not a UUID or a run id that is not a number exits 1, the complete set stops in check-only
+#                        mode; the sed fallback of mac-release.sh recovers the id from notarytool's timeout message.
 #   ci-env.sh:           DAYLIGHT_XCODE_PATH writes DEVELOPER_DIR to $GITHUB_ENV (an export alone never reaches
 #                        the later steps of a job), and a wrong path leaves it untouched.
 #   fetch-tools.sh:      the committed Apache-2.0 text exists and is the license (shipped as Vendor/LICENSE-Apache-2.0.txt).
@@ -95,6 +98,31 @@ run_release $four $asc DO_NOTARIZE=true DAYLIGHT_RELEASE_CHECK_ONLY=1
 expect "all eight secrets with DO_NOTARIZE=true, check-only: exit 0, notarize=true" 0 "notarize=true \\(DO_NOTARIZE=true"
 run_release $four $asc DAYLIGHT_RELEASE_CHECK_ONLY=1
 expect "all eight secrets on a plain push: exit 0, notarize=false" 0 "notarize=false"
+
+# notary-resume.sh (the notary workflow, docs/SIGNING.md "A slow notarization"): the gate on Linux.
+run_notary() { set +e; out="$(env -i PATH="$PATH" HOME="$HOME" "$@" bash scripts/notary-resume.sh 2>&1)"; rc=$?; set -e; }
+sub="7e8ea93d-c846-4fec-99fe-a9597c6739ba"
+run_notary
+expect "notary-resume: nothing set: exit 1 naming the three secrets and the input" 1 "missing or empty: ASC_API_KEY_ID ASC_API_ISSUER_ID ASC_API_PRIVATE_KEY_BASE64 NOTARY_SUBMISSION_ID \\("
+run_notary $asc
+expect "notary-resume: secrets without a submission id: exit 1 naming it" 1 "missing or empty: NOTARY_SUBMISSION_ID \\("
+run_notary $asc NOTARY_SUBMISSION_ID=not-a-uuid DAYLIGHT_RELEASE_CHECK_ONLY=1
+expect "notary-resume: a submission id that is not a UUID: exit 1" 1 "is not a UUID"
+run_notary $asc NOTARY_SUBMISSION_ID=$sub NOTARY_SOURCE_RUN_ID=run-37220975435 DAYLIGHT_RELEASE_CHECK_ONLY=1
+expect "notary-resume: a run id that is not a number: exit 1" 1 "is not a run id"
+run_notary $asc NOTARY_SUBMISSION_ID=$sub NOTARY_SOURCE_RUN_ID=37220975435 DAYLIGHT_RELEASE_CHECK_ONLY=1
+expect "notary-resume: complete inputs, check-only: exit 0 before notarytool" 0 "check-only mode"
+expect "notary-resume: complete inputs: both ids echoed" 0 "submission $sub, source run '37220975435'"
+run_notary $asc NOTARY_SUBMISSION_ID=$sub DAYLIGHT_RELEASE_CHECK_ONLY=1
+expect "notary-resume: no source run id is allowed (status only)" 0 "source run 'none'"
+# mac-release.sh reads the submission id from notarytool's stderr when the JSON on stdout is empty (the timeout of run
+# 37220975435 printed exactly this line there); the expression under test is the one in the script.
+idsed="$(grep -o "sed -n 's/\.\*\"id\"[^']*'" scripts/mac-release.sh | head -1)"
+msg='{"id":"7e8ea93d-c846-4fec-99fe-a9597c6739ba","message":"Timeout of 1800 second(s) was reached before processing completed."}'
+got="$(eval "$idsed" <<<"$msg" | head -1)"
+if [[ -n "$idsed" && "$got" == "$sub" ]]; then echo "ok    mac-release: the stderr fallback recovers the submission id from the timeout message"; passes=$((passes + 1)); else echo "FAIL  mac-release: id fallback gave '$got' from '$idsed'"; fails=$((fails + 1)); fi
+grep -q 'notarytool wait "\$id" --timeout "\$wait_for"' scripts/mac-release.sh && { echo "ok    mac-release: submit and wait are separate calls"; passes=$((passes + 1)); } || { echo "FAIL  mac-release: no separate notarytool wait"; fails=$((fails + 1)); }
+grep -q 'NOTARIZATION-PENDING.txt' scripts/mac-release.sh && grep -q 'Daylight-dmg-pending' .github/workflows/ci.yml && { echo "ok    mac-release: a pending notarization keeps the signed DMG (Daylight-dmg-pending)"; passes=$((passes + 1)); } || { echo "FAIL  mac-release: no pending DMG path"; fails=$((fails + 1)); }
 
 # ci-env.sh and DAYLIGHT_XCODE_PATH
 tmpdir="$(mktemp -d)"; trap 'rm -rf "$tmpdir"' EXIT

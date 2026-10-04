@@ -102,7 +102,9 @@ jobs:
     concurrency:
       group: wbc-mac-${{ github.ref }}
       cancel-in-progress: false
-    timeout-minutes: 60
+    # A notarize run (tag or dispatch) may hold the runner while Apple works: mac-release waits up to 75 minutes for the
+    # notary service (the first signed run, 37220975435, outran a 30 minute wait); a plain push keeps the 60 minute budget.
+    timeout-minutes: ${{ (startsWith(github.ref, 'refs/tags/v') || inputs.notarize == true) && 120 || 60 }}
     needs: [golden, web, kit-linux, android]
     env:
       # scripts/mac-release.sh treats these as a partial or misnamed set when a name is missing in its own env: exit 1 on a
@@ -184,11 +186,23 @@ jobs:
           path: build/Daylight-signed.zip
           if-no-files-found: error
           compression-level: 0
+      # Daylight-dmg is the stapled, notarized DMG (mac-release wrote stapled.ok). When Apple had not finished within the
+      # wait, the step failed on purpose and the signed DMG is still kept as Daylight-dmg-pending next to
+      # NOTARIZATION-PENDING.txt; the notary workflow staples it later from the submission id (docs/SIGNING.md).
       - uses: actions/upload-artifact@v7
-        if: env.HAS_SIGNING == 'true' && env.DO_NOTARIZE == 'true'
+        if: env.HAS_SIGNING == 'true' && env.DO_NOTARIZE == 'true' && hashFiles('build/release-logs/stapled.ok') != ''
         with:
           name: Daylight-dmg
           path: build/Daylight.dmg
+          if-no-files-found: error
+          compression-level: 0
+      - uses: actions/upload-artifact@v7
+        if: always() && env.HAS_SIGNING == 'true' && env.DO_NOTARIZE == 'true' && hashFiles('build/release-logs/NOTARIZATION-PENDING.txt') != ''
+        with:
+          name: Daylight-dmg-pending
+          path: |
+            build/Daylight-pending.dmg
+            build/release-logs/NOTARIZATION-PENDING.txt
           if-no-files-found: error
           compression-level: 0
 

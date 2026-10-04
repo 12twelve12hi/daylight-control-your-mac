@@ -1,0 +1,50 @@
+# Finish a notarization that outran the mac job of ci.yml (docs/SIGNING.md, "A slow notarization"). Dispatch it with
+# the submission id from the mac job's "notarization submission <id>" notice (also release-logs/notary-submission-id.txt
+# and NOTARIZATION-PENDING.txt) and the id of that run; it waits for Apple, downloads that run's Daylight-dmg-pending,
+# staples the DMG and uploads it as Daylight-dmg. The monorepo twin is /.github/workflows/whiteboard-camera-notary.yml.
+name: notary
+
+on:
+  workflow_dispatch:
+    inputs:
+      submission_id:
+        description: Notary submission id (UUID) printed by the mac job
+        type: string
+        required: true
+      source_run_id:
+        description: Run id whose Daylight-dmg-pending artifact holds the submitted DMG (empty = report status only)
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+  actions: read   # gh run download of the pending DMG
+
+jobs:
+  notary:
+    runs-on: macos-15
+    timeout-minutes: 100
+    steps:
+      - uses: actions/checkout@v7
+      - name: Wait for Apple, staple the submitted DMG
+        run: scripts/notary-resume.sh
+        env:
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          ASC_API_PRIVATE_KEY_BASE64: ${{ secrets.ASC_API_PRIVATE_KEY_BASE64 }}
+          NOTARY_SUBMISSION_ID: ${{ inputs.submission_id }}
+          NOTARY_SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          GH_TOKEN: ${{ github.token }}
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: release-logs
+          path: build/release-logs
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v7
+        if: hashFiles('build/release-logs/stapled.ok') != ''
+        with:
+          name: Daylight-dmg
+          path: build/Daylight.dmg
+          if-no-files-found: error
+          compression-level: 0

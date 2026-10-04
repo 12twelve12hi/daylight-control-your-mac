@@ -37,6 +37,9 @@ enum SelfTest {
     }
 
     static func run(_ arguments: LaunchArguments) -> Int32 {
+        // Line buffered: as the diagnostics export's child process, stdout is a pipe and would be fully buffered, so a
+        // hang (SIGTERM at the timeout) or a crash lost every line naming the probe that failed (Review 4 DX-6).
+        setvbuf(stdout, nil, _IOLBF, 0)
         let report = Report()
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0"

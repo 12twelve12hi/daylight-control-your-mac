@@ -480,6 +480,15 @@ final class DiagnosticsExportTests: XCTestCase {
         XCTAssertNil(clean.signal)
     }
 
+    /// Review 4 DX-6: the self-test child writes line by line, so a run ended at the timeout still names the probes it
+    /// reached. Before `setvbuf` in `SelfTest.run` the pipe was fully buffered and a terminated child left no output.
+    func testASelfTestEndedAtTheTimeoutKeepsItsFirstLines() throws {
+        let executable = try XCTUnwrap(Bundle.main.executablePath, "the hosted tests run inside Daylight.app")
+        let result = ProcessCommandRunner().run(executable, ["--self-test"], timeout: 3, maxBytes: 1 << 20)
+        XCTAssertNil(result.launchError)
+        XCTAssertTrue(result.text.contains("self-test: Daylight "), "timedOut=\(result.timedOut), output: \(result.text.prefix(300))")
+    }
+
     func testCrashedCommandIsNamedASignalInRow46AndTheManifest() throws {
         let runner = FakeCommandRunner()
         runner.results["log"] = CommandResult(output: Data(), exitStatus: nil, signal: 11)

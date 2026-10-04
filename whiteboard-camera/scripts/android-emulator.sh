@@ -230,6 +230,10 @@ run() {
   crashes="$(check_logcat "$OUT/logcat-full.txt" || true)"
   if [[ -n "$crashes" ]]; then
     echo "$crashes"
+    # The stacks go into the job log too: the artifact is not always downloadable by whoever reads the run.
+    echo "::group::crash stacks (AndroidRuntime, first 200 lines)"
+    grep -E ' AndroidRuntime *:' "$OUT/logcat-full.txt" | head -200 || true
+    echo "::endgroup::"
     while IFS= read -r line; do [[ "$line" != "  "* ]] && fail "$line"; done <<<"$crashes"
   fi
 

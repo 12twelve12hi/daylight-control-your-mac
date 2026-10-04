@@ -49,11 +49,8 @@ so there is no pair of codecs to compare and it is not in the corpus.
 
 ## Known expected failures
 
-Each harness lists the cases its codec still gets wrong, with the finding id, and asserts they still diverge (so the
-test turns red when the codec is fixed and the entry must go). Swift and TypeScript: none. Kotlin (`knownDivergent` in
-`FuzzCorpusTest.kt`; fixes requested from the owner of the Android sources):
-
-- FZ-1: no 1 MiB payload_len cap in `Decoder.header` (3 `oversize` cases).
-- FZ-3: HANDSHAKE_ACK status outside 0..3 decodes (3 `ack_status_*` cases).
-- FZ-4: STATE governor, mode or ink_source out of range decodes (5 `state_*` cases).
-- FZ-5: MIRROR_CONTROL command outside 0..3 decodes (2 `mirror_control_cmd_*` cases).
+None. Each harness keeps a `knownDivergent` list (`KNOWN_DIVERGENT` in TypeScript) for cases its codec still gets wrong,
+each with its finding id, and asserts they still diverge, so the test turns red when the codec is fixed and the entry
+must go. All three lists are empty: TypeScript fixed FZ-1 and FZ-4 (7a71695), Swift fixed FZ-2 and FZ-4 (baeb751), and
+Kotlin fixed FZ-1, FZ-3, FZ-4 and FZ-5 (ed354b2; an unreadable HANDSHAKE_ACK while awaiting one now ends the link as
+INCOMPATIBLE instead of hanging). A new divergence goes into the list with its finding id, never as a skipped case.

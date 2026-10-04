@@ -172,6 +172,9 @@ public struct Settings: Codable, Equatable {
     /// An unknown stored value decodes as `.bottomRight`.
     public var overlayPosition: OverlayPosition = .bottomRight
     public var overlayOpacity: Double = 1.0
+    /// Settings > Advanced "Follow the pen on camera" (TOO-SMALL section 7), off by default. Read once per frame by
+    /// the render queue; before this key existed it lived under `com.twelve.daylight.followPen.v1` (the app migrates it).
+    public var followPen: Bool = false
 
     public init() {}
 
@@ -265,6 +268,7 @@ public struct Settings: Codable, Equatable {
         case frameReuse, deadlineIdle, perfLog
         case mirrorTransport, mirrorStreamMaxSize, mirrorStreamBitRate, mirrorStreamMaxFps, mirrorStreamKeyIntervalMs, mirrorDiffThreshold
         case overlayEnabled, overlayQuality, overlaySmoothing, overlayFeather, overlayHalo, overlayScale, overlayPosition, overlayOpacity
+        case followPen
     }
 
     /// LOOSE_ENDS J5: every enum key decodes its raw value leniently, so a value from a newer build (a case this build
@@ -355,6 +359,7 @@ public struct Settings: Codable, Equatable {
         overlayScale = try c.decodeIfPresent(Double.self, forKey: .overlayScale) ?? d.overlayScale
         overlayPosition = (try? c.decodeIfPresent(String.self, forKey: .overlayPosition)).flatMap { $0 }.flatMap(OverlayPosition.init(rawValue:)) ?? d.overlayPosition
         overlayOpacity = try c.decodeIfPresent(Double.self, forKey: .overlayOpacity) ?? d.overlayOpacity
+        followPen = try c.decodeIfPresent(Bool.self, forKey: .followPen) ?? d.followPen
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -413,5 +418,6 @@ public struct Settings: Codable, Equatable {
         try c.encode(overlayScale, forKey: .overlayScale)
         try c.encode(overlayPosition, forKey: .overlayPosition)
         try c.encode(overlayOpacity, forKey: .overlayOpacity)
+        try c.encode(followPen, forKey: .followPen)
     }
 }

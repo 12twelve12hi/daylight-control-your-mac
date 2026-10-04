@@ -25,8 +25,11 @@ final class FramePipeline: PipelineControl {
     let surfaces: CanvasSurfaces
     /// Follow the pen (TOO-SMALL section 7): render queue only.
     let follow: FollowDriver
-    /// Read once per frame; tests replace it.
-    var followEnabled: () -> Bool = { FollowPenSwitch.shared.isOn }
+    /// `Settings.followPen` as the pipeline last received it (`init`, `updateSettings`); `renderFrame` reads the same
+    /// value from its per-frame copy of the flags.
+    var followEnabled: Bool {
+        return flags.withLock { $0.followPen }
+    }
     let compositor: Compositor?
     let pool: OutputPool?
     let feeder: FrameFeeder
@@ -51,6 +54,8 @@ final class FramePipeline: PipelineControl {
         var lastFormat: (Int, Int, OSType, Bool)?
         /// Camera authorization (SPEC 13.3 row 3): false blocks capture; the app sets it from the TCC status.
         var captureAuthorized = true
+        /// `Settings.followPen` ("Follow the pen on camera"), copied with the flags once per frame.
+        var followPen = false
         /// Presenter Overlay (SPEC 6.7): exists only while `Settings.overlayEnabled`. Read with the flags the capture
         /// and render paths already copy, so a disabled overlay costs no extra lock.
         var overlay: OverlayController?
@@ -145,6 +150,7 @@ final class FramePipeline: PipelineControl {
         feeder = FrameFeeder(sink: sink)
         governor = Locked(EngageGovernor(config: GovernorConfig(settings: validated), now: now))
         var initialFlags = Flags(inkSource: validated.inkSource)
+        initialFlags.followPen = validated.followPen
         if case .connected = sink.status { initialFlags.sinkConnected = true }
         flags = Locked(initialFlags)
         self.capture = capture
@@ -314,7 +320,10 @@ final class FramePipeline: PipelineControl {
                 }
             }
         }
-        flags.withLock { $0.inkSource = validated.inkSource }
+        flags.withLock { f in
+            f.inkSource = validated.inkSource
+            f.followPen = validated.followPen
+        }
         applyOverlaySetting(validated)
         renderQueue.async { [weak self] in self?.publishFlagsChange() }
     }
@@ -560,7 +569,7 @@ final class FramePipeline: PipelineControl {
         let laidOut = overlayFrame ?? StudioLayout.frame(progress: out.progress, layout: layout, orientation: orientation, canvasAspect: aspect, breath: out.breath)
         // Only the quad's dest and uv change: the canvas textures are sampled in place, no copy (PERFORMANCE.md).
         let followable = overlayFrame == nil && f.inkSource != .mirror
-        let frame = follow.frame(laidOut, layout: layout, progress: out.progress, now: now, enabled: followEnabled(), followable: followable)
+        let frame = follow.frame(laidOut, layout: layout, progress: out.progress, now: now, enabled: f.followPen, followable: followable)
         guard let target = pool.acquire() else {
             counters.withLock { $0.dropped += 1 }
             telemetry.end(signpost, "composite")
@@ -885,7 +894,7 @@ final class FramePipeline: PipelineControl {
         timer.setEventHandler { [weak self] in
             guard let self = self else { return }
             self.telemetry.emit(self.stats)
-            if self.telemetry.perfLog, self.followEnabled(), let view = self.follow.target {
+            if self.telemetry.perfLog, self.followEnabled, let view = self.follow.target {
                 let line = String(format: "follow: zoom %.3f centre (%.0f, %.0f) %@", view.zoom, view.cx, view.cy, self.follow.isFullPage ? "full page" : "following")
                 if let sink = self.telemetry.sink { sink(line) } else { print(line) }
                 self.telemetry.remember(line)

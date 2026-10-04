@@ -2,25 +2,6 @@ import DaylightKit
 import Foundation
 import os
 
-/// "Follow the pen on camera" (TOO-SMALL section 7), off by default in phase 5. The switch is process-wide so the
-/// Settings window and the render queue share it without new wiring through the app delegate; `SettingsStore`
-/// persists it under its own key until the Kit's `Settings` gains the field (handoff vp-ink-legibility).
-final class FollowPenSwitch {
-    static let userDefaultsKey = "com.twelve.daylight.followPen.v1"
-    static let shared = FollowPenSwitch(defaults: .standard)
-
-    private let state: Locked<Bool>
-
-    init(defaults: UserDefaults) {
-        state = Locked(defaults.bool(forKey: FollowPenSwitch.userDefaultsKey))
-    }
-
-    var isOn: Bool {
-        get { return state.withLock { $0 } }
-        set { state.withLock { $0 = newValue } }
-    }
-}
-
 /// What the rasterizer saw on ink.queue since the last frame: the boxes of new segments and whether the page was
 /// cleared (Clear or a new page). The render queue drains it once per frame.
 final class InkActivity {

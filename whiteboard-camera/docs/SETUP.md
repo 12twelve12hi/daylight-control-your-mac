@@ -219,7 +219,7 @@ The "Daylight Whiteboard" window shows only the page (the web whiteboard and Day
 | "Keep the share window above other windows" | `floats` | off | on keeps it on top; off lets you put it behind the call (covered is fine for sharing) |
 | "Hide the share window's title bar" | `hideTitleBar` | off | viewers see only the page; drag the page to move the window. Whether every call app lists a window without a title bar is not yet confirmed (LOOSE_ENDS TS-1) |
 
-Follow the pen (magnify the area you are writing in, inside the camera picture) is not a setting yet: its camera math is built and tested in DaylightKit (`FollowRegion`), and wiring it into the camera picture is the next step (LOOSE_ENDS TS-4).
+Follow the pen (magnify the area you are writing in, inside the camera picture) is a separate switch on the Advanced tab, "Follow the pen on camera" (`followPen`, section Advanced below).
 
 ### Saving
 
@@ -235,6 +235,7 @@ Follow the pen (magnify the area you are writing in, inside the camera picture) 
 
 | Control | Key | Default | Plain words |
 |---|---|---|---|
+| "Follow the pen on camera" | `followPen` | off | on camera, the board zooms in on the area you are writing in (at most 2.5 times) and returns to the full page after 30 s without ink, on Clear and on a new page; Studio Split and Whiteboard Only only. Before this key existed the switch was stored under `com.twelve.daylight.followPen.v1`; the first launch of a newer build moves it into the settings and removes that key |
 | "Eraser contact engages the whiteboard" | `engageOnEraser` | off | the eraser end of the pen brings the board up from the camera (LOOSE_ENDS A4) |
 | "Spring stiffness N (1200 settles in a quarter second)" | `springK` | 1200 (300 to 2400) | 600 is a slower slide that takes the whole third of a second (LOOSE_ENDS F11) |
 | "Stop the webcam N s after the last viewer" | `viewerIdleStopSeconds` | 60 (10 to 600) | the LED goes off this long after the last call ends; capture restarts within a second when a call starts |

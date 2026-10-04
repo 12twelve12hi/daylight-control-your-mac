@@ -18,35 +18,52 @@ final class SettingsStore: ObservableObject {
         }
     }
 
-    /// "Follow the pen on camera" (off by default): its own key beside the settings blob until the Kit's `Settings`
-    /// carries it; every change reaches the render queue through `FollowPenSwitch` (handoff vp-ink-legibility).
-    @Published var followPen: Bool {
-        didSet {
-            defaults.set(followPen, forKey: FollowPenSwitch.userDefaultsKey)
-            followPenSwitch.isOn = followPen
-        }
-    }
-
     let defaults: UserDefaults
-    let followPenSwitch: FollowPenSwitch
     var onChange: ((Settings) -> Void)?
 
-    init(defaults: UserDefaults = .standard, unsignedBuild: Bool = false, followPenSwitch: FollowPenSwitch = .shared) {
+    /// Where "Follow the pen on camera" lived before `Settings.followPen` existed (handoff vp-ink-legibility R2).
+    /// Read once by `init` and then removed; nothing writes it any more.
+    static let legacyFollowPenKey = "com.twelve.daylight.followPen.v1"
+
+    init(defaults: UserDefaults = .standard, unsignedBuild: Bool = false) {
         self.defaults = defaults
-        self.followPenSwitch = followPenSwitch
-        let follow = defaults.bool(forKey: FollowPenSwitch.userDefaultsKey)
-        followPen = follow
-        followPenSwitch.isOn = follow
-        var loaded = SettingsStore.load(from: defaults) ?? Settings.defaults
-        if unsignedBuild && SettingsStore.load(from: defaults) == nil {
+        let data = defaults.data(forKey: Settings.userDefaultsKey)
+        let stored = SettingsStore.decode(data)
+        var loaded = stored ?? Settings.defaults
+        if unsignedBuild && stored == nil {
             loaded.previewOnLaunch = true   // SPEC D19: previewOnLaunch defaults to true on unsigned builds
         }
+        let tookLegacyFollowPen = SettingsStore.takeLegacyFollowPen(&loaded, storedData: data, defaults: defaults)
         settings = loaded.validated()
+        // The blob carries the migrated value before the old key goes, so an interrupted launch migrates again.
+        if tookLegacyFollowPen { persist() }
+        defaults.removeObject(forKey: SettingsStore.legacyFollowPenKey)
     }
 
     static func load(from defaults: UserDefaults) -> Settings? {
-        guard let data = defaults.data(forKey: Settings.userDefaultsKey) else { return nil }
+        return decode(defaults.data(forKey: Settings.userDefaultsKey))
+    }
+
+    static func decode(_ data: Data?) -> Settings? {
+        guard let data = data else { return nil }
         return try? JSONDecoder().decode(Settings.self, from: data)
+    }
+
+    /// R2 migration: a stored blob without a `followPen` key (or no blob at all) takes the old key's true. A blob that
+    /// already has the key wins. Returns true when `settings.followPen` was set from the old key. Idempotent: once
+    /// `init` has removed the old key this changes nothing.
+    static func takeLegacyFollowPen(_ settings: inout Settings, storedData: Data?, defaults: UserDefaults) -> Bool {
+        guard defaults.bool(forKey: legacyFollowPenKey), !storedJSONHasKey("followPen", storedData) else { return false }
+        settings.followPen = true
+        return true
+    }
+
+    /// True when `data` is a JSON object with `key` at the top level.
+    static func storedJSONHasKey(_ key: String, _ data: Data?) -> Bool {
+        guard let data = data,
+              let object = try? JSONSerialization.jsonObject(with: data, options: []),
+              let dictionary = object as? [String: Any] else { return false }
+        return dictionary[key] != nil
     }
 
     func persist() {

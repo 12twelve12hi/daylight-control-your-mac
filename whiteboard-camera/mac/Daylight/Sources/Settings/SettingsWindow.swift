@@ -346,7 +346,7 @@ struct SettingsView: View {
     /// width and wraps; the UI suite's frame check (every control inside the window) guards it.
     private var advancedTab: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Toggle(isOn: $store.followPen) { WrappingLabel("Follow the pen on camera") }
+            Toggle(isOn: $store.settings.followPen) { WrappingLabel("Follow the pen on camera") }
                 .accessibilityIdentifier(SettingsView.followPenID)
             Text(SettingsView.followPenExplanation).font(.footnote).foregroundColor(.secondary)
             Toggle(isOn: $store.settings.engageOnEraser) { WrappingLabel("Eraser contact engages the whiteboard") }

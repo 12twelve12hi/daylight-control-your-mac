@@ -9,6 +9,8 @@ final class MenuBar: NSObject, NSMenuDelegate {
     private let model: AppModel
     /// Menu bar > Export diagnostics... (AppDelegate hands it to `DiagnosticsExport`).
     var onExportDiagnostics: (() -> Void)?
+    /// Menu bar > "Share the whiteboard" (Share/ShareMenu.swift); nil leaves the item out.
+    var shareMenu: (() -> NSMenuItem)?
 
     init(model: AppModel) {
         self.model = model
@@ -78,6 +80,7 @@ final class MenuBar: NSObject, NSMenuDelegate {
         menu.addItem(NSMenuItem.separator())
         let preview = add("Preview window", #selector(togglePreview(_:)), hotkey: nil)
         preview.state = (model.preview?.isVisible ?? false) ? .on : .off
+        if let share = shareMenu?() { menu.addItem(share) }
         add("Settings...", #selector(openSettings(_:)), hotkey: nil)
         add("Diagnostics...", #selector(openDiagnostics(_:)), hotkey: nil)
         add("Export diagnostics...", #selector(exportDiagnostics(_:)), hotkey: nil)

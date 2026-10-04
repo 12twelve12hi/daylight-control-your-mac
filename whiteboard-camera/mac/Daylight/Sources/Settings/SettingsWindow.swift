@@ -16,6 +16,7 @@ enum SettingsTab: String, CaseIterable, Equatable, Hashable {
     case network = "Network"
     case mirror = "Mirror"
     case overlay = "Overlay"
+    case share = "Share"
     case saving = "Saving"
     case advanced = "Advanced"
     case diagnostics = "Diagnostics"
@@ -45,6 +46,9 @@ final class SettingsContext: ObservableObject {
     var tryWiFiMirror: () -> Void = {}
     var refreshDiagnostics: () -> Void = {}
     var chooseSaveDirectory: () -> Void = {}
+    /// Settings > Share (Share/ShareSettingsView.swift): the share window's own store and its Show button.
+    var shareStore = ShareSettingsStore()
+    var showShareWindow: () -> Void = {}
 }
 
 struct SettingsView: View {
@@ -59,6 +63,7 @@ struct SettingsView: View {
             networkTab.tabItem { Text("Network") }.tag(SettingsTab.network)
             mirrorTab.tabItem { Text("Mirror") }.tag(SettingsTab.mirror)
             overlayTab.tabItem { Text("Overlay") }.tag(SettingsTab.overlay)
+            ShareSettingsView(store: context.shareStore, showWindow: context.showShareWindow).tabItem { Text("Share") }.tag(SettingsTab.share)
             savingTab.tabItem { Text("Saving") }.tag(SettingsTab.saving)
             advancedTab.tabItem { Text("Advanced") }.tag(SettingsTab.advanced)
             diagnosticsTab.tabItem { Text("Diagnostics") }.tag(SettingsTab.diagnostics)

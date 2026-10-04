@@ -3,7 +3,7 @@ import XCTest
 /// The Mac UI suite of docs/handoff/vp-mac-ui.md ("What the suite proves" 1 to 6), once in light and once in dark
 /// appearance. It drives the prebuilt unsigned Release app by URL (no target dependency, see mac/project.yml) and
 /// launches as few times as it can: the first launch shows Welcome and the status item menu, then one launch each for
-/// Settings (all eight tabs, overlay enabled), the preview, Diagnostics and the Allow panel; `--ui-test-open menu` and
+/// Settings (all nine tabs, overlay enabled), the preview, Diagnostics and the Allow panel; `--ui-test-open menu` and
 /// `--ui-test-settings-tab` relaunches happen only as fallbacks. Failures never stop the run (continueAfterFailure).
 final class DaylightUITests: XCTestCase {
     override func setUp() {
@@ -33,7 +33,7 @@ final class DaylightUITests: XCTestCase {
 /// One appearance's pass over every surface, plus the inventory of strings the Docs to UI check reads.
 @MainActor
 final class DaylightUISession {
-    static let tabs = ["General", "Hotkeys", "Network", "Mirror", "Overlay", "Saving", "Advanced", "Diagnostics"]
+    static let tabs = ["General", "Hotkeys", "Network", "Mirror", "Overlay", "Share", "Saving", "Advanced", "Diagnostics"]
     /// FailureText row 2 (`unsignedBuild`), as docs/OWNER-NEXT-STEPS.md quotes it.
     static let unsignedSentence = "This is an unsigned test build. The virtual camera cannot be installed on this Mac. Use Daylight > Preview window to see the output."
     static let welcomeTexts = [
@@ -52,10 +52,11 @@ final class DaylightUISession {
     static let menuOrder = [
         "Ink source", "Hold", "Keep whiteboard", "Clear", "Camera",
         "Whiteboard now (Studio Split)", "Whiteboard now (Whiteboard Only)", "Whiteboard now (Overlay)",
-        "Preview window", "Settings...", "Diagnostics...", "Export diagnostics...", "Setup again", "Quit Daylight",
+        "Preview window", "Share the whiteboard", "Settings...", "Diagnostics...", "Export diagnostics...", "Setup again", "Quit Daylight",
     ]
     static let inkSourceItems = ["Web whiteboard", "Daylight Ink app", "Mirror the tablet"]
     static let holdItems = ["Auto", "Camera", "Studio Split", "Whiteboard Only"]
+    static let shareItems = ["Show share window", "How to share it in a call...", "Share settings..."]
     static let transportOptions = ["USB (adb)", "Wi-Fi (Daylight Ink screen stream)"]
     /// AdbSource.label in DaylightKit (Settings.swift); "Bundled (default)" is hidden on a build without the bundled adb.
     static let adbOptionsAll = ["Bundled (default)", "Download on first use", "Use installed adb"]
@@ -224,6 +225,8 @@ final class DaylightUISession {
         XCTAssertEqual(ink, DaylightUISession.inkSourceItems, "[\(appearance)] Menu: Ink source submenu")
         let hold = readSubmenu(opened, parent: "Hold", first: DaylightUISession.holdItems[0])
         XCTAssertEqual(hold, DaylightUISession.holdItems, "[\(appearance)] Menu: Hold submenu")
+        let share = readSubmenu(opened, parent: "Share the whiteboard", first: DaylightUISession.shareItems[0])
+        XCTAssertEqual(share, DaylightUISession.shareItems, "[\(appearance)] Menu: Share the whiteboard submenu")
         current.typeKey(.escape, modifierFlags: [])
         current.typeKey(.escape, modifierFlags: [])
     }

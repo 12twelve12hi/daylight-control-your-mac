@@ -18,6 +18,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let netQueue = DispatchQueue(label: "com.twelve.daylight.net", qos: .userInitiated)
     let inkQueue = DispatchQueue(label: "com.twelve.daylight.ink", qos: .userInitiated)
     private let preview = PreviewWindow()
+    /// The "Daylight Whiteboard" share window and its menu (docs/handoff/vp-too-small.md).
+    private let shareWindow = ShareWindowController()
+    private lazy var shareMenu = ShareMenu(controller: shareWindow)
     private let settingsContext = SettingsContext()
     private let onboardingModel: OnboardingModel
     private var sink: VirtualCameraSink?
@@ -166,6 +169,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.preview = preview
         menuBar = MenuBar(model: model)
         menuBar?.onExportDiagnostics = { [weak self] in self?.diagnosticsExport.start() }
+        wireShare()
         model.onOpenSettings = { [weak self] in self?.showSettings() }
         model.onOpenDiagnostics = { [weak self] in self?.showDiagnostics() }
         model.onSetupAgain = { [weak self] in self?.showOnboarding(force: true) }
@@ -201,6 +205,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.preview = preview
         menuBar = MenuBar(model: model)
         menuBar?.onExportDiagnostics = { [weak self] in self?.diagnosticsExport.start() }
+        wireShare()
         model.onOpenSettings = { [weak self] in self?.showSettings() }
         model.onOpenDiagnostics = { [weak self] in self?.showDiagnostics() }
         model.onSetupAgain = { [weak self] in self?.showOnboarding(force: true) }
@@ -465,6 +470,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func governorChanged(from: GovernorState, to: GovernorState) {
+        if from == .passthrough && to == .engaging && settingsContext.shareStore.settings.openWithBoard && !shareWindow.isVisible {
+            shareWindow.show(activate: false)
+        }
         if from == .passthrough && to == .engaging && settingsStore.settings.inkSource == .mirror {
             mirrorSessionStart = Date()
         }
@@ -657,6 +665,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     // MARK: Windows
+
+    /// Share window (docs/handoff/vp-too-small.md): reads the canvas the pipeline draws into, or the mirror picture
+    /// while the ink source is Mirror; its own settings live in `settingsContext.shareStore`.
+    private func wireShare() {
+        if arguments.uiTest, let defaults = UserDefaults(suiteName: ShareSettingsStore.uiTestSuite) {
+            defaults.removePersistentDomain(forName: ShareSettingsStore.uiTestSuite)
+            settingsContext.shareStore = ShareSettingsStore(defaults: defaults)
+        }
+        let store = settingsContext.shareStore
+        shareWindow.apply(store.settings)
+        store.onChange = { [weak self] s in self?.shareWindow.apply(s) }
+        shareWindow.source = { [weak self] in
+            guard let self = self, let pipeline = self.pipeline else { return .none }
+            if self.settingsStore.settings.inkSource == .mirror {
+                guard let mirror = self.mirrorController?.activeSource else { return .none }
+                return .mirror(mirror)
+            }
+            return .layers(pipeline.surfaces)
+        }
+        shareWindow.onLog = { [weak self] line in self?.telemetry.note("share", line) }
+        shareMenu.onOpenSettings = { [weak self] in
+            self?.settingsContext.selectedTab = .share
+            self?.showSettings()
+        }
+        settingsContext.showShareWindow = { [weak self] in self?.shareWindow.show(activate: true) }
+        menuBar?.shareMenu = { [weak self] in self?.shareMenu.makeItem() ?? NSMenuItem() }
+    }
 
     private func showSettings() {
         if settingsWindow == nil { settingsWindow = SettingsWindowController(store: settingsStore, context: settingsContext) }

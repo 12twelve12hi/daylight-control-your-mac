@@ -49,6 +49,7 @@ enum SelfTest {
             report.note("WARNING no Metal device on this machine; render probes skipped")
         }
         OverlaySelfTest.run(device: device, report: report)
+        ShareSelfTest.run(report: report)
         socketRoundTrip(device: device, report: report, perfLog: arguments.perfLog)
         vendorFacts(report: report)
         extensionFacts(report: report)

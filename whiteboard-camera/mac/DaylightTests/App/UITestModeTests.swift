@@ -47,7 +47,7 @@ final class UITestModeTests: XCTestCase {
     }
 
     func testEverySettingsTab() {
-        let names = ["General", "Hotkeys", "Network", "Mirror", "Overlay", "Saving", "Advanced", "Diagnostics"]
+        let names = ["General", "Hotkeys", "Network", "Mirror", "Overlay", "Share", "Saving", "Advanced", "Diagnostics"]
         XCTAssertEqual(SettingsTab.allCases.map { $0.rawValue }, names)
         for tab in SettingsTab.allCases {
             XCTAssertEqual(parse(["--ui-test", "--ui-test-settings-tab", tab.rawValue]).uiTestOptions.settingsTab, tab)

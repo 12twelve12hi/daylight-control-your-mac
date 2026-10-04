@@ -79,6 +79,10 @@ struct SettingsView: View {
 
     static let contentWidth: CGFloat = 720
 
+    /// Settings > Advanced, "Follow the pen on camera" (TOO-SMALL section 7, off by default).
+    static let followPenID = "daylight.settings.advanced.followpen"
+    static let followPenExplanation = "On camera, the board zooms in on the area you are writing in, up to 2.5 times, and returns to the full page after 30 s without ink, on Clear and on a new page."
+
     /// Every tab's content starts at the top left of the tab area: a Form or a short VStack is otherwise centred
     /// vertically, leaving an empty band under the tab bar (Saving and Share in run 37182692894). The UI suite asserts
     /// the first element of each tab sits within 40 pt of the tab bar.
@@ -342,6 +346,9 @@ struct SettingsView: View {
     /// width and wraps; the UI suite's frame check (every control inside the window) guards it.
     private var advancedTab: some View {
         VStack(alignment: .leading, spacing: 12) {
+            Toggle(isOn: $store.followPen) { WrappingLabel("Follow the pen on camera") }
+                .accessibilityIdentifier(SettingsView.followPenID)
+            Text(SettingsView.followPenExplanation).font(.footnote).foregroundColor(.secondary)
             Toggle(isOn: $store.settings.engageOnEraser) { WrappingLabel("Eraser contact engages the whiteboard") }
             Stepper(value: $store.settings.springK, in: Settings.springKRange, step: 100) {
                 WrappingLabel("Spring stiffness \(Int(store.settings.springK)) (1200 settles in a quarter second)")

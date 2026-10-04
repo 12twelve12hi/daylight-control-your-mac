@@ -19,6 +19,8 @@ final class CanvasSurfaces {
     let highlight: IOSurfaceRef
     let inkTexture: MTLTexture?
     let highlightTexture: MTLTexture?
+    /// Ink boxes and page clears for follow the pen (written on ink.queue, drained on the render queue).
+    let activity = InkActivity()
     private let writes = Locked<UInt32>(0)
 
     init(device: MTLDevice?, width: Int = SolStream.canvasWidth, height: Int = SolStream.canvasHeight) throws {

@@ -37,6 +37,7 @@ final class InkRasterizer {
             redraw(rect: rect, store: store)
         case .clearAll:
             clearAll()
+            surfaces.activity.noteCleared()
         }
     }
 
@@ -54,11 +55,15 @@ final class InkRasterizer {
         withLayer(stroke.style.tool) { ctx in
             setColor(ctx, stroke.style.colorARGB)
             if points.count == 1 {
-                if stroke.isCommitted { fillDot(ctx, stroke) }
+                if stroke.isCommitted {
+                    fillDot(ctx, stroke)
+                    noteActivity(points[0...0])
+                }
                 return
             }
             let start = max(fromIndex, 1)
             if start >= points.count { return }
+            noteActivity(points[(start - 1)...])
             for i in start..<points.count {
                 strokeSegment(ctx, from: points[i - 1], to: points[i], width: InkRasterizer.cameraWidth(stroke, at: i, canvasHeight: surfaces.height))
                 stats.segments += 1
@@ -95,6 +100,13 @@ final class InkRasterizer {
                 ctx.restoreGState()
             }
         }
+    }
+
+    /// Follow the pen: the box of the points just drawn (not erase, undo or redo redraws, which are not writing).
+    private func noteActivity(_ points: ArraySlice<SolStream.Point>) {
+        let xs = points.map { Double($0.x) }
+        let ys = points.map { Double($0.y) }
+        if let box = FollowRegion.boundingBox(xs: xs, ys: ys) { surfaces.activity.noteInk(box) }
     }
 
     private func strokeSegment(_ ctx: CGContext, from a: SolStream.Point, to b: SolStream.Point, width: Double) {

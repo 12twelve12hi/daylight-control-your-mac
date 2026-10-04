@@ -74,6 +74,10 @@ final class DaylightUISession {
         ("clear", "Clear"), ("camera", "Camera"), ("overlay", "Overlay"),
     ]
     static let allowPrompt = "Allow 'UI test tablet' to draw on Daylight Camera? It connected from 192.168.1.40."
+    /// Settings > Advanced, "Follow the pen on camera" (SettingsView.followPenID and followPenExplanation), off by default.
+    static let followPenID = "daylight.settings.advanced.followpen"
+    static let followPenLabel = "Follow the pen on camera"
+    static let followPenExplanation = "On camera, the board zooms in on the area you are writing in, up to 2.5 times, and returns to the full page after 30 s without ink, on Clear and on a new page."
 
     let testCase: XCTestCase
     let appearance: String
@@ -483,6 +487,8 @@ final class DaylightUISession {
             texts += flatten(w).flatMap { $0.texts }
         case "Hotkeys":
             checkHotkeyRows(flatten(w))
+        case "Advanced":
+            checkFollowPen(w, step: name)
         case "Overlay":
             let nodes = flatten(w)
             for (label, expected) in DaylightUISession.overlayPopups {
@@ -503,6 +509,69 @@ final class DaylightUISession {
         popups += gatherPopups(w, app: app, surface: "Settings > \(tab)", seen: &seen)
         texts += popups.flatMap { [$0.label] + $0.options }
         settingsTexts[tab] = texts
+    }
+
+    /// The "Follow the pen on camera" switch (`daylight.settings.advanced.followpen`) exists, is visible inside the
+    /// window, is off with the throwaway defaults suite (UITestMode.freshDefaults), turns on with a click and off again
+    /// with a second one. Screenshots NN-settings-advanced-followpen and NN-settings-advanced-followpen-on.
+    private func checkFollowPen(_ w: XCUIElement, step: String) {
+        let identifier = DaylightUISession.followPenID
+        let toggle = w.descendants(matching: .any).matching(identifier: identifier).firstMatch
+        guard toggle.waitForExistence(timeout: 3) else {
+            shots.take(step + "-followpen-missing", window: w)
+            XCTFail("[\(appearance)] Settings > Advanced: no element with identifier \(identifier) (\"\(DaylightUISession.followPenLabel)\")")
+            return
+        }
+        shots.take(step + "-followpen", window: w)
+        let nodes = flatten(w)
+        let windowFrame = nodes.first?.frame ?? w.frame
+        if let node = nodes.first(where: { $0.identifier == identifier }) {
+            let switchTypes: Set<XCUIElement.ElementType> = [.checkBox, .toggle, .switch]
+            if !switchTypes.contains(node.type) {
+                note("Settings > Advanced: \(identifier) is a \(typeName(node.type)), not a checkBox, toggle or switch")
+            }
+            XCTAssertTrue(node.texts.contains { $0.hasPrefix(DaylightUISession.followPenLabel) } || nodes.contains { $0.type == .staticText && $0.shows(DaylightUISession.followPenLabel) },
+                          "[\(appearance)] Settings > Advanced: no text \"\(DaylightUISession.followPenLabel)\" on or next to \(identifier) \(rect(node.frame))")
+            XCTAssertTrue(windowFrame.insetBy(dx: -1, dy: -1).contains(node.frame), "[\(appearance)] Settings > Advanced: \(identifier) frame \(rect(node.frame)) is not inside the window frame \(rect(windowFrame))")
+        } else {
+            XCTFail("[\(appearance)] Settings > Advanced: \(identifier) exists but is not in the window's snapshot")
+        }
+        if !nodes.contains(where: { $0.shows(DaylightUISession.followPenExplanation) }) {
+            XCTFail("[\(appearance)] Settings > Advanced: no text \"\(DaylightUISession.followPenExplanation)\" under the switch")
+        }
+        guard scrollIntoView(toggle, in: w) else {
+            XCTFail("[\(appearance)] Settings > Advanced: \(identifier) \(rect(toggle.frame)) is not hittable (covered or scrolled out of sight)")
+            return
+        }
+        let initial = switchState(toggle)
+        XCTAssertEqual(initial, "0", "[\(appearance)] Settings > Advanced: \"\(DaylightUISession.followPenLabel)\" should be off with fresh defaults; its value reads \(initial)")
+        toggle.click()
+        let on = waitForSwitch(toggle, toLeave: initial)
+        shots.take(step + "-followpen-on", window: w)
+        XCTAssertEqual(on, "1", "[\(appearance)] Settings > Advanced: one click on \"\(DaylightUISession.followPenLabel)\" should turn it on; its value went from \(initial) to \(on)")
+        toggle.click()
+        let off = waitForSwitch(toggle, toLeave: on)
+        XCTAssertEqual(off, "0", "[\(appearance)] Settings > Advanced: a second click on \"\(DaylightUISession.followPenLabel)\" should turn it off again; its value went from \(on) to \(off)")
+    }
+
+    /// A switch's accessibility value as "0" or "1" (macOS reports a checkbox value as a number; a String is passed
+    /// through), or "(none)" when it has none.
+    private func switchState(_ element: XCUIElement) -> String {
+        guard let value = element.value else { return "(none)" }
+        if let number = value as? NSNumber { return number.intValue == 0 ? "0" : "1" }
+        if let text = value as? String { return text }
+        return String(describing: value)
+    }
+
+    /// Waits up to 2 s for the switch's value to differ from `previous`, and returns the value it reads then.
+    private func waitForSwitch(_ element: XCUIElement, toLeave previous: String) -> String {
+        let deadline = Date().addingTimeInterval(2)
+        var current = switchState(element)
+        while current == previous && Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+            current = switchState(element)
+        }
+        return current
     }
 
     /// Every hotkey field (`daylight.settings.hotkeys.recorder.<action>`) is 20 to 30 pt tall and vertically centred

@@ -18,11 +18,25 @@ final class SettingsStore: ObservableObject {
         }
     }
 
+    /// "Follow the pen on camera" (off by default): its own key beside the settings blob until the Kit's `Settings`
+    /// carries it; every change reaches the render queue through `FollowPenSwitch` (handoff vp-ink-legibility).
+    @Published var followPen: Bool {
+        didSet {
+            defaults.set(followPen, forKey: FollowPenSwitch.userDefaultsKey)
+            followPenSwitch.isOn = followPen
+        }
+    }
+
     let defaults: UserDefaults
+    let followPenSwitch: FollowPenSwitch
     var onChange: ((Settings) -> Void)?
 
-    init(defaults: UserDefaults = .standard, unsignedBuild: Bool = false) {
+    init(defaults: UserDefaults = .standard, unsignedBuild: Bool = false, followPenSwitch: FollowPenSwitch = .shared) {
         self.defaults = defaults
+        self.followPenSwitch = followPenSwitch
+        let follow = defaults.bool(forKey: FollowPenSwitch.userDefaultsKey)
+        followPen = follow
+        followPenSwitch.isOn = follow
         var loaded = SettingsStore.load(from: defaults) ?? Settings.defaults
         if unsignedBuild && SettingsStore.load(from: defaults) == nil {
             loaded.previewOnLaunch = true   // SPEC D19: previewOnLaunch defaults to true on unsigned builds

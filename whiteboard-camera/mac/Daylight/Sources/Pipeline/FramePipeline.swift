@@ -23,6 +23,10 @@ final class FramePipeline: PipelineControl {
     let captureQueue: DispatchQueue
     let clock: FrameClock
     let surfaces: CanvasSurfaces
+    /// Follow the pen (TOO-SMALL section 7): render queue only.
+    let follow: FollowDriver
+    /// Read once per frame; tests replace it.
+    var followEnabled: () -> Bool = { FollowPenSwitch.shared.isOn }
     let compositor: Compositor?
     let pool: OutputPool?
     let feeder: FrameFeeder
@@ -130,6 +134,7 @@ final class FramePipeline: PipelineControl {
         captureQueue = DispatchQueue(label: "com.twelve.daylight.capture", qos: .userInteractive)
         clock = FrameClock(queue: renderQueue, fps: 30)
         surfaces = try CanvasSurfaces(device: device)
+        follow = FollowDriver(activity: surfaces.activity)
         if let device = device {
             compositor = try Compositor(device: device)
             pool = try OutputPool(width: FramePipeline.outputWidth, height: FramePipeline.outputHeight)
@@ -552,7 +557,10 @@ final class FramePipeline: PipelineControl {
             }
         }
         let layout: LayoutStyle = out.layout == .overlay ? .studioSplit : out.layout
-        let frame = overlayFrame ?? StudioLayout.frame(progress: out.progress, layout: layout, orientation: orientation, canvasAspect: aspect, breath: out.breath)
+        let laidOut = overlayFrame ?? StudioLayout.frame(progress: out.progress, layout: layout, orientation: orientation, canvasAspect: aspect, breath: out.breath)
+        // Only the quad's dest and uv change: the canvas textures are sampled in place, no copy (PERFORMANCE.md).
+        let followable = overlayFrame == nil && f.inkSource != .mirror
+        let frame = follow.frame(laidOut, layout: layout, progress: out.progress, now: now, enabled: followEnabled(), followable: followable)
         guard let target = pool.acquire() else {
             counters.withLock { $0.dropped += 1 }
             telemetry.end(signpost, "composite")
@@ -863,6 +871,11 @@ final class FramePipeline: PipelineControl {
         timer.setEventHandler { [weak self] in
             guard let self = self else { return }
             self.telemetry.emit(self.stats)
+            if self.telemetry.perfLog, self.followEnabled(), let view = self.follow.target {
+                let line = String(format: "follow: zoom %.3f centre (%.0f, %.0f) %@", view.zoom, view.cx, view.cy, self.follow.isFullPage ? "full page" : "following")
+                if let sink = self.telemetry.sink { sink(line) } else { print(line) }
+                self.telemetry.remember(line)
+            }
             if self.telemetry.perfLog, let overlay = self.flags.withLock({ $0.overlay }) {
                 let line = overlay.perfLine(now: CACurrentMediaTime())
                 if let sink = self.telemetry.sink { sink(line) } else { print(line) }

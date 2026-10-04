@@ -57,7 +57,8 @@ final class OverlayControllerTests: XCTestCase {
             let fellBack = controller.renderInput(now: CACurrentMediaTime()).fellBack
             XCTAssertEqual(fellBack, i >= 15, "after \(i) failures")
         }
-        XCTAssertEqual(engine.calls, 20, "drained between offers, so nothing was dropped")
+        XCTAssertEqual(engine.calls, 15, "drained between offers; after the fallback latched nothing is segmented")
+        XCTAssertEqual(controller.dropped, 0, "frames skipped while fallen back are not busy drops")
         XCTAssertEqual(posted.count(.overlayFallback), 1, "row 48 exactly once")
         XCTAssertEqual(posted.args(.overlayFallback)?.first, "15")
         XCTAssertEqual(posted.count(.overlayLowCoverage), 0)
@@ -68,6 +69,9 @@ final class OverlayControllerTests: XCTestCase {
         balanced.overlayQuality = .balanced
         controller.update(settings: balanced)
         XCTAssertFalse(controller.renderInput(now: CACurrentMediaTime()).fellBack)
+        controller.offer(frame, hostTimeNs: nil)
+        controller.drain()
+        XCTAssertEqual(engine.calls, 16, "after the reset frames are segmented again")
     }
 
     func testBusySegmenterDropsInsteadOfQueueing() throws {

@@ -53,8 +53,11 @@ final class OverlayController {
         }
     }
 
-    /// Capture queue: hands the frame to the segmenter, which drops it while busy.
+    /// Capture queue: hands the frame to the segmenter, which drops it while busy. Once the fallback has latched
+    /// nothing is segmented: the pipeline draws Studio Split until a reset (toggle or quality change), so a mask
+    /// would be work nobody sees.
     func offer(_ pixelBuffer: CVPixelBuffer, hostTimeNs: UInt64?) {
+        if isFellBack { return }
         segmenter.offer(pixelBuffer, hostTimeNs: hostTimeNs)
     }
 

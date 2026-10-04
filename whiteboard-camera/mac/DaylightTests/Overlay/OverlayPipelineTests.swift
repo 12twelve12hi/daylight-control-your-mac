@@ -166,6 +166,53 @@ final class OverlayPipelineTests: XCTestCase {
         pipeline.shutdown()
     }
 
+    /// OV-6: a launch with Overlay already on creates the controller inside `init`, before the app sets
+    /// `onFailure`. Row 48 from that failure is held and delivered exactly once when the handler is assigned; the
+    /// OV-2 latch still holds (no retry, no second row) until Overlay is turned off and on.
+    func testCreationFailureAtInitIsDeliveredOnceWhenOnFailureIsSet() throws {
+        let lock = NSLock()
+        var rows = 0
+        var attempts = 0
+        var s = overlaySettings(enabled: true)
+        let pipeline = try FramePipeline(sink: FakeSink(), settings: s, telemetry: Telemetry(perfLog: false), device: MTLCreateSystemDefaultDevice(), capture: FakeCapture(), overlayEngine: {
+            lock.lock()
+            attempts += 1
+            lock.unlock()
+            throw OverlayFakes.Failure()
+        })
+        guard pipeline.compositor != nil else {
+            pipeline.shutdown()
+            throw XCTSkip("no Metal device: the overlay controller needs one")
+        }
+        lock.lock()
+        XCTAssertEqual(attempts, 1, "init tried to create the controller")
+        lock.unlock()
+        XCTAssertNil(pipeline.overlayController)
+        pipeline.onFailure = { failure, _ in
+            lock.lock()
+            if failure == .overlayFallback { rows += 1 }
+            lock.unlock()
+        }
+        lock.lock()
+        XCTAssertEqual(rows, 1, "the failure from init reaches the handler once it is set")
+        lock.unlock()
+        for opacity in [0.9, 0.8, 0.7] {
+            s.overlayOpacity = opacity
+            pipeline.updateSettings(s)
+        }
+        lock.lock()
+        XCTAssertEqual(rows, 1, "row 48 once, not once per Settings change")
+        XCTAssertEqual(attempts, 1, "no retry until the setting is toggled")
+        lock.unlock()
+        pipeline.updateSettings(overlaySettings(enabled: false))
+        pipeline.updateSettings(overlaySettings(enabled: true))
+        lock.lock()
+        XCTAssertEqual(rows, 2, "turning Overlay off and on tries again and posts one more row 48")
+        XCTAssertEqual(attempts, 2)
+        lock.unlock()
+        pipeline.shutdown()
+    }
+
     func testOverlayPerfLineOnlyWithAController() throws {
         for enabled in [false, true] {
             let telemetry = Telemetry(perfLog: true)

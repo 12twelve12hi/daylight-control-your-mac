@@ -53,6 +53,12 @@ final class FramePipeline: PipelineControl {
         /// The controller could not be created and row 48 was posted; no retry (and no second row 48) until the
         /// setting is turned off and on again (SPEC 6.7, row 48 reported once).
         var overlayCreationFailed = false
+        /// Mirrors `onFailure != nil`, kept under this lock so a creation failure and the handler assignment agree
+        /// on who delivers row 48.
+        var failureHandlerSet = false
+        /// Row 48 arguments from a creation failure that happened before `onFailure` was set (a launch with Overlay
+        /// on runs `init` before the app wires the handler). Delivered once, by `onFailure`'s didSet.
+        var pendingOverlayFailure: [String]?
     }
     private let flags: Locked<Flags>
     /// A governor config changed while the board was up; applied on the next return to PASSTHROUGH.
@@ -94,12 +100,26 @@ final class FramePipeline: PipelineControl {
     var onClearCanvas: (() -> Void)?
     var onStateChanged: ((GovernorState, GovernorState) -> Void)?
     var onCameraPresence: ((Bool) -> Void)?
-    var onFailure: ((FailureText.Case, [String]) -> Void)?
+    var onFailure: ((FailureText.Case, [String]) -> Void)? {
+        didSet {
+            let handlerSet = onFailure != nil
+            let pending = flags.withLock { (f: inout Flags) -> [String]? in
+                f.failureHandlerSet = handlerSet
+                guard handlerSet else { return nil }
+                let args = f.pendingOverlayFailure
+                f.pendingOverlayFailure = nil
+                return args
+            }
+            if let args = pending { onFailure?(.overlayFallback, args) }
+        }
+    }
     var latencyProbe = false
     /// The person segmentation engine a new OverlayController gets (tests inject fakes before enabling Overlay).
     var makeOverlayEngine: () throws -> PersonMaskEngine = { VisionPersonEngine() }
 
-    init(sink: VirtualCameraSink, settings: Settings, telemetry: Telemetry, device: MTLDevice? = MTLCreateSystemDefaultDevice(), capture: CaptureSource? = nil, now: Double = CACurrentMediaTime()) throws {
+    /// `overlayEngine` replaces `makeOverlayEngine` before `init` creates the first controller (tests reach the
+    /// launch path with Overlay already on); nil keeps the Vision engine.
+    init(sink: VirtualCameraSink, settings: Settings, telemetry: Telemetry, device: MTLDevice? = MTLCreateSystemDefaultDevice(), capture: CaptureSource? = nil, now: Double = CACurrentMediaTime(), overlayEngine: (() throws -> PersonMaskEngine)? = nil) throws {
         let validated = settings.validated()
         self.sink = sink
         self.settings = validated
@@ -126,6 +146,7 @@ final class FramePipeline: PipelineControl {
         clock.onTick = { [weak self] now in self?.tick(now: now) }
         compositor?.onConversionFallback = { [weak self] text in self?.telemetry.note("pipeline", text) }
         compositor?.onOverlayUnavailable = { [weak self] text in self?.telemetry.note("overlay", text) }
+        if let overlayEngine = overlayEngine { makeOverlayEngine = overlayEngine }
         if validated.overlayEnabled { applyOverlaySetting(validated) }
         if let capture = capture {
             capture.onEvent = { [weak self] event in self?.handleCapture(event) }
@@ -318,10 +339,16 @@ final class FramePipeline: PipelineControl {
             flags.withLock { $0.overlay = controller }
             telemetry.note("overlay", "overlay on (quality \(validated.overlayQuality.rawValue))")
         } catch {
-            flags.withLock { $0.overlayCreationFailed = true }
             let args = ["0", "\(error)"]
+            // No handler yet (the launch path runs this from init): keep the row for onFailure's didSet.
+            let deliverNow = flags.withLock { (f: inout Flags) -> Bool in
+                f.overlayCreationFailed = true
+                if f.failureHandlerSet { return true }
+                f.pendingOverlayFailure = args
+                return false
+            }
             telemetry.note("overlay", FailureText.logLine(.overlayFallback, args))
-            onFailure?(.overlayFallback, args)
+            if deliverNow { onFailure?(.overlayFallback, args) }
         }
     }
 

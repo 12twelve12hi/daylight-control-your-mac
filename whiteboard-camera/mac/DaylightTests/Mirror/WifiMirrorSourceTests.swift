@@ -334,8 +334,11 @@ final class WifiMirrorSourceTests: XCTestCase {
             // Like WebServer: the close completes on the network queue, then the app hands it to ink.queue.
             DispatchQueue.global().asyncAfter(deadline: .now() + 0.05) {
                 ink.async {
-                    source.forget(c)
+                    // Marked before `forget`, which signals the waiting `release`: marked after it, the test thread
+                    // could wake and read the flag first (failed once each on macos-15 and macos-26, runs 37190112020
+                    // and 37182692894). An early return of `release` still finds the flag unset.
                     forgotten.withLock { $0 = true }
+                    source.forget(c)
                 }
             }
         }

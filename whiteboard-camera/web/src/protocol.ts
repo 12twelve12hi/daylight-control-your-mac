@@ -6,6 +6,8 @@ export const VERSION = 0x01;
 export const HEADER_LEN = 16;
 export const POINT_LEN = 11;
 export const MAX_POINTS_PER_CHUNK = 4096;
+/** PROTOCOL 1 and 3: payload_len <= 1 MiB. */
+export const MAX_PAYLOAD = 1 << 20;
 
 export const Opcode = {
   HANDSHAKE: 0x0001,
@@ -244,6 +246,7 @@ export function decodeHeader(buf: ArrayBuffer): DecodedHeader | null {
   const dv = new DataView(buf);
   if (dv.getUint8(0) !== MAGIC || dv.getUint8(1) !== VERSION) return null;
   const payloadLen = dv.getUint32(4, true);
+  if (payloadLen > MAX_PAYLOAD) return null;   // the 1 MiB cap (fuzz FZ-1)
   if (payloadLen !== buf.byteLength - HEADER_LEN) return null;
   return { opcode: dv.getUint16(2, true), payloadLen, timestampUs: dv.getBigUint64(8, true) };
 }
@@ -262,12 +265,18 @@ export function decodeServer(buf: ArrayBuffer): ServerMessage | null {
     }
     case Opcode.STATE: {
       if (header.payloadLen < 20) return null;   // longer STATE frames are compatible additions
+      // PROTOCOL 6.14 ranges: a value outside them is not a v1 STATE (new values are not a compatible addition,
+      // PROTOCOL 10), so the frame is dropped instead of being shown as some other state (fuzz FZ-4).
+      const governor = dv.getUint8(0);
+      const mode = dv.getUint8(2);
+      const inkSource = dv.getUint8(3);
+      if (governor > 3 || mode > 3 || inkSource > 2) return null;
       const flags = dv.getUint8(1);
       const ms = dv.getUint32(8, true);
       return {
         opcode: Opcode.STATE,
         state: {
-          governor: (dv.getUint8(0) & 3) as 0 | 1 | 2 | 3,
+          governor: governor as 0 | 1 | 2 | 3,
           pinned: (flags & 1) !== 0,
           preWarning: (flags & 2) !== 0,
           allowed: (flags & 4) !== 0,
@@ -276,8 +285,8 @@ export function decodeServer(buf: ArrayBuffer): ServerMessage | null {
           sinkConnected: (flags & 32) !== 0,
           saving: (flags & 64) !== 0,
           captureIdle: (flags & 128) !== 0,
-          mode: (dv.getUint8(2) & 3) as 0 | 1 | 2 | 3,
-          inkSource: Math.min(2, dv.getUint8(3)) as 0 | 1 | 2,
+          mode: mode as 0 | 1 | 2 | 3,
+          inkSource: inkSource as 0 | 1 | 2,
           progress: dv.getFloat32(4, true),
           msToReturn: ms === 0xffffffff ? null : ms,
           pageIndex: dv.getUint16(12, true),

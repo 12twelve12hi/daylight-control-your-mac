@@ -274,3 +274,17 @@ Engineering tickets that follow the owner's decisions of 2026-10-03, ready to be
 | P3-4 | The self-test's passthrough `perf` line is byte-identical before and after phase 3 (runs 37152400371 and 37162231668: `perf mode=passthrough fps=0.0 dropped=0 cpu_ms=0.000 gpu_ms=0.000 inflight=0 zerocopy=true capture=idle viewers=0`), but it measures no camera frames on a runner. "Passthrough unchanged with Overlay off" is proved by construction and `OverlayPipelineTests`, not by a measurement with a webcam. | No overlay code runs while `overlayEnabled` is false (no controller, no offers, no extra lock). | TESTING-CHECKLIST 1.15 and 6.13 on the owner's Mac. |
 | P3-5 | TESTING-CHECKLIST 4.19 to 4.21 no longer ask for a relaunch (J2 applies a source at once); a Homebrew adb must be installed before "Use installed adb" is chosen (R3-6). | Choosing the source again re-probes. | None. |
 
+
+## TS. The "too small" problem (2026-10-04)
+
+`docs/product/TOO-SMALL.md` and `docs/handoff/vp-too-small.md` have the details.
+
+| # | Item | Fallback in place | Owner, or how the owner confirms |
+|---|---|---|---|
+| TS-1 | Whether each call app's window picker lists the "Daylight Whiteboard" window of a menu-bar (accessory) app, and lists it with the title bar hidden (UNVERIFIED). | The title bar stays by default; "Hide the share window's title bar" is off. | OWNER-NEXT-STEPS step 8c in Zoom, Meet and Teams; note whether the window appears with and without the title bar. |
+| TS-2 | ScreenCaptureKit keeps capturing a covered window (WWDC22 10155); which call apps use window capture that way on the owner's macOS is UNVERIFIED. | The how-to says "covered is fine, minimised pauses it". | Step 8c item 3: cover the window with the call and watch a second device. |
+| TS-3 | The second camera device (TOO-SMALL L2) is not built: the extension and `Sources/Camera` belong to the Review 4 team until `docs/handoff/vp-review-4.md` says final. Two devices that each have a sink stream are UNVERIFIED in any public sample; Meet and Teams listing a virtual camera as content are UNVERIFIED. | The share window covers every call app. | Camera owner: the patch proposal in the handoff. Owner: step 8c item 5 (does Zoom's "Second camera" offer Daylight Camera?). |
+| TS-4 | Follow the pen is math only: the compositor has no canvas uv crop for the ink layers, and nothing feeds `FollowCamera.noteInk` yet. | Full-page layouts as before. | Pipeline owner: the wiring plan in the handoff ("Follow the pen wiring"). |
+| TS-5 | The share window has no global hotkey: a new `HotkeyAction` belongs to the Kit settings schema (`Settings.swift`, another team's file). | menu bar > "Share the whiteboard" > "Show share window", and "Open the share window when the whiteboard slides in". | Kit settings owner: add `HotkeyAction.shareWindow` (suggested chord Ctrl+Opt+Cmd+S); the handoff names the lines. |
+| TS-6 | Whether the macOS green-button "Share" item appears for Zoom (with "Use Mac System Picker" on) or Teams ("Use macOS content sharing"), and not only for FaceTime, is UNVERIFIED. It would make sharing our window two clicks. | The call app's own share button. | Step 8c item 5. |
+| TS-7 | The share window copies both 1200 x 1600 layers (about 15 MB) per redraw on its own queue, at most 30 times a second while the canvas changes; the CPU cost on the owner's Mac is unmeasured. | Redraws happen only when the canvas seed changes. | Activity Monitor while drawing with the share window open (TESTING-CHECKLIST owner, optional row). |

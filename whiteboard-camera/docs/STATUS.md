@@ -478,3 +478,16 @@ New owner page: `docs/WHATS-NEW.md` (phase 2 and phase 3 features with the exact
 ### CI after the integration
 
 Run https://github.com/12twelve12hi/daylight-control-your-mac/actions/runs/37163486060 on dabbbd8 (the four code and docs fixes above): golden, web, android, kit-linux, mac and mac-26 green. In the mac job `make kit-test` ran 364 of 364 (with the extended `HTTPRequestTests.testStatusTextAndResponse`), `make mac-debug` compiled the `AppDelegate` and Settings changes on Xcode 16.4 (and 26.6 in mac-26), `make mac-test` printed `** TEST SUCCEEDED **` with 345 passed lines and none failed (the 346th, `WebServerLoopbackTests.testTwoMiBFrameClosesWith1009`, started and its suite passed; its result line was dropped by the log filter), `make mac-smoke` ended with the same passthrough `perf` line and `self-test: PASS`, and the signing step warned and exited 0. The docs commit of this section is proved by the run of `git log -1 -- docs/STATUS.md`.
+
+## 15. The "too small" problem: share window and follow the pen (2026-10-04)
+
+`docs/product/TOO-SMALL.md` is the research (tile sizes and stream resolutions per call app, the content track, every lever scored, the ranked proposal); `docs/handoff/vp-too-small.md` is the handoff with the patch proposal for the second camera device.
+
+| What | State | Proved by |
+|---|---|---|
+| Share window "Daylight Whiteboard": the page only (the two ink layers composed like `daylight_canvas`, or the mirror picture), canvas aspect, redrawn only on change (SH1), 85 % of the screen (SH2), menu bar > "Share the whiteboard", Settings > Share, `share:` self-test probes | built | mac job: `mac-test` (`ShareRendererTests`, `ShareWindowTests`, `ShareSettingsTests`, `ShareMenuTests`), `mac-smoke` (`share:` and `follow:` lines) |
+| Follow the pen: `FollowRegion` and `FollowCamera` in DaylightKit (FP1 to FP9, hysteresis) | math built, not wired into the compositor | kit-linux and mac `kit-test` (`FollowRegionTests`, green in run 37179989574 on kit-linux) |
+| Second camera device "Daylight Whiteboard (share)" for Zoom "Second camera", Meet "Present content from camera", Teams "Content from camera" | scoped: patch proposal in the handoff; the extension belongs to the Review 4 team tonight | none yet |
+| PostEvent automation of the call app's share shortcut | not built (one saved click for a permission prompt; TOO-SMALL.md section 10) | none |
+
+Nothing here has run on the owner's Mac. The share window works on the unsigned build (it needs no camera extension); OWNER-NEXT-STEPS step 8c is the owner run.

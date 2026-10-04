@@ -8,7 +8,7 @@ import QuartzCore
 /// for sharing as a window in Zoom, Meet, Teams, Slack or Webex. A shared window fills the viewers' main stage, which a
 /// camera tile never does. It reads the canvas directly (the two ink layers, or the mirror picture), so it shows the
 /// page at the canvas's full 1200 x 1600 whether or not the camera pipeline is composing, and it keeps updating while it
-/// is covered by other windows (ScreenCaptureKit captures a covered window; a minimised one pauses, WWDC22 10156).
+/// is covered by other windows (ScreenCaptureKit captures a covered window; a minimised one pauses, WWDC22 10155).
 final class ShareWindowController: NSObject, NSWindowDelegate {
     static let title = "Daylight Whiteboard"
     /// SH1: the window redraws at most 30 times a second, and only when the canvas changed.

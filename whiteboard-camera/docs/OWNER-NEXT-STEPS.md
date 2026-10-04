@@ -25,6 +25,7 @@ Order of the day, and why: try the web whiteboard first (nothing to install on t
 | 7 | Install the signed app and approve the camera extension | 10 min | step 6 |
 | 8 | Pick Daylight Camera in Zoom, Meet or FaceTime | 5 min | step 7 |
 | 8b | Try overlay mode (optional) | 10 min | step 1 (the preview window is enough) |
+| 8c | Make the whiteboard big in a group call (optional) | 5 min | step 2 or 3 (a tablet drawing) and any call app |
 | 9 | Run the testing checklist, tap "Send facts to Mac" where it says so, then "Export diagnostics..." once and send the zip | 60 to 90 min | everything above |
 
 ---
@@ -198,6 +199,26 @@ If you run with `--perf-log` (or Settings > Advanced > "Perf log"), Overlay adds
 
 ---
 
+## Step 8c: make the whiteboard big in a group call (5 min, optional)
+
+Why: with many people in a call your camera tile is small and arrives at as little as 180p, so a detailed drawing is unreadable however good Daylight Camera looks (`docs/product/TOO-SMALL.md` section 1). Anything shared becomes the big main picture for everyone. Daylight now has a window that shows only the page, made to be shared. It works on the unsigned build too.
+
+Done looks like: the other people see your page large and sharp in the middle of their screen while your camera tile stays as it is; what you draw on the tablet appears there within a moment.
+
+1. Mac: menu bar > "Share the whiteboard" > "Show share window". A window "Daylight Whiteboard" opens with the page only, as tall as most of your screen. Draw on the tablet and watch it follow.
+2. In the call, share that window:
+   - Zoom: Share Screen (Command-Shift-S), pick the window "Daylight Whiteboard", then Share. Leave "Optimize for video clip" off: text stays sharp.
+   - Google Meet: Present now (also labelled Share screen), A window, pick "Daylight Whiteboard", then Share.
+   - Teams: Share (Command-Shift-E), Window, pick "Daylight Whiteboard".
+   - Slack huddles and Webex: share a window the same way.
+3. Put the window behind the call or on a second display; covered is fine. Do not minimise it (a minimised window pauses the share). Stop sharing in the call app when you are done; closing the window also ends what they see.
+4. Optional, in Settings > Share: "Open the share window when the whiteboard slides in" (the window appears by itself when you touch the pen, without taking focus from the call), "Keep the share window above other windows", "Hide the share window's title bar". The same steps are in menu bar > "Share the whiteboard" > "How to share it in a call...".
+5. Optional test, worth one minute and an answer back: in Zoom, Share Screen > Advanced > "Second camera" (older Zoom: "Content from 2nd Camera"), then "Switch Camera" until "Daylight Camera" shows, then note whether Zoom offered it. If it does, the next build can add a camera made only of the page, so you share it without any window (TOO-SMALL.md section 6, item 2). Also try hovering the green button of the "Daylight Whiteboard" window during a Zoom call with Zoom's "Use Mac System Picker" on: if a share option appears there, that is a two-click path.
+
+If it fails: the window stays cream with no page (the ink source is Mirror and no mirror picture flows yet: start mirroring first); the call app does not list the window (macOS asks for screen recording permission for the call app the first time: System Settings > Privacy and Security > Screen and System Audio Recording, tick the call app, then restart it); the viewers see a frozen page (the window was minimised: bring it back).
+
+---
+
 ## Step 9: run the testing checklist and send one file back (60 to 90 min, in pieces)
 
 Why: every tablet fact the code guessed (LOOSE_ENDS section D) and every Mac fact marked UNVERIFIED is answered by one zip, so you never copy lines into the docs. `docs/FEEDBACK.md` is the full guide.
@@ -279,5 +300,6 @@ Switching ink sources: menu bar > "Ink source" > "Web whiteboard" / "Daylight In
 - [ ] ⏱️ Close FaceTime and wait 60 s. You see and feel: the webcam LED goes off. Open FaceTime again: the picture is back within a second. ⏱️ 2 minutes
 - [ ] 🟢 Optional: Settings > Overlay > "Enable overlay mode", then Ctrl+Opt+Cmd+O. You see: the board slides in and your camera picture shrinks into a cut-out square in the bottom-right corner. Switch it off again afterwards if you prefer Studio Split. ⏱️ 5 minutes
 - [ ] 📋 Tell the integrator whether the "Open System Settings" button landed on the right pane (LOOSE_ENDS E13). The decisions A2 (macOS 26), A3, A4, A5, A6 and A14 are already settled (2026-10-03). ⏱️ 1 minute
+- [ ] 🟢 Optional, for calls with many people: menu bar > "Share the whiteboard" > "Show share window", then share the window "Daylight Whiteboard" in the call (Zoom Command-Shift-S). You see: the others get your page as the big main picture. ⏱️ 5 minutes
 - [ ] 📋 Then run `docs/TESTING-CHECKLIST.md`, one session at a time (Mac only, web, Daylight Ink, mirror with the adb source rows 4.19 to 4.21, mirror over Wi-Fi in Session 4b, signed camera, optional Overlay in Session 6). ⏱️ 90 to 120 minutes, in pieces
 - [ ] 📋 Menu bar > "Export diagnostics...", Export. You see: "Diagnostics saved as diagnostics-<yyyy-MM-dd-HH-mm>.zip in Documents > Daylight Camera. Send this file back after the test." and Finder shows the zip. Send it back. ⏱️ 2 minutes

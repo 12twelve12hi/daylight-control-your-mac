@@ -68,9 +68,13 @@ struct SettingsView: View {
             advancedTab.tabItem { Text("Advanced") }.tag(SettingsTab.advanced)
             diagnosticsTab.tabItem { Text("Diagnostics") }.tag(SettingsTab.diagnostics)
         }
-        .frame(width: 560, height: 520)
+        // 720 pt: the row of nine tabs is about 620 pt wide; at 560 pt the last tab (Diagnostics) was not shown and
+        // could not be clicked (UI test run 37180339019). The UI suite fails any tab that is not one click away.
+        .frame(width: SettingsView.contentWidth, height: 520)
         .padding()
     }
+
+    static let contentWidth: CGFloat = 720
 
     // MARK: General
 
@@ -168,7 +172,7 @@ struct SettingsView: View {
 
     // MARK: Mirror
 
-    /// The Mirror tab is taller than the fixed 560 by 520 window since phase 2 (Transport, adb source and the Wi-Fi
+    /// The Mirror tab is taller than the fixed 720 by 520 window since phase 2 (Transport, adb source and the Wi-Fi
     /// stream rows above the 260 pt crop view), so it scrolls; without the ScrollView the Form overflows and the
     /// window clips its first rows, among them "Transport".
     private var mirrorTab: some View {
@@ -244,7 +248,7 @@ struct SettingsView: View {
 
     // MARK: Overlay
 
-    /// Presenter Overlay (SPEC 6.7, SPEC 11 overlay keys). Scrolls inside the fixed 560 by 520 window like the Mirror tab.
+    /// Presenter Overlay (SPEC 6.7, SPEC 11 overlay keys). Scrolls inside the fixed 720 by 520 window like the Mirror tab.
     private var overlayTab: some View {
         ScrollView {
             overlayForm
@@ -307,16 +311,25 @@ struct SettingsView: View {
 
     // MARK: Advanced
 
+    /// A VStack, not a Form: in the two-column Form the long labels were laid out at their full width and the "Perf
+    /// log" toggle ran past the window's right edge (UI test run 37180339019). Here each label is offered the window's
+    /// width and wraps; the UI suite's frame check (every control inside the window) guards it.
     private var advancedTab: some View {
-        Form {
-            Toggle("Eraser contact engages the whiteboard", isOn: $store.settings.engageOnEraser)
-            Stepper("Spring stiffness \(Int(store.settings.springK)) (1200 settles in a quarter second)", value: $store.settings.springK, in: Settings.springKRange, step: 100)
-            Stepper("Stop the webcam \(store.settings.viewerIdleStopSeconds) s after the last viewer", value: $store.settings.viewerIdleStopSeconds, in: Settings.viewerIdleStopRange, step: 10)
-            Toggle("Frame reuse (measure first)", isOn: $store.settings.frameReuse)
-            Toggle("Deadline idling (measure first)", isOn: $store.settings.deadlineIdle)
-            Toggle("Perf log (one line per second, kept for Diagnostics and the export)", isOn: $store.settings.perfLog)
+        VStack(alignment: .leading, spacing: 12) {
+            Toggle(isOn: $store.settings.engageOnEraser) { WrappingLabel("Eraser contact engages the whiteboard") }
+            Stepper(value: $store.settings.springK, in: Settings.springKRange, step: 100) {
+                WrappingLabel("Spring stiffness \(Int(store.settings.springK)) (1200 settles in a quarter second)")
+            }
+            Stepper(value: $store.settings.viewerIdleStopSeconds, in: Settings.viewerIdleStopRange, step: 10) {
+                WrappingLabel("Stop the webcam \(store.settings.viewerIdleStopSeconds) s after the last viewer")
+            }
+            Toggle(isOn: $store.settings.frameReuse) { WrappingLabel("Frame reuse (measure first)") }
+            Toggle(isOn: $store.settings.deadlineIdle) { WrappingLabel("Deadline idling (measure first)") }
+            Toggle(isOn: $store.settings.perfLog) { WrappingLabel("Perf log (one line per second, kept for Diagnostics and the export)") }
                 .accessibilityIdentifier(SettingsTab.advanced.lastElementID)
+            Spacer(minLength: 0)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
     }
 
@@ -339,6 +352,19 @@ struct SettingsView: View {
         }
         .padding()
         .onAppear { context.refreshDiagnostics() }
+    }
+}
+
+/// A control label that wraps within the width it is offered instead of running past the window's edge.
+struct WrappingLabel: View {
+    let text: String
+
+    init(_ text: String) {
+        self.text = text
+    }
+
+    var body: some View {
+        Text(text).fixedSize(horizontal: false, vertical: true)
     }
 }
 

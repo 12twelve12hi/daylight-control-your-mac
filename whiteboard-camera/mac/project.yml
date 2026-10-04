@@ -128,6 +128,19 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.twelve.daylight.tests
+  DaylightUITests:
+    # XCUITest bundle (VP Mac UI, docs/handoff/vp-mac-ui.md "Design contract"). No dependency on Daylight on purpose:
+    # the suite drives the prebuilt unsigned Release app through XCUIApplication(url:), so building this target never
+    # rebuilds or re-signs the app. Without a target application XcodeGen sets no TEST_TARGET_NAME (ProjectSpec: it is
+    # set only "for ui tests that target an application"). scripts/mac-ui-test.sh builds it ad-hoc signed into
+    # build/DerivedData-ui.
+    type: bundle.ui-testing
+    platform: macOS
+    sources:
+      - path: DaylightUITests
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.twelve.daylight.uitests
 schemes:
   Daylight:
     build:
@@ -146,3 +159,11 @@ schemes:
       config: Debug
       targets:
         - DaylightTests
+  DaylightUITests:
+    build:
+      targets:
+        DaylightUITests: all
+    test:
+      config: Debug
+      targets:
+        - DaylightUITests

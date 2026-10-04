@@ -6,7 +6,7 @@ DAYLIGHT_BUNDLE_ADB ?= 1
 export DAYLIGHT_BUNDLE_ADB
 .DEFAULT_GOAL := help
 
-.PHONY: help web web-test android android-emulator-build android-emulator kit-test mac-generate mac-debug mac-test mac-smoke mac-release fetch-tools embed-apk ci ci-linux ci-mac golden golden-check fuzz-corpus fuzz-check scripts-check doctor clean
+.PHONY: help web web-test android android-emulator-build android-emulator kit-test mac-generate mac-debug mac-test mac-smoke mac-ui-test mac-release fetch-tools embed-apk ci ci-linux ci-mac golden golden-check fuzz-corpus fuzz-check scripts-check doctor clean
 
 help: ## list targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-14s %s\n", $$1, $$2}'
@@ -40,6 +40,9 @@ mac-test: ## xcodebuild test, scheme DaylightTests (macOS-only XCTest bundle hos
 
 mac-smoke: ## run the Release Daylight binary with --self-test --perf-log under a 120 s timeout (macOS, after mac-debug; SPEC 16 B1)
 	scripts/mac-smoke.sh
+
+mac-ui-test: ## XCUITest suite DaylightUITests against the Release app of mac-debug: every surface in light and dark, screenshots in build/ui-screenshots, docs-to-UI strings (macOS, after mac-debug)
+	scripts/mac-ui-test.sh
 
 mac-release: ## CI target: archive + export signed with Developer ID, notarize on request; exits 0 without secrets, 1 on a partial set (macOS, needs the eight secrets in the env)
 	scripts/mac-release.sh

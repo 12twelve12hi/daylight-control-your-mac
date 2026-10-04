@@ -15,6 +15,8 @@
 #   android-emulator.sh: parses; the am instrument rule (OK passes; FAILURES!!!, INSTRUMENTATION_FAILED, Process crashed,
 #                        no OK line and OK (0 tests) fail); the logcat rule (a FATAL EXCEPTION or ANR in the app fails,
 #                        another package's crash does not).
+#   ui-expectations.sh:  the docs-to-UI string extraction: a fixture gives the exact expected JSON; the real docs give
+#                        at least 40 Mac strings with the known ones (Transport, adb source, Export diagnostics..., Setup again).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 fails=0; passes=0
@@ -200,6 +202,183 @@ emu check-logcat '10-04 12:00:00.400  4321  4321 E AndroidRuntime: FATAL EXCEPTI
 expect "emulator: a FATAL EXCEPTION in the app fails" 1 "FATAL EXCEPTION in com.twelve.daylight.ink"
 emu check-logcat '10-04 12:00:01.000   500   520 E ActivityManager: ANR in com.twelve.daylight.ink (com.twelve.daylight.ink/.ui.MainActivity)\n'
 expect "emulator: an ANR in the app fails" 1 "ANR in com.twelve.daylight.ink"
+
+# ui-expectations.sh (VP Mac UI, Docs to UI check): a fixture with every chain form and every skip rule gives exactly
+# the expected JSON (deterministic, byte for byte), and the real owner docs give at least 40 strings including the
+# ones the UI suite must find.
+mkdir -p "$tmpdir/uix"
+cat > "$tmpdir/uix/FIXTURE.md" <<'MD'
+Open menu bar > "Diagnostics..." and Menu bar > "Ink source" > "Web whiteboard" / "Mirror the tablet".
+Then menu bar > "Settings..." > Mirror > "Transport" > "Wi-Fi (Daylight Ink screen stream)".
+Settings > Mirror > "Change threshold: N canvas cells" and Settings > Overlay > switch on "Enable overlay mode".
+Skip System Settings > General > Login Items, Daylight Ink > Settings > "This tablet", Settings > Video > Camera.
+Settings > Hotkeys and Settings > General > "Layout when engaging" > "Overlay". Menu bar > "Diagnostics..." again.
+The first run shows "Welcome to Daylight" ("Set up once."). Its rows, in order: Location, Finish. Not "Welcome to Daylight Ink".
+Finish the Welcome window: tick "Launch Daylight at login", click "Done". Then more.
+- Location: "In Applications." On an unsigned build: "Unsigned sentence." with a button "Open the preview window".
+- Finish: "Open Zoom.", the toggle "Launch Daylight at login". Closing the window with "Other" hides it.
+MD
+cat > "$tmpdir/uix/expected.json" <<'JSON'
+[
+ {
+  "text": "Diagnostics...",
+  "kind": "menu",
+  "source": "FIXTURE.md:1"
+ },
+ {
+  "text": "Ink source",
+  "kind": "menu",
+  "source": "FIXTURE.md:1"
+ },
+ {
+  "text": "Web whiteboard",
+  "kind": "submenu",
+  "parent": "Ink source",
+  "source": "FIXTURE.md:1"
+ },
+ {
+  "text": "Mirror the tablet",
+  "kind": "submenu",
+  "parent": "Ink source",
+  "source": "FIXTURE.md:1"
+ },
+ {
+  "text": "Settings...",
+  "kind": "menu",
+  "source": "FIXTURE.md:2"
+ },
+ {
+  "text": "Mirror",
+  "kind": "tab",
+  "source": "FIXTURE.md:2"
+ },
+ {
+  "text": "Transport",
+  "kind": "setting",
+  "tab": "Mirror",
+  "source": "FIXTURE.md:2"
+ },
+ {
+  "text": "Wi-Fi (Daylight Ink screen stream)",
+  "kind": "option",
+  "tab": "Mirror",
+  "parent": "Transport",
+  "source": "FIXTURE.md:2"
+ },
+ {
+  "text": "Change threshold:",
+  "kind": "setting",
+  "tab": "Mirror",
+  "source": "FIXTURE.md:3"
+ },
+ {
+  "text": "Overlay",
+  "kind": "tab",
+  "source": "FIXTURE.md:3"
+ },
+ {
+  "text": "Enable overlay mode",
+  "kind": "setting",
+  "tab": "Overlay",
+  "source": "FIXTURE.md:3"
+ },
+ {
+  "text": "Hotkeys",
+  "kind": "tab",
+  "source": "FIXTURE.md:5"
+ },
+ {
+  "text": "General",
+  "kind": "tab",
+  "source": "FIXTURE.md:5"
+ },
+ {
+  "text": "Layout when engaging",
+  "kind": "setting",
+  "tab": "General",
+  "source": "FIXTURE.md:5"
+ },
+ {
+  "text": "Overlay",
+  "kind": "option",
+  "tab": "General",
+  "parent": "Layout when engaging",
+  "source": "FIXTURE.md:5"
+ },
+ {
+  "text": "Welcome to Daylight",
+  "kind": "welcome",
+  "source": "FIXTURE.md:6"
+ },
+ {
+  "text": "Set up once.",
+  "kind": "welcome",
+  "source": "FIXTURE.md:6"
+ },
+ {
+  "text": "Location",
+  "kind": "welcome",
+  "source": "FIXTURE.md:6"
+ },
+ {
+  "text": "Finish",
+  "kind": "welcome",
+  "source": "FIXTURE.md:6"
+ },
+ {
+  "text": "Launch Daylight at login",
+  "kind": "welcome",
+  "source": "FIXTURE.md:7"
+ },
+ {
+  "text": "Done",
+  "kind": "welcome",
+  "source": "FIXTURE.md:7"
+ },
+ {
+  "text": "Unsigned sentence.",
+  "kind": "welcome",
+  "source": "FIXTURE.md:8"
+ },
+ {
+  "text": "Open the preview window",
+  "kind": "welcome",
+  "source": "FIXTURE.md:8"
+ },
+ {
+  "text": "Open Zoom.",
+  "kind": "welcome",
+  "source": "FIXTURE.md:9"
+ }
+]
+JSON
+set +e; out="$(bash scripts/ui-expectations.sh --out "$tmpdir/uix/got.json" "$tmpdir/uix/FIXTURE.md" 2>&1)"; rc=$?; set -e
+expect "ui-expectations: the fixture runs and prints a summary" 0 "^ui-expectations: 24 strings from 1 docs \\(menu 3, submenu 2, tab 4, setting 4, option 2, welcome 9\\)"
+if [[ -f "$tmpdir/uix/got.json" ]] && diff -u "$tmpdir/uix/expected.json" "$tmpdir/uix/got.json" > "$tmpdir/uix/diff.txt"; then
+  echo "ok    ui-expectations: the fixture gives exactly the expected JSON"; passes=$((passes + 1))
+else
+  echo "FAIL  ui-expectations: fixture JSON differs:"; sed 's/^/        /' "$tmpdir/uix/diff.txt" 2>/dev/null || true; fails=$((fails + 1))
+fi
+set +e; out="$(bash scripts/ui-expectations.sh --out "$tmpdir/uix/docs.json" 2>&1)"; rc=$?; set -e
+expect "ui-expectations: the owner docs run" 0 "^ui-expectations: [0-9]+ strings from 3 docs"
+bash scripts/ui-expectations.sh --out "$tmpdir/uix/docs2.json" >/dev/null 2>&1 || true
+cmp -s "$tmpdir/uix/docs.json" "$tmpdir/uix/docs2.json" && { echo "ok    ui-expectations: two runs give identical bytes"; passes=$((passes + 1)); } || { echo "FAIL  ui-expectations: output is not deterministic"; fails=$((fails + 1)); }
+out="$(python3 - "$tmpdir/uix/docs.json" <<'PY' 2>&1 || true
+import json, sys
+items = json.load(open(sys.argv[1]))
+have = {(i["kind"], i["text"], i.get("tab", "")) for i in items}
+need = [("setting", "Transport", "Mirror"), ("setting", "adb source", "Mirror"), ("menu", "Export diagnostics...", ""),
+        ("menu", "Setup again", ""), ("menu", "Settings...", ""), ("submenu", "Mirror the tablet", ""),
+        ("option", "Wi-Fi (Daylight Ink screen stream)", "Mirror"), ("welcome", "Welcome to Daylight", "")]
+missing = [n for n in need if n not in have]
+bad = [i for i in items if i.get("tab") and i["tab"] not in
+       ["General", "Hotkeys", "Network", "Mirror", "Overlay", "Saving", "Advanced", "Diagnostics"]]
+leaks = [i for i in items if i["text"] in ("This tablet", "Send facts to Mac", "Video", "Developer options")]
+sources = [i for i in items if not i["source"].startswith("docs/")]
+print("count=%d missing=%s badtabs=%d leaks=%d badsources=%d" % (len(items), missing, len(bad), len(leaks), len(sources)))
+PY
+)"; rc=0
+expect "ui-expectations: at least 40 strings, the known items present, Mac tabs only, no tablet strings" 0 "^count=([4-9][0-9]|[1-9][0-9]{2,}) missing=\\[\\] badtabs=0 leaks=0 badsources=0$"
 
 echo "scripts-check: $passes passed, $fails failed"
 (( fails == 0 ))

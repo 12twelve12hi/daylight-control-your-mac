@@ -207,6 +207,8 @@ function renderCard(): void {
 async function sendFactsToMac(): Promise<void> {
   if (factsSending) return;
   factsSending = true;
+  // The previous tap's line must not stand for this one while it is in flight.
+  factsLast = null;
   renderCard();
   const payload = buildFactsPayload({
     clientId: clientId(),

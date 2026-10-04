@@ -75,3 +75,20 @@ test("an old Mac without the route (404) shows the update line", async ({ page, 
   expect(posts[0]!.status).toBe(404);
   expect((await debugValue<{ outcome: string }>(page, "facts")).outcome).toBe("old-mac");
 });
+
+test("a second tap clears the previous result line while its POST is in flight (finder WF-1)", async ({ page, request }) => {
+  await openWhiteboard(page);
+  await page.locator("#info").click();
+  await page.locator("#facts-send").click();
+  await expect(page.locator("#facts-status")).toHaveText("Sent to your Mac.");
+  // Hold the second POST; the first tap's "Sent to your Mac." must not stand for it.
+  let release: () => void = () => {};
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  await page.route("**/api/facts", async (route) => { await held; await route.continue(); });
+  await page.locator("#facts-send").click();
+  await expect(page.locator("#facts-send")).toBeDisabled();
+  await expect(page.locator("#facts-status")).toHaveText("");
+  release();
+  await expect(page.locator("#facts-status")).toHaveText("Sent to your Mac.");
+  expect((await factsPosts(request)).length).toBe(2);
+});

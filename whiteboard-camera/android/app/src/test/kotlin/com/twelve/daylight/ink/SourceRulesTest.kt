@@ -29,6 +29,15 @@ class SourceRulesTest {
     }
 
     @Test
+    fun edgeToEdgeInstallsTheDecorBeforeAskingForTheInsetsController() {
+        // Run 37180339019: window.insetsController before setContentView threw a NullPointerException on API 33.
+        val s = read("ui/EdgeToEdge.kt")
+        val decor = s.indexOf("window.decorView")
+        val controller = s.indexOf("window.insetsController")
+        assertTrue("window.decorView must be read first", decor in 0 until controller)
+    }
+
+    @Test
     fun overlayReusesTheCanvasClientIdWithRoleOverlay() {
         assertTrue(read("overlay/OverlayService.kt").contains("conn.acquire(HOLDER, Identity.ROLE_OVERLAY)"))
         val conn = read("net/InkConnection.kt")

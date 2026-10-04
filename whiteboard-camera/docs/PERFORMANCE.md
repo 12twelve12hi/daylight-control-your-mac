@@ -94,12 +94,14 @@ Follow the pen changes only the canvas quad's `dest` and `uv`: the same two IOSu
 
 Measured on the CI runner by `FollowPenTests.testCompositorDrawsTheFollowedQuadAndCostsNothingExtra` (GPU time, mean of 60 frames after 5 warm-up frames, printed as a `hosted-test: follow perf:` line in the mac job log):
 
-| Frame | GPU ms (macos-15 runner) |
-|---|---|
-| Whiteboard Only, full page | FILL |
-| Whiteboard Only, followed at the FP1 cap (2.5x) | FILL |
-| Studio Split, full page | FILL |
-| Studio Split, followed at the FP1 cap | FILL |
+| Frame | GPU ms, macos-15 (mac job) | GPU ms, macos-26 (mac-26 job) |
+|---|---|---|
+| Whiteboard Only, full page | 1.350 | 0.833 |
+| Whiteboard Only, followed at the FP1 cap (2.5x) | 1.143 | 0.610 |
+| Studio Split, full page | 1.402 | 0.946 |
+| Studio Split, followed at the FP1 cap | 1.014 | 0.630 |
+
+Run 37232483589 (10a7c89), jobs 111525432257 and 111525432195. Following costs nothing measurable: the followed frames were slightly faster on both runners (fewer cream and border pixels, the magnified canvas covers the zone), so the 1 ms GPU budget of Studio Split LIVE is unchanged in kind; the absolute numbers are a paravirtual runner GPU, not the owner's M5 Max. The CPU side is one spring update per frame. The same run measured the camera line weight through the compositor: a 1 px tablet stroke covers 2.476 output px at 1080p (1.651 px at a 720p downscale; 3.706 canvas px against the 3.704 minimum), a 6 px stroke 4.047 output px (6 x 0.675 = 4.05, unchanged); `make mac-smoke` printed `self-test: PASS` on both runners.
 
 The perf log (Settings > Advanced > "Perf log (one line per second, kept for Diagnostics and the export)") prints `follow: zoom <z> centre (<x>, <y>) <full page|following>` once a second while follow is on; `gpu_ms` on the `perf` line is the number to compare with follow off and on, on the owner's Mac.
 

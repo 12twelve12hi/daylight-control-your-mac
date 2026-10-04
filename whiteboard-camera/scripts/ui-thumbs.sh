@@ -21,6 +21,48 @@ if [[ ! -d "$dir" ]]; then
   echo "ui-thumbs: $dir does not exist; no thumbnails"
   exit 0
 fi
+# Screenshots exported from the xcresult (scripts/mac-ui-test.sh, when the sandboxed runner could not write the PNGs)
+# have UUID names; manifest.json maps each to its attachment name "<appearance>-NN-<step>[-window]", so they are
+# moved to <appearance>/NN-<step>[-window].png like the ones the suite writes itself.
+if [[ -f "$dir/xcresult/manifest.json" ]] && command -v python3 >/dev/null 2>&1; then
+  python3 - "$dir" <<'PY' || echo "ui-thumbs: could not rename the exported attachments (manifest.json not understood)"
+import json, os, re, shutil, sys
+root = sys.argv[1]
+src = os.path.join(root, "xcresult")
+with open(os.path.join(src, "manifest.json")) as handle:
+    manifest = json.load(handle)
+pairs = []
+def walk(node):
+    if isinstance(node, dict):
+        exported = node.get("exportedFileName")
+        name = node.get("suggestedHumanReadableName") or node.get("name")
+        if isinstance(exported, str) and isinstance(name, str):
+            pairs.append((exported, name))
+        for value in node.values():
+            walk(value)
+    elif isinstance(node, list):
+        for value in node:
+            walk(value)
+walk(manifest)
+moved = 0
+for exported, name in pairs:
+    if not exported.lower().endswith(".png"):
+        continue
+    stem = re.sub(r"\.[A-Za-z0-9]+$", "", name)
+    stem = re.sub(r"_[0-9]+_[0-9A-Fa-f-]{36}$", "", stem)
+    stem = re.sub(r"_[0-9A-Fa-f-]{36}$", "", stem)
+    match = re.match(r"^(light|dark)-([0-9]{2}-[A-Za-z0-9-]+)$", stem)
+    path = os.path.join(src, exported)
+    if not match or not os.path.isfile(path):
+        continue
+    os.makedirs(os.path.join(root, match.group(1)), exist_ok=True)
+    shutil.move(path, os.path.join(root, match.group(1), match.group(2) + ".png"))
+    moved += 1
+print("ui-thumbs: named %d of %d exported attachments from manifest.json" % (moved, len(pairs)))
+if moved == 0:
+    print("ui-thumbs: manifest.json starts: " + json.dumps(manifest)[:400])
+PY
+fi
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/ui-thumbs.XXXXXX")" || exit 0
 trap 'rm -rf "$tmp"' EXIT
 # The screenshots of each step: the window image when there is one, else the screen.

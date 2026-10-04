@@ -33,7 +33,7 @@ perl -e 'alarm shift @ARGV; exec @ARGV or die "exec failed: $!"' "$limit" \
   -derivedDataPath build/DerivedData-ui CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= \
   PROVISIONING_PROFILE_SPECIFIER= OTHER_CODE_SIGN_FLAGS= -resultBundlePath build/ui-test.xcresult 2>&1 \
   | tee build/xcodebuild-logs/ui-test.log \
-  | grep -E '^(error|Test Case|Test Suite|Executed|\*\* TEST)|: error: -\[|DaylightUITests \[' || true
+  | grep -E '^(error|Test Case|Test Suite|Executed|\*\* TEST)|: error: -\[|DaylightUITests \[' | grep -v '^DaylightUITests \[[a-z]*\] ax ' || true
 rc=${PIPESTATUS[0]}
 set -e
 elapsed=$(( $(date +%s) - start ))
@@ -52,6 +52,10 @@ echo "mac-ui-test: $shots screenshots in build/ui-screenshots"
 # Thumbnails in the job log, pass or fail (UI-THUMB-BEGIN/END blocks); without the trace, so each line is printed once.
 { set +x; } 2>/dev/null
 scripts/ui-thumbs.sh build/ui-screenshots || echo "mac-ui-test: ui-thumbs.sh failed (ignored)"
+# After the thumbnails, so the tail of the job log (the part a log reader that only gets the last lines sees) holds the
+# suite's notes, the AX dump of every surface ("DaylightUITests [<appearance>] ax <surface>: ...") and the verdict.
+echo "mac-ui-test: the suite's notes and AX dump:"
+grep -E '^DaylightUITests \[' build/xcodebuild-logs/ui-test.log || echo "mac-ui-test: (none)"
 [[ "${CI:-}" == "true" ]] && set -x
 if (( rc == 142 )); then
   echo "mac-ui-test: the suite did not finish within ${limit} s (SIGALRM); see build/xcodebuild-logs/ui-test.log" >&2

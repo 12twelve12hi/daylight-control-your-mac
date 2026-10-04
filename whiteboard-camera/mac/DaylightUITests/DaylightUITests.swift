@@ -99,6 +99,7 @@ final class DaylightUISession {
             return
         }
         note("app: \(appURL.path)")
+        if let screen = NSScreen.screens.first?.frame { note("screen: \(Int(screen.width)) by \(Int(screen.height))") }
         let first = launch(["--ui-test-overlay-enabled"])
         step("welcome") { checkWelcome(first) }
         step("menu") { checkMenu(first) }
@@ -211,12 +212,19 @@ final class DaylightUISession {
         }
     }
 
-    /// Every visible control or text (boundedTypes, non-empty frame) must lie horizontally inside the window frame,
-    /// and vertically too unless it sits in a scroll view (1 pt tolerance). Every offender is reported with its text.
+    /// The window must lie on the screen, and every visible control or text (boundedTypes, non-empty frame) must lie
+    /// horizontally inside the window frame, and vertically too unless it sits in a scroll view (1 pt tolerance).
+    /// Every offender is reported with its text.
     private func checkBounds(_ nodes: [UINode], surface: String) {
         guard let root = nodes.first, root.type == .window || root.type == .sheet, root.frame.width > 0 else {
             XCTFail("[\(appearance)] \(surface): no window frame to check the elements against")
             return
+        }
+        // The window itself must lie on the main screen (NSScreen frames are bottom-left based, but the primary screen
+        // starts at 0, 0 in both systems, so its size is all that is needed).
+        if let screen = NSScreen.screens.first?.frame, screen.width > 0 {
+            let display = CGRect(x: 0, y: 0, width: screen.width, height: screen.height).insetBy(dx: -1, dy: -1)
+            XCTAssertTrue(display.contains(root.frame), "[\(appearance)] \(surface): the window frame \(rect(root.frame)) is not inside the screen (0, 0, \(Int(screen.width)), \(Int(screen.height)))")
         }
         let bounds = root.frame.insetBy(dx: -1, dy: -1)
         var offenders: [String] = []

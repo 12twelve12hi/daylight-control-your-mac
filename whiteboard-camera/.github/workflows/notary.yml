@@ -5,6 +5,14 @@
 name: notary
 
 on:
+  # A dispatch-only workflow is registered by GitHub only once a run of it exists (or it sits on the default branch),
+  # so a push that touches it runs the Linux gate below, which registers the workflow for the dispatch button and
+  # `gh workflow run`; the macOS job runs on dispatch only.
+  push:
+    branches: ['claude/**', 'master', 'main']
+    paths:
+      - '.github/workflows/notary.yml'
+      - 'scripts/notary-resume.sh'
   workflow_dispatch:
     inputs:
       submission_id:
@@ -21,7 +29,19 @@ permissions:
   actions: read   # gh run download of the pending DMG
 
 jobs:
+  gate:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      # The script's gate without Apple tools: nothing set exits 1 naming the gap; a complete set stops in check-only mode.
+      - run: |
+          if scripts/notary-resume.sh; then echo "gate: expected exit 1 with nothing set"; exit 1; fi
+          ASC_API_KEY_ID=KEY ASC_API_ISSUER_ID=ISSUER ASC_API_PRIVATE_KEY_BASE64=cDg= \
+            NOTARY_SUBMISSION_ID=00000000-0000-0000-0000-000000000000 DAYLIGHT_RELEASE_CHECK_ONLY=1 scripts/notary-resume.sh
   notary:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: macos-15
     timeout-minutes: 100
     steps:

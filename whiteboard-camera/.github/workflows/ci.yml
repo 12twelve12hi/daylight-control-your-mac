@@ -135,10 +135,9 @@ jobs:
       - run: make mac-test
       - run: make mac-smoke
       # VP Mac UI (docs/handoff/vp-mac-ui.md): XCUITest pass over every surface in light and dark with screenshots
-      # and the docs-to-UI strings; non-blocking until it has been green three times in a row. Before the
+      # and the docs-to-UI strings; blocking since green runs 37182692894, 37183673841 and 37184558756. Before the
       # xcodebuild-logs upload below so build/xcodebuild-logs/ui-test.log is in that artifact.
-      - name: UI test suite (non-blocking until green three times)
-        continue-on-error: true
+      - name: UI test suite
         timeout-minutes: 12
         run: make mac-ui-test
       - uses: actions/upload-artifact@v7

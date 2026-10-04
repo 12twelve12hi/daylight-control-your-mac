@@ -161,7 +161,7 @@ final class InkRasterizerTests: XCTestCase {
         let rasterizer = InkRasterizer(surfaces: surfaces)
         var store = makeStore()
         let id = drawLine(rasterizer, &store, base: 1, y: 400.5)
-        XCTAssertEqual(store.stroke(id: id)!.width(at: 1), 1, accuracy: 1e-9, "the tablet width stays 1 px")
+        XCTAssertEqual(store.stroke(id: id)!.width(at: 1), 1, accuracy: 0.01, "the tablet width stays 1 px (pressure 0.5 quantizes to 128/255)")
         let canvas = coverage(surfaces.ink, x: 600, rows: 380...420)
         let minimum = CameraLineWeight.minimumCanvasWidth(for: .pen)
         print("camera line weight: 1 px stroke covers \(canvas) canvas px (minimum \(minimum))")

@@ -44,6 +44,8 @@ struct UINode {
     let placeholder: String
     let frame: CGRect
     let enabled: Bool
+    /// True when an ancestor is a scroll view (its content may lie below or above the window by design).
+    let inScroll: Bool
 
     /// Every non-empty string the element shows (title, label, value, placeholder).
     var texts: [String] {
@@ -65,12 +67,12 @@ struct UINode {
 func flatten(_ element: XCUIElement) -> [UINode] {
     guard let snapshot = try? element.snapshot() else { return [] }
     var nodes: [UINode] = []
-    collect(snapshot, into: &nodes)
+    collect(snapshot, inScroll: false, into: &nodes)
     return nodes
 }
 
 @MainActor
-private func collect(_ snapshot: any XCUIElementSnapshot, into nodes: inout [UINode]) {
+private func collect(_ snapshot: any XCUIElementSnapshot, inScroll: Bool, into nodes: inout [UINode]) {
     nodes.append(UINode(
         type: snapshot.elementType,
         identifier: snapshot.identifier,
@@ -79,10 +81,62 @@ private func collect(_ snapshot: any XCUIElementSnapshot, into nodes: inout [UIN
         value: (snapshot.value as? String) ?? "",
         placeholder: snapshot.placeholderValue ?? "",
         frame: snapshot.frame,
-        enabled: snapshot.isEnabled))
+        enabled: snapshot.isEnabled,
+        inScroll: inScroll))
+    let childrenInScroll = inScroll || snapshot.elementType == .scrollView
     for child in snapshot.children {
-        collect(child, into: &nodes)
+        collect(child, inScroll: childrenInScroll, into: &nodes)
     }
+}
+
+/// The element types whose frame must lie inside their window (the generic overflow check) and that the AX dump lists.
+let boundedTypes: Set<XCUIElement.ElementType> = [
+    .staticText, .button, .checkBox, .popUpButton, .slider, .stepper, .textField, .radioButton, .toggle, .switch,
+    .segmentedControl, .menuButton, .link,
+]
+
+/// Short names for the AX dump; imported NS_ENUM values print no case name.
+func typeName(_ type: XCUIElement.ElementType) -> String {
+    switch type {
+    case .window: return "window"
+    case .sheet: return "sheet"
+    case .group: return "group"
+    case .scrollView: return "scrollView"
+    case .tabGroup: return "tabGroup"
+    case .staticText: return "text"
+    case .textField: return "textField"
+    case .textView: return "textView"
+    case .button: return "button"
+    case .checkBox: return "checkBox"
+    case .radioButton: return "radio"
+    case .popUpButton: return "popup"
+    case .slider: return "slider"
+    case .stepper: return "stepper"
+    case .toggle: return "toggle"
+    case .switch: return "switch"
+    case .segmentedControl: return "segmented"
+    case .menuButton: return "menuButton"
+    case .link: return "link"
+    case .image: return "image"
+    case .menu: return "menu"
+    case .menuItem: return "menuItem"
+    case .incrementArrow: return "increment"
+    case .decrementArrow: return "decrement"
+    case .other: return "other"
+    default: return "type\(type.rawValue)"
+    }
+}
+
+/// "(x, y, w, h)" in whole points.
+func rect(_ frame: CGRect) -> String {
+    guard !frame.isNull, !frame.isInfinite, frame.minX.isFinite, frame.minY.isFinite else { return "(no frame)" }
+    return "(\(Int(frame.minX.rounded())), \(Int(frame.minY.rounded())), \(Int(frame.width.rounded())), \(Int(frame.height.rounded())))"
+}
+
+/// The first `limit` characters of a text, on one line.
+func clip(_ text: String, _ limit: Int = 60) -> String {
+    let flat = text.replacingOccurrences(of: "\n", with: " ")
+    return flat.count <= limit ? flat : String(flat.prefix(limit)) + "..."
 }
 
 /// "General" -> "general", "Ink source" -> "ink-source": file name parts.

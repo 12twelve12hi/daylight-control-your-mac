@@ -4,8 +4,9 @@
 # own derived data (build/DerivedData-ui) with the ad-hoc identity (an XCUITest runner needs a signature to load) and
 # launches build/DerivedData/Build/Products/Release/Daylight.app by URL. Same tee + grep gate as mac-test.sh; the log
 # is build/xcodebuild-logs/ui-test.log, the screenshots land in build/ui-screenshots/<appearance>/NN-<step>.png
-# (uploaded as the artifact mac-screenshots). Wall-clock limit DAYLIGHT_UI_TEST_TIMEOUT (default 480 s) via perl alarm
-# like mac-smoke.sh, since timeout(1) is not on macOS by default.
+# (uploaded as the artifact mac-screenshots) and printed as JPEG thumbnails into the log by scripts/ui-thumbs.sh.
+# Wall-clock limit DAYLIGHT_UI_TEST_TIMEOUT (default 480 s) via perl alarm like mac-smoke.sh, since timeout(1) is not
+# on macOS by default.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 [[ "${CI:-}" == "true" ]] && set -x
@@ -48,6 +49,10 @@ if [[ "$shots" == "0" && -d build/ui-test.xcresult ]]; then
   shots=$(find build/ui-screenshots -name '*.png' 2>/dev/null | wc -l | tr -d ' ')
 fi
 echo "mac-ui-test: $shots screenshots in build/ui-screenshots"
+# Thumbnails in the job log, pass or fail (UI-THUMB-BEGIN/END blocks); without the trace, so each line is printed once.
+{ set +x; } 2>/dev/null
+scripts/ui-thumbs.sh build/ui-screenshots || echo "mac-ui-test: ui-thumbs.sh failed (ignored)"
+[[ "${CI:-}" == "true" ]] && set -x
 if (( rc == 142 )); then
   echo "mac-ui-test: the suite did not finish within ${limit} s (SIGALRM); see build/xcodebuild-logs/ui-test.log" >&2
 fi

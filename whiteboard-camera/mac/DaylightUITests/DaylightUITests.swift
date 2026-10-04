@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 
 /// The Mac UI suite of docs/handoff/vp-mac-ui.md ("What the suite proves" 1 to 6), once in light and once in dark
@@ -61,6 +62,12 @@ final class DaylightUISession {
     /// AdbSource.label in DaylightKit (Settings.swift); "Bundled (default)" is hidden on a build without the bundled adb.
     static let adbOptionsAll = ["Bundled (default)", "Download on first use", "Use installed adb"]
     static let layoutOptions = ["Studio Split", "Whiteboard Only", "Overlay"]
+    /// The Overlay tab's popups and their options (SettingsWindow.swift overlayForm). A SwiftUI Picker in a Form shows
+    /// its label as a separate text, so the popup itself is recognised by its label or by its value.
+    static let overlayPopups: [(label: String, options: [String])] = [
+        ("Segmentation quality", ["Fast", "Balanced", "Accurate"]),
+        ("Position", ["Bottom right", "Bottom left", "Top right", "Top left"]),
+    ]
     static let allowPrompt = "Allow 'UI test tablet' to draw on Daylight Camera? It connected from 192.168.1.40."
 
     let testCase: XCTestCase
@@ -161,6 +168,7 @@ final class DaylightUISession {
         }
         shots.take("welcome", window: w)
         let nodes = flatten(w)
+        survey(nodes, surface: "welcome")
         welcomeShown = nodes.flatMap { $0.texts }
         for text in DaylightUISession.welcomeTexts where !nodes.contains(where: { $0.shows(text) }) {
             XCTFail("[\(appearance)] Welcome: no element shows \"\(text)\"")
@@ -177,6 +185,59 @@ final class DaylightUISession {
             return
         }
         XCTFail("[\(appearance)] \(surface): no control \"\(text)\"")
+    }
+
+    // MARK: AX dump and the generic overflow check
+
+    /// Prints the surface's elements and asserts each one lies inside its window.
+    private func survey(_ nodes: [UINode], surface: String) {
+        dump(nodes, surface: surface)
+        checkBounds(nodes, surface: surface)
+    }
+
+    /// One line per element, "DaylightUITests [<appearance>] ax <surface>: <type> [id=<identifier>] "<text>" (x, y, w, h)",
+    /// for controls, texts, windows, scroll views and anything with an identifier.
+    private func dump(_ nodes: [UINode], surface: String) {
+        let structural: Set<XCUIElement.ElementType> = [.window, .scrollView, .textView, .tabGroup]
+        for node in nodes where boundedTypes.contains(node.type) || structural.contains(node.type) || !node.identifier.isEmpty {
+            var line = "ax \(surface): \(typeName(node.type))"
+            if !node.identifier.isEmpty { line += " id=\(node.identifier)" }
+            let name = node.name
+            if !name.isEmpty { line += " \"\(clip(name))\"" }
+            if !node.value.isEmpty, node.value != name { line += " =\"\(clip(node.value, name.isEmpty ? 60 : 30))\"" }
+            if !node.enabled { line += " disabled" }
+            line += " " + rect(node.frame)
+            print("DaylightUITests [\(appearance)] \(line)")
+        }
+    }
+
+    /// Every visible control or text (boundedTypes, non-empty frame) must lie horizontally inside the window frame,
+    /// and vertically too unless it sits in a scroll view (1 pt tolerance). Every offender is reported with its text.
+    private func checkBounds(_ nodes: [UINode], surface: String) {
+        guard let root = nodes.first, root.type == .window || root.type == .sheet, root.frame.width > 0 else {
+            XCTFail("[\(appearance)] \(surface): no window frame to check the elements against")
+            return
+        }
+        let bounds = root.frame.insetBy(dx: -1, dy: -1)
+        var offenders: [String] = []
+        for node in nodes.dropFirst() where boundedTypes.contains(node.type) {
+            let frame = node.frame
+            guard !frame.isNull, !frame.isInfinite, frame.width > 0, frame.height > 0 else { continue }
+            var sides: [String] = []
+            if frame.minX < bounds.minX { sides.append("left") }
+            if frame.maxX > bounds.maxX { sides.append("right") }
+            if !node.inScroll {
+                if frame.minY < bounds.minY { sides.append("top") }
+                if frame.maxY > bounds.maxY { sides.append("bottom") }
+            }
+            guard !sides.isEmpty else { continue }
+            let text = node.texts.first ?? node.identifier
+            offenders.append("\(typeName(node.type)) \"\(clip(text, 80))\" \(rect(frame)) past the \(sides.joined(separator: "/")) edge")
+        }
+        // One line, so the log filter of scripts/mac-ui-test.sh (": error: -[") shows every offender.
+        if !offenders.isEmpty {
+            XCTFail("[\(appearance)] \(surface): \(offenders.count) element(s) outside the window frame \(rect(root.frame)): " + offenders.joined(separator: "; "))
+        }
     }
 
     // MARK: 4. Menu
@@ -275,6 +336,9 @@ final class DaylightUISession {
         tabsShown = Set(DaylightUISession.tabs.filter { names.contains($0) })
         for tab in DaylightUISession.tabs {
             if !selectTab(w, tab) {
+                // Every tab must be one click away (a tab row wider than the window hides its last tabs). The relaunch
+                // only lets the rest of the tab's checks run; the tab still fails.
+                XCTFail("[\(appearance)] Settings > \(tab): tab not reachable: no hittable tab button \"\(tab)\" in the window (tab row clipped?); its checks ran after a relaunch with --ui-test-settings-tab \(tab)")
                 note("Settings: clicking the tab \(tab) failed; relaunched with --ui-test-settings-tab \(tab)")
                 current = launch(["--ui-test-overlay-enabled", "--ui-test-open", "settings", "--ui-test-settings-tab", tab])
                 w = window(current, id: "daylight.window.settings", title: "Daylight Settings")
@@ -305,7 +369,9 @@ final class DaylightUISession {
     private func inspectTab(_ w: XCUIElement, tab: String, app: XCUIApplication) {
         let name = "settings-" + slug(tab)
         shots.take(name + "-top", window: w)
-        var texts = flatten(w).flatMap { $0.texts }
+        let topNodes = flatten(w)
+        survey(topNodes, surface: name + "-top")
+        var texts = topNodes.flatMap { $0.texts }
         var seen = Set<String>()
         var popups = gatherPopups(w, app: app, seen: &seen)
         switch tab {
@@ -324,11 +390,14 @@ final class DaylightUISession {
             texts += flatten(w).flatMap { $0.texts }
         case "Overlay":
             let nodes = flatten(w)
-            for label in ["Segmentation quality", "Position"] {
-                if let popup = popups.first(where: { $0.label == label }) {
-                    XCTAssertFalse(popup.options.isEmpty, "[\(appearance)] Settings > Overlay > \"\(label)\" offered no options")
-                } else if !nodes.contains(where: { $0.type == .popUpButton && $0.shows(label) && $0.enabled }) {
-                    XCTFail("[\(appearance)] Settings > Overlay: \"\(label)\" is missing or disabled with --ui-test-overlay-enabled")
+            for (label, expected) in DaylightUISession.overlayPopups {
+                let matches: (String, String) -> Bool = { name, value in name == label || expected.contains(value) }
+                if let popup = popups.first(where: { matches($0.label, $0.value) }) {
+                    XCTAssertEqual(popup.options, expected, "[\(appearance)] Settings > Overlay > \"\(label)\" options")
+                } else if let node = nodes.first(where: { $0.type == .popUpButton && (matches($0.label, $0.value) || $0.title == label) }) {
+                    XCTFail("[\(appearance)] Settings > Overlay: the \"\(label)\" popup \(rect(node.frame)) is " + (node.enabled ? "enabled but not hittable" : "disabled with --ui-test-overlay-enabled"))
+                } else {
+                    XCTFail("[\(appearance)] Settings > Overlay: no \"\(label)\" popup (by label, or by a value among \(expected))")
                 }
             }
         default:
@@ -415,6 +484,7 @@ final class DaylightUISession {
             verdict = lastElement(w, identifier: identifier)
             if verdict.inside { note("Settings > \(tab): a positive deltaY scrolled to the bottom") }
         }
+        if scrolls { survey(flatten(w), surface: step + "-bottom") }
         guard let node = verdict.node else {
             XCTFail("[\(appearance)] Settings > \(tab): no element with identifier \(identifier)")
             return
@@ -455,11 +525,44 @@ final class DaylightUISession {
         }
         shots.take("diagnostics", window: w)
         let nodes = flatten(w)
+        survey(nodes, surface: "diagnostics")
         expectControl(nodes, types: [.button], text: "Copy diagnostics", surface: "Diagnostics")
-        let report = nodes.flatMap { $0.texts }.joined(separator: "\n")
-        for fact in ["signed=false", "bundle: ", "extension: ", "sink: ", "listener: ", "log (last "] where !report.contains(fact) {
-            XCTFail("[\(appearance)] Diagnostics: the report lacks \"\(fact)\"")
+        let shown = nodes.flatMap { $0.texts }.joined(separator: "\n")
+        // The window shows the head of the report; its first lines must be on screen.
+        for fact in ["signed=false", "bundle: "] where !shown.contains(fact) {
+            XCTFail("[\(appearance)] Diagnostics: the window does not show \"\(fact)\"")
         }
+        // The whole report is what "Copy diagnostics" puts on the pasteboard (the same provider as the text view). The
+        // text view's accessibility value is not used for the tail: run 37180339019 showed every early fact in it but
+        // not the "log (last N lines):" line, which the report always ends with (DiagnosticsReport.text).
+        let report = copiedDiagnostics(w)
+        let tail = String(shown.suffix(120)).replacingOccurrences(of: "\n", with: " | ")
+        note("Diagnostics: accessibility text \(shown.count) chars (log line \(shown.contains("log (last ") ? "present" : "absent"), ends \"\(tail)\"); copied report \(report.count) chars")
+        guard !report.isEmpty else {
+            XCTFail("[\(appearance)] Diagnostics: \"Copy diagnostics\" put no text on the pasteboard within 3 s")
+            return
+        }
+        for fact in ["signed=false", "bundle: ", "extension: ", "sink: ", "listener: ", "log (last "] where !report.contains(fact) {
+            XCTFail("[\(appearance)] Diagnostics: the copied report lacks \"\(fact)\"")
+        }
+    }
+
+    /// Clicks "Copy diagnostics" and returns the pasteboard string ("" when the button is missing or nothing arrived).
+    private func copiedDiagnostics(_ w: XCUIElement) -> String {
+        let button = w.buttons.matching(titled("Copy diagnostics")).firstMatch
+        guard button.exists else { return "" }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        let before = pasteboard.changeCount
+        button.click()
+        let deadline = Date().addingTimeInterval(3)
+        while Date() < deadline {
+            if pasteboard.changeCount != before, let text = pasteboard.string(forType: .string), !text.isEmpty {
+                return text
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        return ""
     }
 
     private func checkAllow() {
@@ -474,6 +577,11 @@ final class DaylightUISession {
         let prompt = scope.staticTexts.matching(NSPredicate(format: "value == %@ OR label == %@", DaylightUISession.allowPrompt, DaylightUISession.allowPrompt)).firstMatch
         let shown = prompt.waitForExistence(timeout: panelListed ? 3 : 10)
         shots.take("allow", window: panelListed ? panelWindow : nil)
+        if panelListed {
+            survey(flatten(panelWindow), surface: "allow")
+        } else {
+            note("Allow panel: no window element, so no AX dump and no frame check")
+        }
         XCTAssertTrue(shown, "[\(appearance)] Allow panel: no text \"\(DaylightUISession.allowPrompt)\"")
         for title in ["Allow", "Not now"] {
             XCTAssertTrue(scope.buttons.matching(titled(title)).firstMatch.exists, "[\(appearance)] Allow panel: no button \"\(title)\"")
@@ -492,16 +600,27 @@ final class DaylightUISession {
             XCTFail("[\(appearance)] Docs to UI: \(url.path) is not the expected JSON array")
             return
         }
+        note("docs: inventory menu \(menuTitles.count), submenus \(submenus.count), tabs \(tabsShown.count), settings tabs read \(settingsTexts.count), welcome texts \(welcomeShown.count)")
         var misses: [String] = []
-        for item in items where !found(item) {
+        var checked = 0
+        for item in items {
+            checked += 1
+            if found(item) { continue }
             var place = item.kind
             if let tab = item.tab { place += " in Settings > \(tab)" }
             if let parent = item.parent { place += " under \"\(parent)\"" }
             misses.append("\(item.source): \"\(item.text)\" (\(place))")
         }
+        note("docs: checked \(checked) of \(items.count), misses \(misses.count) (\(url.lastPathComponent))")
         attach("docs-to-ui", "\(items.count) doc strings, \(misses.count) not found\n" + misses.joined(separator: "\n"))
+        if items.isEmpty {
+            XCTFail("[\(appearance)] Docs to UI: \(url.path) holds no strings; scripts/ui-expectations.sh found nothing to check")
+        }
+        if checked != items.count {
+            XCTFail("[\(appearance)] Docs to UI: checked \(checked) of \(items.count) strings")
+        }
         if !misses.isEmpty {
-            XCTFail("[\(appearance)] Docs to UI: \(misses.count) of \(items.count) strings the docs quote are not in the UI:\n" + misses.joined(separator: "\n"))
+            XCTFail("[\(appearance)] Docs to UI: \(misses.count) of \(items.count) strings the docs quote are not in the UI: " + misses.joined(separator: "; "))
         }
     }
 

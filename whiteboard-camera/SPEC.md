@@ -75,6 +75,9 @@ Every row is binding. `Owner` means the owner said it (DECISIONS.md, grill sessi
 | D55 | In LIVE, an `engage` or a `hold(auto)` is activity like ink: it cancels a showing pre-warning. | Resolved (review round 2, KITB-01) |
 | D56 | The snap-back of a stray cancel applies only to a board a stroke brought up (`strokeCausedEngage`); a board a hotkey, the menu, a pin or a hold brought up never snaps back. | Resolved (review round 2, KITB-03) |
 | D57 | Presenter Overlay (section 6.7) ships in v2 as a third layout, off by default (`overlayEnabled` false): with it off nothing of it runs and no menu item, hotkey or picker option appears, so D2 still describes the default product. There is no Hold > Overlay, because HoldMode is the STATE `mode` byte (PROTOCOL 6.14) and a new value would be a protocol change in another domain; the layout itself is not on the wire. After 15 segmentation failures in a row Overlay falls back to Studio Split (row 48) until it is turned off and on; when the mask covers too little of the picture (low light, nobody in view) the cutout shows the plain camera rectangle instead of a broken matte (row 49). | Resolved (Presenter Overlay, v2) |
+| D58 | Camera line weight (section 6.8): on the live outputs (the camera picture and the share window) every ink-layer stroke is drawn at least 2.5 output pixels wide at 1080p (3.70 canvas px) and the highlighter at least 6.0 (8.89 canvas px); the eraser geometry, the stroke JSON, the saved PNG and the tablet keep the true widths. No setting: the floor changes light-pressure pen segments by at most 1.9 canvas px. The two constants are revisited after the owner's legibility test (LOOSE_ENDS IL). | Resolved (phase 5A, DRAWING-DEEP-DIVE D14; research: a 3.2 px line lands at 0.7 px on a 360p stream) |
+| D59 | Follow the pen (section 6.8): off by default (`followPen` false, Settings > Advanced "Follow the pen on camera"); when on, the canvas region shown on camera follows the active ink per FP1 to FP9 through the existing critically damped spring, snaps to the full page on Clear and on a new page, refits without animation on a layout change, and is inert for mirror pictures, Overlay, passthrough and at rest on the full page. It changes only the canvas quad's destination and UV, so the compositor stays zero-copy. | Resolved (phase 5A, TOO-SMALL section 7; measured GPU cost in PERFORMANCE.md section 6) |
+| D60 | Laser pointer (section 6.9): LASER_POINT (0x0030) is drawn on the camera board as a fading dot with a short trail and never enters the page: no stroke, no undo entry, nothing in the saved PNG or JSON. Both clients offer a "Laser" tool (contact intensity 1.0, stylus hover 0.5, decay 0.5 s). No protocol change. | Resolved (phase 5A, LOOSE_ENDS F3) |
 
 ---
 
@@ -261,6 +264,30 @@ Mask: temporal smoothing `out = overlaySmoothing * previous + (1 - overlaySmooth
 
 Health: the cutout shows the plain camera rectangle (mask strength ignored) while no mask has arrived yet, while the newest mask is older than 0.5 s, or while the mask covers less than 0.01 of the picture (row 49, reported once per drop). After 15 failed segmentations in a row the board falls back to Studio Split geometry (row 48, reported once) until Overlay is turned off and on or the quality changes. A success resets the failure count.
 
+
+### 6.8 Camera line weight and follow the pen (phase 5A)
+
+Line weight (D58). `CameraLineWeight` (DaylightKit): the minimums in output pixels at the 1080 reference height are pen (every ink-layer tool) 2.5 and highlighter 6.0; the canvas reaches the output at `outputHeight / 1600` at rest, so the floor is one canvas-space width per tool: 3.70 canvas px for the pen, 8.89 for the highlighter. `InkRasterizer` draws every segment and dot at `max(tablet width, floor)`; redraw rectangles for erase, undo and redo and the hit test grow by `redrawMargin()` (6 canvas px) because `Stroke.dirtyBounds` inflates by the true width. The PNG export renders the store at true widths. A 720p downscale by a call app shows 1.67 px.
+
+Follow the pen (D59). `FollowRegion` and `FollowCamera` (DaylightKit Layout) give, per frame, the canvas point at the centre of the zone and a zoom in output pixels per canvas pixel; `FollowFrame.apply` swaps the layout's canvas quad for the follow quad moved by the slide offset and keeps the border lines on the quad's edges only while they lie inside the zone (Studio Split zone 1280 x 1080 at x 0, Whiteboard Only the whole frame, Overlay none). At the full page the frames of 6.1 to 6.3 are reproduced exactly at every s.
+
+| Id | Rule | Value |
+|---|---|---|
+| FP1 | maximum magnification over the full page | 2.5 |
+| FP2 | margin around the active ink, fraction of the canvas width | 0.06 |
+| FP3 | ink older than this no longer counts | 20 s |
+| FP4 | move at once when active ink comes within this fraction of the visible width of an edge the camera can move past | 0.05 |
+| FP5 | zoom in only when the region fits at this factor of the current zoom or more | 1.25 |
+| FP6 | ...continuously for | 2.5 s |
+| FP7 | no ink for this long returns to the full page | 30 s |
+| FP8 | spring stiffness of the camera move (critically damped, settles in under a second) | 60 |
+| FP9 | an ink box narrower than this fraction of the canvas width is widened to it | 0.10 |
+
+Inputs: the rasterizer reports the box of each drawn segment and every page clear (Clear, new page); erase, undo and redo redraws report nothing, and a laser point is not ink. Clear and a new page snap to the full page in the same frame; a layout change refits without animation. With the switch off, for mirror pictures, in Overlay, in passthrough and at rest on the full page the layout's own frame is returned untouched. The perf log prints `follow: zoom <z> centre (<x>, <y>) <full page|following>` once a second while the switch is on.
+
+### 6.9 Laser pointer (phase 5A)
+
+`LaserTrail` (DaylightKit Layout) keeps up to 48 samples; each fades linearly from its intensity over its decay (0.5 s when the message carries 0, capped at 3 s so a hostile message cannot pin a dot) and its radius shrinks from 9 canvas px (12 output px across at 1080p) to half; off-canvas, non-finite and zero-intensity samples are dropped; `place` maps a dot through the canvas quad, so it follows the pen camera. `InkRasterizer.laser` adds a sample to `CanvasSurfaces.laser` and touches neither the canvas surfaces nor the StrokeStore. The compositor draws the dots inside the panel scissor with the `daylight_dot` fragment (a soft-edged disc, colour `0xE5372A`); mirror pictures and passthrough get none. Clients: the web page and Daylight Ink offer a "Laser" tool; contact sends intensity 1.0, stylus hover 0.5, decay 0.5 s, one LASER_POINT per frame with the newest point, only while the Mac accepts ink (STATE allowed); picking Laser cancels an open stroke.
 ---
 
 ## 7. Pin, Clear, Return, New page (one place)
@@ -399,6 +426,7 @@ Gestures: tap = pin toggle (during a countdown this is "keep it"); long press 60
 | `previewOnLaunch`, `previewFloats` | Bool, Bool | false (true on unsigned builds), true | PreviewWindow |
 | `frameReuse`, `deadlineIdle`, `perfLog` | Bool | false, false, false | pipeline (D34), Telemetry |
 | `overlayEnabled` | Bool | false | Overlay (6.7, D57): with it off nothing of Overlay runs or shows |
+| `followPen` | Bool | false | follow the pen (6.8, D59); Settings > Advanced "Follow the pen on camera" |
 | `overlayQuality` | fast / balanced / accurate; an unknown stored value loads as fast | fast | person segmentation quality |
 | `overlaySmoothing` | Double 0...0.9 | 0.6 | mask temporal smoothing |
 | `overlayFeather` | Int 0...8 (mask texels) | 2 | mask edge softness |

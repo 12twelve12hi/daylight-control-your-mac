@@ -261,4 +261,28 @@ final class OverlayAppModelTests: XCTestCase {
         store.settings.overlayEnabled = false
         XCTAssertNil(model.overlayFallbackLine, "toggling Overlay clears the line")
     }
+
+    /// Review 4 OV-5: a quality change resets an existing controller's fallback, so the menu line goes with it; after a
+    /// creation failure (no controller, nothing retried) the line stays.
+    func testAQualityChangeClearsTheLineOnlyWhileAControllerExists() {
+        let store = SettingsStore(defaults: UserDefaults(suiteName: "overlay-\(UUID().uuidString)")!, unsignedBuild: false)
+        store.settings.overlayEnabled = true
+        store.settings.overlayQuality = .fast
+        let model = AppModel(settingsStore: store, signed: true, version: "0", build: "0")
+        var controllerExists = true
+        model.overlayControllerProbe = { controllerExists }
+        model.noteFailure(.overlayFallback, ["15", "fake"])
+        XCTAssertEqual(model.overlayFallbackLine, FailureText.sentence(.overlayFallback))
+        store.settings.overlayQuality = .balanced
+        XCTAssertNil(model.overlayFallbackLine, "the controller's fallback was reset by the quality change")
+
+        controllerExists = false
+        model.noteFailure(.overlayFallback, ["0", "creation failed"])
+        store.settings.overlayQuality = .accurate
+        XCTAssertEqual(model.overlayFallbackLine, FailureText.sentence(.overlayFallback), "no controller: nothing was retried")
+
+        controllerExists = true
+        store.settings.overlayHalo = !store.settings.overlayHalo
+        XCTAssertEqual(model.overlayFallbackLine, FailureText.sentence(.overlayFallback), "only a quality change resets the fallback")
+    }
 }

@@ -62,6 +62,9 @@ final class AppModel: ObservableObject {
     private var launchedAt = Date()
     private var settingsObserver: AnyCancellable?
     private var lastOverlayEnabled: Bool
+    private var lastOverlayQuality: OverlayQuality
+    /// Whether the pipeline holds an Overlay controller (OV-5); nil reads `pipeline?.overlayController`. A test seam.
+    var overlayControllerProbe: (() -> Bool)?
 
     // Wired by AppDelegate.
     var pipeline: FramePipeline?
@@ -84,16 +87,28 @@ final class AppModel: ObservableObject {
         self.version = version
         self.build = build
         lastOverlayEnabled = settingsStore.settings.overlayEnabled
+        lastOverlayQuality = settingsStore.settings.overlayQuality
         settingsObserver = settingsStore.$settings.sink { [weak self] settings in self?.overlaySettingMayHaveChanged(settings) }
     }
 
     /// Main thread (the store publishes on every Settings change). Toggling Overlay clears the row 48 menu line and
-    /// tells `Hotkeys` to register or unregister the Overlay chord.
+    /// tells `Hotkeys` to register or unregister the Overlay chord. A "Segmentation quality" change while Overlay is on
+    /// resets an existing controller's fallback (`OverlayController.update`), so it clears the line too (Review 4
+    /// OV-5); after a creation failure there is no controller and nothing is retried, so the line stays.
     private func overlaySettingMayHaveChanged(_ settings: Settings) {
-        guard settings.overlayEnabled != lastOverlayEnabled else { return }
+        let qualityChanged = settings.overlayQuality != lastOverlayQuality
+        lastOverlayQuality = settings.overlayQuality
+        guard settings.overlayEnabled != lastOverlayEnabled else {
+            if qualityChanged && settings.overlayEnabled && overlayControllerExists { overlayFellBack = false }
+            return
+        }
         lastOverlayEnabled = settings.overlayEnabled
         overlayFellBack = false
         NotificationCenter.default.post(name: Hotkeys.overlayEnabledChanged, object: nil, userInfo: ["enabled": settings.overlayEnabled])
+    }
+
+    private var overlayControllerExists: Bool {
+        return overlayControllerProbe?() ?? (pipeline?.overlayController != nil)
     }
 
     /// The disabled menu line while Overlay has fallen back (row 48), nil otherwise.

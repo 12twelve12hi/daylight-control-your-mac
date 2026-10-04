@@ -29,6 +29,8 @@ final class WebServer {
         var loopbackOnly = false
         /// Try the next port up to 7799 when the preferred one is busy.
         var scanPorts = true
+        /// Seconds from the accept to a complete request head (`WebServer.headTimeout`; tests shorten it).
+        var headTimeout: Double = WebServer.headTimeout
 
         init(webRoot: URL? = nil, apkURL: URL? = nil, preferredPort: UInt16 = WebServer.defaultPort, bonjourName: String? = nil, loopbackOnly: Bool = false, scanPorts: Bool = true) {
             self.webRoot = webRoot
@@ -71,6 +73,9 @@ final class WebServer {
     var factsAllowed: ((String) -> Bool)?
     /// PROTOCOL 15.1: the body must arrive within this many seconds of the head.
     static let factsBodyTimeout: Double = 10
+    /// A connection whose request head is not complete within this many seconds of the accept is closed (finder
+    /// AF-1: a peer that sent nothing, or a byte now and then, held its connection and descriptor forever).
+    static let headTimeout: Double = 10
 
     init(config: Config, info: @escaping () -> [String: Any], queue: DispatchQueue) {
         self.config = config
@@ -292,6 +297,7 @@ private final class HTTPConnection: InkTransport {
     private var handshakeDeadline: DispatchWorkItem?
     private var idleDeadline: DispatchWorkItem?
     private var bodyDeadline: DispatchWorkItem?
+    private var headDeadline: DispatchWorkItem?
     private var sawHandshake = false
     private var closed = false
     var onClosed: (() -> Void)?
@@ -336,8 +342,11 @@ private final class HTTPConnection: InkTransport {
                 break
             }
         }
-        guard let queue = server?.queue else { return }
-        connection.start(queue: queue)
+        guard let server = server else { return }
+        let headWait = DispatchWorkItem { [weak self] in self?.finish() }
+        headDeadline = headWait
+        connection.start(queue: server.queue)
+        server.queue.asyncAfter(deadline: .now() + server.config.headTimeout, execute: headWait)
         receiveHead()
     }
 
@@ -349,6 +358,8 @@ private final class HTTPConnection: InkTransport {
             if let data = data { self.buffer.append(contentsOf: data) }
             do {
                 if let parsed = try HTTPRequest.parse(self.buffer) {
+                    self.headDeadline?.cancel()
+                    self.headDeadline = nil
                     self.buffer.removeFirst(parsed.consumed)
                     self.handle(parsed.request)
                     return
@@ -604,6 +615,7 @@ private final class HTTPConnection: InkTransport {
         handshakeDeadline?.cancel()
         idleDeadline?.cancel()
         bodyDeadline?.cancel()
+        headDeadline?.cancel()
         connection.cancel()
         if let ink = ink {
             ink.markClosed()

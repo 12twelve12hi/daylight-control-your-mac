@@ -108,6 +108,36 @@ final class FactsRouteTests: XCTestCase {
         XCTAssertEqual(ApiRoutes.factsHead(head), .reject(400, "Bad facts: bad Content-Length"))
     }
 
+    /// Finder AF-2: a Content-Length of digits too large for Int is above 16384, so 413 (PROTOCOL 15.2), not 400.
+    func testHugeContentLengthIs413() {
+        var head = HTTPRequest(method: "POST", path: ApiRoutes.factsPath, headers: ["content-type": "application/json"])
+        head.headers["content-length"] = "99999999999999999999999"
+        XCTAssertEqual(ApiRoutes.factsHead(head), .reject(413, "Facts too large"))
+        head.headers["content-length"] = "9223372036854775808"
+        XCTAssertEqual(ApiRoutes.factsHead(head), .reject(413, "Facts too large"))
+        head.headers["content-length"] = "12abc"
+        XCTAssertEqual(ApiRoutes.factsHead(head), .reject(400, "Bad facts: bad Content-Length"))
+    }
+
+    /// A body nested as deep as 16384 bytes allow answers 400 on a GCD worker thread (the listener's queue runs on
+    /// one, with a smaller stack than the main thread) instead of taking the app down.
+    func testDeeplyNestedBodyIs400() {
+        let store = TabletFactsStore()
+        let depth = 8000
+        let nested = String(repeating: "[", count: depth) + String(repeating: "]", count: depth)
+        let body = FactsRouteTests.body(facts: "{\"deep\":\(nested)}")
+        XCTAssertLessThanOrEqual(body.utf8.count, ApiRoutes.factsMaxBody)
+        let done = expectation(description: "validated off the main thread")
+        var status = 0
+        DispatchQueue(label: "test.facts.deep").async {
+            status = self.post(body, store: store).status
+            done.fulfill()
+        }
+        wait(for: [done], timeout: 10)
+        XCTAssertEqual(status, 400)
+        XCTAssertEqual(store.count, 0)
+    }
+
     func testSameKeyReplacesAndTheSeventeenthEvictsTheOldest() {
         let store = TabletFactsStore()
         XCTAssertEqual(post(FactsRouteTests.body(facts: "{\"a\":1}"), at: 100, store: store).status, 200)
@@ -222,5 +252,45 @@ final class FactsLoopbackTests: XCTestCase {
         XCTAssertTrue(response.hasPrefix("HTTP/1.1 200"), response)
         XCTAssertTrue(response.contains("\"key\":\"ink:127.0.0.1\""), response)
         XCTAssertEqual(store.count, 1)
+    }
+
+    /// Finder AF-1: a peer that never completes its request head (here half a facts head, then silence) is closed
+    /// at the head deadline instead of holding the connection forever.
+    func testIncompleteHeadIsClosedAtTheHeadDeadline() throws {
+        var config = WebServer.Config(webRoot: nil, apkURL: nil, preferredPort: 0, bonjourName: nil, loopbackOnly: true, scanPorts: false)
+        XCTAssertEqual(config.headTimeout, WebServer.headTimeout)
+        XCTAssertEqual(WebServer.headTimeout, 10)
+        config.headTimeout = 1
+        let queue = DispatchQueue(label: "test.facts.head")
+        let slow = WebServer(config: config, info: { ["version": "test"] }, queue: queue)
+        slow.factsStore = TabletFactsStore()
+        var slowPort: UInt16 = 0
+        let ready = expectation(description: "listener ready")
+        slow.onReady = { bound in
+            slowPort = bound
+            ready.fulfill()
+        }
+        slow.start()
+        wait(for: [ready], timeout: 5)
+        defer {
+            slow.stop()
+            queue.sync {}
+        }
+        let connection = NWConnection(host: NWEndpoint.Host("127.0.0.1"), port: NWEndpoint.Port(rawValue: slowPort)!, using: .tcp)
+        let rawQueue = DispatchQueue(label: "test.facts.head.raw")
+        let closed = expectation(description: "closed by the listener")
+        func receive() {
+            connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { _, _, isComplete, error in
+                if error != nil || isComplete { closed.fulfill() } else { receive() }
+            }
+        }
+        connection.start(queue: rawQueue)
+        receive()
+        defer { connection.cancel() }
+        connection.send(content: Data("POST /api/facts HTTP/1.1\r\nHost: 127.0.0.1\r\n".utf8), completion: .contentProcessed { _ in })
+        let started = Date()
+        wait(for: [closed], timeout: 6)
+        XCTAssertLessThan(Date().timeIntervalSince(started), 5)
+        XCTAssertEqual(queue.sync { slow.connectionCount }, 0, "the listener forgot the connection")
     }
 }

@@ -89,7 +89,13 @@ extension ApiRoutes {
         }
         if request.headers["transfer-encoding"] != nil { return .reject(411, "Length required") }
         guard let lengthText = request.headers["content-length"] else { return .reject(411, "Length required") }
-        guard let length = Int(lengthText.trimmingCharacters(in: .whitespaces)), length >= 0 else {
+        let trimmedLength = lengthText.trimmingCharacters(in: .whitespaces)
+        guard let length = Int(trimmedLength), length >= 0 else {
+            // Only digits but past Int.max: still a length above 16384 (15.2 row 413), not a malformed one.
+            let digits = Set("0123456789")
+            if !trimmedLength.isEmpty && trimmedLength.allSatisfy({ digits.contains($0) }) {
+                return .reject(413, "Facts too large")
+            }
             return .reject(400, "Bad facts: bad Content-Length")
         }
         if length > factsMaxBody { return .reject(413, "Facts too large") }

@@ -22,6 +22,8 @@ struct HotkeyRecorder: NSViewRepresentable {
         view.setContentCompressionResistancePriority(.required, for: .vertical)
         view.setAccessibilityElement(true)
         view.setAccessibilityRole(.button)
+        // A custom view with the button role reads as dimmed to VoiceOver unless it says it is enabled.
+        view.setAccessibilityEnabled(true)
         view.setAccessibilityIdentifier(identifier)
         return view
     }

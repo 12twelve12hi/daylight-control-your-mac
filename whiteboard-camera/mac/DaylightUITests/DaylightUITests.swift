@@ -514,6 +514,7 @@ final class DaylightUISession {
                 XCTFail("[\(appearance)] Settings > Hotkeys: no field \(identifier)")
                 continue
             }
+            XCTAssertTrue(field.enabled, "[\(appearance)] Settings > Hotkeys: \(identifier) reads as disabled to accessibility")
             XCTAssertTrue(field.frame.height >= 20 && field.frame.height <= 30, "[\(appearance)] Settings > Hotkeys: \(identifier) is \(Int(field.frame.height)) pt tall \(rect(field.frame)); expected 20 to 30")
             guard let label = nodes.first(where: { $0.type == .staticText && $0.shows(row.label) && abs($0.frame.midY - field.frame.midY) < 60 }) else {
                 XCTFail("[\(appearance)] Settings > Hotkeys: no label \"\(row.label)\" near \(identifier) \(rect(field.frame))")

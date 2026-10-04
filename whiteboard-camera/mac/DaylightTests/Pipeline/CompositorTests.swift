@@ -39,6 +39,30 @@ final class CompositorTests: XCTestCase {
         XCTAssertLessThan(Int(divider.r), 160, "divider at half alpha darkens the presenter: " + SelfTest.describe(divider))
     }
 
+    /// Review 4 CI-1 (the crash frame of mac-26 run 37189486118): a frame in flight released its CVMetalTextures on
+    /// Metal's completion queue after its Compositor, and the CVMetalTextureCache with it, was gone, and CoreVideo wrote
+    /// into the freed cache (EXC_BAD_ACCESS in CVMetalTextureCache::bufferBackingNotInUse). Every frame here outlives
+    /// its Compositor; each completion must run and the process must survive the textures' release.
+    func testFramesInFlightOutliveTheirCompositor() throws {
+        let device = try makeDevice()
+        let surfaces = try CanvasSurfaces(device: device)
+        let presenter = SelfTest.gradientBuffer(width: 1920, height: 1080)!
+        let frame = StudioLayout.frame(progress: 1, layout: .studioSplit, orientation: .portrait, canvasAspect: 0.75, breath: 0)
+        let done = DispatchGroup()
+        for _ in 0..<40 {
+            let pool = try OutputPool()
+            let target = try XCTUnwrap(pool.acquire())
+            var compositor: Compositor? = try Compositor(device: device)
+            done.enter()
+            compositor?.render(Compositor.Inputs(presenter: presenter, canvas: .layers(surfaces), frame: frame), into: target) { _ in
+                pool.release(target)
+                done.leave()
+            }
+            compositor = nil
+        }
+        XCTAssertEqual(done.wait(timeout: .now() + 30), .success, "every frame in flight completes after its Compositor is gone")
+    }
+
     func testProgressZeroEqualsThePresenterInput() throws {
         let device = try makeDevice()
         let compositor = try Compositor(device: device)

@@ -238,10 +238,16 @@ final class Compositor {
         }
 
         encoder.endEncoding()
+        // The frame's CVMetalTextures go back to `cache` when they are released, on Metal's completion queue. The
+        // cache must still exist then: when the Compositor was released with a frame in flight (a pipeline torn down
+        // between ticks), CoreVideo wrote into the freed cache (EXC_BAD_ACCESS in
+        // CVMetalTextureCache::bufferBackingNotInUse, Review 4 CI-1, mac-26 run 37189486118). So the handler releases
+        // the textures itself, while it still holds the cache, and the cache goes last.
+        let resources = FrameResources(objects: retained, cache: cache)
         commandBuffer.addCompletedHandler { buffer in
-            _ = retained
             let gpu = buffer.gpuEndTime - buffer.gpuStartTime
             completion(gpu > 0 ? gpu : 0)
+            resources.releaseTextures()
         }
         commandBuffer.commit()
     }
@@ -399,5 +405,23 @@ final class Compositor {
     static func fourcc(_ type: OSType) -> String {
         let bytes: [UInt8] = [UInt8((type >> 24) & 0xFF), UInt8((type >> 16) & 0xFF), UInt8((type >> 8) & 0xFF), UInt8(type & 0xFF)]
         return String(bytes: bytes, encoding: .ascii) ?? String(type)
+    }
+}
+
+/// One frame's textures and the cache they came from (Review 4 CI-1): `releaseTextures()` runs in the completion
+/// handler, so every CVMetalTexture is released while this object still holds the cache; the cache goes when the
+/// handler (and this object) is destroyed. Touched only by the one completion handler after the commit.
+private final class FrameResources: @unchecked Sendable {
+    private var objects: [AnyObject]
+    private let cache: CVMetalTextureCache
+
+    init(objects: [AnyObject], cache: CVMetalTextureCache) {
+        self.objects = objects
+        self.cache = cache
+    }
+
+    func releaseTextures() {
+        objects.removeAll()
+        withExtendedLifetime(cache) {}
     }
 }

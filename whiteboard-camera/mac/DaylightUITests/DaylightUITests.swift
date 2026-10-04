@@ -194,12 +194,91 @@ final class DaylightUISession {
     private func survey(_ nodes: [UINode], surface: String) {
         dump(nodes, surface: surface)
         checkBounds(nodes, surface: surface)
+        checkOverlap(nodes, surface: surface)
+    }
+
+    /// The leaves the overlap check compares: texts and controls, plus images and groups that carry an identifier
+    /// (the Mirror crop view). Unlabeled buttons without an identifier are scroller parts and are skipped.
+    private func isOverlapLeaf(_ node: UINode) -> Bool {
+        if node.type == .button && node.texts.isEmpty && node.identifier.isEmpty { return false }
+        if boundedTypes.contains(node.type) { return true }
+        return (node.type == .image || node.type == .group) && !node.identifier.isEmpty
+    }
+
+    /// No two visible leaves may intersect by more than 2 pt in both axes, unless one contains the other in the
+    /// accessibility tree or one is the other's label text (same parent, same text). Frames inside a scroll view are
+    /// cut to its visible area first. Every pair is reported with texts and frames.
+    private func checkOverlap(_ nodes: [UINode], surface: String) {
+        let leaves = nodes.indices.filter { index in
+            let frame = nodes[index].visibleFrame
+            return index > 0 && isOverlapLeaf(nodes[index]) && !frame.isNull && frame.width > 0 && frame.height > 0
+        }
+        var pairs: [String] = []
+        for (position, a) in leaves.enumerated() {
+            for b in leaves[(position + 1)...] {
+                let first = nodes[a], second = nodes[b]
+                let overlap = first.visibleFrame.intersection(second.visibleFrame)
+                guard !overlap.isNull, overlap.width > 2, overlap.height > 2 else { continue }
+                if isAncestor(a, of: b, in: nodes) || isAncestor(b, of: a, in: nodes) { continue }
+                if first.parent == second.parent, labels(first, second) || labels(second, first) { continue }
+                pairs.append("\(describe(first)) and \(describe(second)) overlap by \(rect(overlap))")
+            }
+        }
+        if !pairs.isEmpty {
+            XCTFail("[\(appearance)] \(surface): \(pairs.count) overlapping pair(s): " + pairs.joined(separator: "; "))
+        }
+    }
+
+    /// True when `text` is a static text naming `control` (its label shown next to it).
+    private func labels(_ text: UINode, _ control: UINode) -> Bool {
+        return text.type == .staticText && control.type != .staticText && !text.texts.isEmpty
+            && text.texts.contains { control.shows($0) }
+    }
+
+    private func describe(_ node: UINode) -> String {
+        let text = node.texts.first ?? node.identifier
+        return "\(typeName(node.type)) \"\(clip(text, 50))\" \(rect(node.frame))"
+    }
+
+    /// The first element under the tab bar must sit within 40 pt of it (content top-aligned, no empty band).
+    private func checkTopAligned(_ nodes: [UINode], tab: String) {
+        let tabTypes: Set<XCUIElement.ElementType> = [.radioButton, .tab, .button, .toggle]
+        let tabButtons = nodes.filter { tabTypes.contains($0.type) && DaylightUISession.tabs.contains($0.name) }
+        guard let barBottom = tabButtons.map({ $0.frame.maxY }).max() else {
+            XCTFail("[\(appearance)] Settings > \(tab): no tab buttons found to measure the content's top against")
+            return
+        }
+        let content = nodes.dropFirst().filter { node in
+            isOverlapLeaf(node) && !tabButtons.contains(where: { $0.frame == node.frame }) && node.frame.minY >= barBottom - 1
+                && node.frame.width > 0 && node.frame.height > 0
+        }
+        guard let first = content.min(by: { $0.frame.minY < $1.frame.minY }) else {
+            XCTFail("[\(appearance)] Settings > \(tab): no content under the tab bar")
+            return
+        }
+        let gap = first.frame.minY - barBottom
+        XCTAssertLessThanOrEqual(gap, 40, "[\(appearance)] Settings > \(tab): the first element \(describe(first)) starts \(Int(gap)) pt below the tab bar (bottom \(Int(barBottom))); the content is not top-aligned")
+    }
+
+    /// Scrolls the tab's scroll view until the element is hittable (at most four steps toward it).
+    private func scrollIntoView(_ element: XCUIElement, in w: XCUIElement) -> Bool {
+        if element.isHittable { return true }
+        let scrollView = w.scrollViews.firstMatch
+        guard scrollView.exists else { return false }
+        for _ in 0..<4 {
+            // A negative deltaY scrolls down (run 37182692894: -2000 moved the Mirror rows up).
+            let delta = scrollView.frame.midY - element.frame.midY
+            if abs(delta) < 1 { break }
+            scrollView.scroll(byDeltaX: 0, deltaY: delta)
+            if element.isHittable { return true }
+        }
+        return element.isHittable
     }
 
     /// One line per element, "DaylightUITests [<appearance>] ax <surface>: <type> [id=<identifier>] "<text>" (x, y, w, h)",
     /// for controls, texts, windows, scroll views and anything with an identifier.
     private func dump(_ nodes: [UINode], surface: String) {
-        let structural: Set<XCUIElement.ElementType> = [.window, .scrollView, .textView, .tabGroup]
+        let structural: Set<XCUIElement.ElementType> = [.window, .scrollView, .textView, .tabGroup, .tab, .image]
         for node in nodes where boundedTypes.contains(node.type) || structural.contains(node.type) || !node.identifier.isEmpty {
             var line = "ax \(surface): \(typeName(node.type))"
             if !node.identifier.isEmpty { line += " id=\(node.identifier)" }
@@ -379,9 +458,10 @@ final class DaylightUISession {
         shots.take(name + "-top", window: w)
         let topNodes = flatten(w)
         survey(topNodes, surface: name + "-top")
+        checkTopAligned(topNodes, tab: tab)
         var texts = topNodes.flatMap { $0.texts }
         var seen = Set<String>()
-        var popups = gatherPopups(w, app: app, seen: &seen)
+        var popups = gatherPopups(w, app: app, surface: "Settings > \(tab)", seen: &seen)
         switch tab {
         case "General":
             if let layout = popups.first(where: { $0.label == "Layout when engaging" || $0.value == "Studio Split" }) {
@@ -413,24 +493,30 @@ final class DaylightUISession {
         }
         checkLast(w, tab: tab, step: name)
         texts += flatten(w).flatMap { $0.texts }
-        popups += gatherPopups(w, app: app, seen: &seen)
+        popups += gatherPopups(w, app: app, surface: "Settings > \(tab)", seen: &seen)
         texts += popups.flatMap { [$0.label] + $0.options }
         settingsTexts[tab] = texts
     }
 
-    /// Opens every hittable, enabled popup button of the window, reads its menu items, and closes it with Escape.
-    private func gatherPopups(_ w: XCUIElement, app: XCUIApplication, seen: inout Set<String>) -> [PopupInfo] {
+    /// Opens every enabled popup button of the window (scrolled into view first; one that stays unhittable fails),
+    /// reads its menu items, and closes it with Escape.
+    private func gatherPopups(_ w: XCUIElement, app: XCUIApplication, surface: String, seen: inout Set<String>) -> [PopupInfo] {
         var result: [PopupInfo] = []
         let query = w.popUpButtons
         let count = query.count
         for index in 0..<count {
             let popup = query.element(boundBy: index)
-            guard popup.exists, popup.isEnabled, popup.isHittable else { continue }
+            guard popup.exists, popup.isEnabled else { continue }
             let label = popup.label.isEmpty ? popup.title : popup.label
             let value = (popup.value as? String) ?? ""
             let key = label + "|" + value
             if seen.contains(key) { continue }
             seen.insert(key)
+            // Every enabled popup must take a click once scrolled to; one that stays unhittable is covered.
+            guard scrollIntoView(popup, in: w) else {
+                XCTFail("[\(appearance)] \(surface): the popup \"\(label.isEmpty ? value : label)\" \(rect(popup.frame)) is not hittable after scrolling to it (covered by another view?)")
+                continue
+            }
             popup.click()
             _ = popup.menuItems.firstMatch.waitForExistence(timeout: 3)
             let options = flatten(popup).filter { $0.type == .menuItem }.map { $0.name }.filter { !$0.isEmpty }
@@ -462,8 +548,8 @@ final class DaylightUISession {
     /// stream steppers) are on screen for the screenshots and the Docs to UI check (the defaults suite is throwaway).
     private func selectWiFiTransport(_ w: XCUIElement, app: XCUIApplication) {
         let popup = w.popUpButtons.matching(NSPredicate(format: "value == %@", DaylightUISession.transportOptions[0])).firstMatch
-        guard popup.exists, popup.isHittable else {
-            note("Settings > Mirror: the Transport popup was not hittable; the Wi-Fi rows were not shown")
+        guard popup.exists, scrollIntoView(popup, in: w) else {
+            XCTFail("[\(appearance)] Settings > Mirror: the Transport popup was not hittable; the Wi-Fi rows were not shown")
             return
         }
         popup.click()

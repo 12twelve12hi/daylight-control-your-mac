@@ -2,12 +2,13 @@
 # make mac-ui-test (last step, pass or fail): print the UI test screenshots into the job log as small JPEGs so they can
 # be seen without artifact access. For every NN-<step>.png under DIR (default build/ui-screenshots) it prints
 #   UI-THUMB-BEGIN <path relative to the repo root>
-#   <base64 of `sips -Z 560 -s format jpeg -s formatOptions 45`, 76 columns>
+#   <base64 of the JPEG on ONE line>
 #   UI-THUMB-END
-# using NN-<step>-window.png when the suite saved the window alone, else the full screenshot. The total base64 is
-# capped at DAYLIGHT_UI_THUMBS_MAX_BYTES (default 2500000); the rest is skipped with a line naming how many.
-# Decode a block with: sed -n '/UI-THUMB-BEGIN <path>/,/UI-THUMB-END/p' log | sed '1d;$d' | cut -c30- | base64 -d
-# (cut removes the GitHub timestamp prefix). Never fails the build: no sips, no folder or a bad image only prints a line.
+# using NN-<step>-window.png (`sips -Z 480`, JPEG quality 40) when the suite saved the window alone, else the full
+# screenshot (`sips -Z 640`). One line per image, so a log reader that only gets the last ~5000 lines still gets every
+# image. The total base64 is capped at DAYLIGHT_UI_THUMBS_MAX_BYTES (default 2500000); images past it are skipped with
+# a line naming how many. Decode one with:
+#   grep -A1 'UI-THUMB-BEGIN <path>' log | tail -1 | cut -c30- | base64 -d > shot.jpg   (cut drops the timestamp) Never fails the build: no sips, no folder or a bad image only prints a line.
 # Usage: scripts/ui-thumbs.sh [DIR]
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 0
@@ -75,11 +76,13 @@ total=0; printed=0; skipped=0
 for pick in "${picks[@]+"${picks[@]}"}"; do
   out="$tmp/thumb.jpg"
   rm -f "$out"
-  if ! sips -Z 560 -s format jpeg -s formatOptions 45 "$pick" --out "$out" >/dev/null 2>&1 || [[ ! -s "$out" ]]; then
+  size_px=640
+  [[ "$pick" == *-window.png ]] && size_px=480
+  if ! sips -Z "$size_px" -s format jpeg -s formatOptions 40 "$pick" --out "$out" >/dev/null 2>&1 || [[ ! -s "$out" ]]; then
     echo "ui-thumbs: sips could not convert $pick"
     continue
   fi
-  encoded="$(base64 < "$out" | tr -d '\n\r' | fold -w 76)"
+  encoded="$(base64 < "$out" | tr -d '\n\r')"
   size=${#encoded}
   if (( total + size > cap )); then
     skipped=$((skipped + 1))

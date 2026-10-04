@@ -46,6 +46,16 @@ struct UINode {
     let enabled: Bool
     /// True when an ancestor is a scroll view (its content may lie below or above the window by design).
     let inScroll: Bool
+    /// Index of the parent node in the flattened list (nil for the root).
+    let parent: Int?
+    /// The part of the screen the nearest enclosing scroll view shows (nil outside scroll views).
+    let viewport: CGRect?
+
+    /// The frame cut to the enclosing scroll view's visible area (null when scrolled out of sight).
+    var visibleFrame: CGRect {
+        guard let viewport = viewport else { return frame }
+        return frame.intersection(viewport)
+    }
 
     /// Every non-empty string the element shows (title, label, value, placeholder).
     var texts: [String] {
@@ -67,12 +77,23 @@ struct UINode {
 func flatten(_ element: XCUIElement) -> [UINode] {
     guard let snapshot = try? element.snapshot() else { return [] }
     var nodes: [UINode] = []
-    collect(snapshot, inScroll: false, into: &nodes)
+    collect(snapshot, inScroll: false, parent: nil, viewport: nil, into: &nodes)
     return nodes
 }
 
+/// True when the node at `ancestor` is an ancestor of the node at `index`.
+func isAncestor(_ ancestor: Int, of index: Int, in nodes: [UINode]) -> Bool {
+    var cursor = nodes[index].parent
+    while let current = cursor {
+        if current == ancestor { return true }
+        cursor = nodes[current].parent
+    }
+    return false
+}
+
 @MainActor
-private func collect(_ snapshot: any XCUIElementSnapshot, inScroll: Bool, into nodes: inout [UINode]) {
+private func collect(_ snapshot: any XCUIElementSnapshot, inScroll: Bool, parent: Int?, viewport: CGRect?, into nodes: inout [UINode]) {
+    let index = nodes.count
     nodes.append(UINode(
         type: snapshot.elementType,
         identifier: snapshot.identifier,
@@ -82,10 +103,15 @@ private func collect(_ snapshot: any XCUIElementSnapshot, inScroll: Bool, into n
         placeholder: snapshot.placeholderValue ?? "",
         frame: snapshot.frame,
         enabled: snapshot.isEnabled,
-        inScroll: inScroll))
-    let childrenInScroll = inScroll || snapshot.elementType == .scrollView
+        inScroll: inScroll,
+        parent: parent,
+        viewport: viewport))
+    let isScroll = snapshot.elementType == .scrollView
+    let childrenInScroll = inScroll || isScroll
+    var childViewport = viewport
+    if isScroll { childViewport = viewport.map { $0.intersection(snapshot.frame) } ?? snapshot.frame }
     for child in snapshot.children {
-        collect(child, inScroll: childrenInScroll, into: &nodes)
+        collect(child, inScroll: childrenInScroll, parent: index, viewport: childViewport, into: &nodes)
     }
 }
 
@@ -103,6 +129,7 @@ func typeName(_ type: XCUIElement.ElementType) -> String {
     case .group: return "group"
     case .scrollView: return "scrollView"
     case .tabGroup: return "tabGroup"
+    case .tab: return "tab"
     case .staticText: return "text"
     case .textField: return "textField"
     case .textView: return "textView"

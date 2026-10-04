@@ -32,8 +32,8 @@ class SourceRulesTest {
     fun edgeToEdgeInstallsTheDecorBeforeAskingForTheInsetsController() {
         // Run 37180339019: window.insetsController before setContentView threw a NullPointerException on API 33.
         val s = read("ui/EdgeToEdge.kt")
-        val decor = s.indexOf("window.decorView")
-        val controller = s.indexOf("window.insetsController")
+        val decor = s.indexOf("\n        window.decorView\n")
+        val controller = s.indexOf("window.insetsController?.setSystemBarsAppearance")
         assertTrue("window.decorView must be read first", decor in 0 until controller)
     }
 

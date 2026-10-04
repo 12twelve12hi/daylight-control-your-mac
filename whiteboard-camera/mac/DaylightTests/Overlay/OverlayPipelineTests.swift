@@ -124,6 +124,48 @@ final class OverlayPipelineTests: XCTestCase {
         pipeline.shutdown()
     }
 
+    /// OV-2: a controller that cannot be created posts row 48 once; later Settings changes (a slider drag sends many)
+    /// neither retry nor post it again until Overlay is turned off and on.
+    func testControllerCreationFailurePostsRow48OnceUntilToggled() throws {
+        let pipeline = try FramePipeline(sink: FakeSink(), settings: Settings.defaults, telemetry: Telemetry(perfLog: false), device: MTLCreateSystemDefaultDevice(), capture: FakeCapture())
+        guard pipeline.compositor != nil else {
+            pipeline.shutdown()
+            throw XCTSkip("no Metal device: the overlay controller needs one")
+        }
+        let lock = NSLock()
+        var rows = 0
+        var attempts = 0
+        pipeline.onFailure = { failure, _ in
+            lock.lock()
+            if failure == .overlayFallback { rows += 1 }
+            lock.unlock()
+        }
+        pipeline.makeOverlayEngine = {
+            lock.lock()
+            attempts += 1
+            lock.unlock()
+            throw OverlayFakes.Failure()
+        }
+        var s = overlaySettings(enabled: true)
+        pipeline.updateSettings(s)
+        XCTAssertNil(pipeline.overlayController)
+        for opacity in [0.9, 0.8, 0.7] {
+            s.overlayOpacity = opacity
+            pipeline.updateSettings(s)
+        }
+        lock.lock()
+        XCTAssertEqual(rows, 1, "row 48 once, not once per Settings change")
+        XCTAssertEqual(attempts, 1, "no retry until the setting is toggled")
+        lock.unlock()
+        pipeline.updateSettings(overlaySettings(enabled: false))
+        pipeline.updateSettings(overlaySettings(enabled: true))
+        lock.lock()
+        XCTAssertEqual(rows, 2, "turning Overlay off and on tries again")
+        XCTAssertEqual(attempts, 2)
+        lock.unlock()
+        pipeline.shutdown()
+    }
+
     func testOverlayPerfLineOnlyWithAController() throws {
         for enabled in [false, true] {
             let telemetry = Telemetry(perfLog: true)

@@ -50,6 +50,9 @@ final class FramePipeline: PipelineControl {
         /// Presenter Overlay (SPEC 6.7): exists only while `Settings.overlayEnabled`. Read with the flags the capture
         /// and render paths already copy, so a disabled overlay costs no extra lock.
         var overlay: OverlayController?
+        /// The controller could not be created and row 48 was posted; no retry (and no second row 48) until the
+        /// setting is turned off and on again (SPEC 6.7, row 48 reported once).
+        var overlayCreationFailed = false
     }
     private let flags: Locked<Flags>
     /// A governor config changed while the board was up; applied on the next return to PASSTHROUGH.
@@ -94,7 +97,7 @@ final class FramePipeline: PipelineControl {
     var onFailure: ((FailureText.Case, [String]) -> Void)?
     var latencyProbe = false
     /// The person segmentation engine a new OverlayController gets (tests inject fakes before enabling Overlay).
-    var makeOverlayEngine: () -> PersonMaskEngine = { VisionPersonEngine() }
+    var makeOverlayEngine: () throws -> PersonMaskEngine = { VisionPersonEngine() }
 
     init(sink: VirtualCameraSink, settings: Settings, telemetry: Telemetry, device: MTLDevice? = MTLCreateSystemDefaultDevice(), capture: CaptureSource? = nil, now: Double = CACurrentMediaTime()) throws {
         let validated = settings.validated()
@@ -297,21 +300,25 @@ final class FramePipeline: PipelineControl {
             let old = flags.withLock { (f: inout Flags) -> OverlayController? in
                 let current = f.overlay
                 f.overlay = nil
+                f.overlayCreationFailed = false
                 return current
             }
             if old != nil { telemetry.note("overlay", "overlay off") }
             return
         }
-        if let existing = flags.withLock({ $0.overlay }) {
+        let (existing, creationFailed) = flags.withLock { ($0.overlay, $0.overlayCreationFailed) }
+        if let existing = existing {
             existing.update(settings: validated)
             return
         }
+        if creationFailed { return }
         do {
             let controller = try OverlayController(device: device, settings: validated, telemetry: telemetry, engine: makeOverlayEngine())
             controller.onFailure = { [weak self] failure, args in self?.onFailure?(failure, args) }
             flags.withLock { $0.overlay = controller }
             telemetry.note("overlay", "overlay on (quality \(validated.overlayQuality.rawValue))")
         } catch {
+            flags.withLock { $0.overlayCreationFailed = true }
             let args = ["0", "\(error)"]
             telemetry.note("overlay", FailureText.logLine(.overlayFallback, args))
             onFailure?(.overlayFallback, args)

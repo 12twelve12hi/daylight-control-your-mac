@@ -10,6 +10,13 @@ final class PipelineSmokeTests: XCTestCase {
         return try FramePipeline(sink: sink, settings: settings, telemetry: telemetry, device: MTLCreateSystemDefaultDevice(), capture: capture)
     }
 
+    /// The pipeline facts a failed wait reports (governor state, pushes, pool, drops), so a CI failure explains itself.
+    private func describe(_ pipeline: FramePipeline, _ sink: FakeSink) -> String {
+        let out = pipeline.governorSnapshot
+        let stats = Telemetry.perfLine(pipeline.stats)
+        return "governor=\(out.state) layout=\(out.layout) sinkPushes=\(sink.pushCount) \(stats)"
+    }
+
     private func waitUntil(_ timeout: Double, _ condition: () -> Bool) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
@@ -210,8 +217,8 @@ final class PipelineSmokeTests: XCTestCase {
         XCTAssertTrue(waitUntil(2) { pipeline.stats.firstFrame?.contains("1280x720") ?? false }, "Diagnostics follows the current camera")
         XCTAssertFalse(pipeline.stats.passthroughZeroCopy, "eligibility is re-decided per frame, not once at launch")
         sink.resetRecording()
-        XCTAssertTrue(waitUntil(2) { sink.pushCount >= 3 })
-        let frame = sink.lastPixelBuffer!
+        XCTAssertTrue(waitUntil(2) { sink.pushCount >= 3 }, describe(pipeline, sink))
+        let frame = try XCTUnwrap(sink.lastPixelBuffer, describe(pipeline, sink))
         XCTAssertFalse(frame === capture.currentBuffer, "the 720p buffer never reaches the 1080p sink directly")
         XCTAssertEqual(CVPixelBufferGetWidth(frame), 1920)
         XCTAssertEqual(CVPixelBufferGetHeight(frame), 1080)
@@ -238,7 +245,7 @@ final class PipelineSmokeTests: XCTestCase {
         XCTAssertTrue(waitUntil(5) { sink.pushCount >= 1 }, "viewers get one more frame instead of a frozen face")
         pipeline.renderQueue.sync {}
         XCTAssertEqual(sink.pushCount, 1, "exactly the card after the loss")
-        let frame = sink.lastPixelBuffer!
+        let frame = try XCTUnwrap(sink.lastPixelBuffer, describe(pipeline, sink))
         XCTAssertFalse(frame === capture.buffer)
         XCTAssertTrue(SelfTest.matches(SelfTest.pixel(frame, 100, 100), Tokens.surfaceCream), "the cream card")
         XCTAssertFalse(pipeline.stats.cameraAttached)
@@ -486,15 +493,17 @@ final class PipelineSmokeTests: XCTestCase {
         pipeline.setMirrorSource(mirror)
         pipeline.setInkSource(.mirror)
         pipeline.start()
-        XCTAssertTrue(waitUntil(2) { sink.pushCount > 3 })
+        XCTAssertTrue(waitUntil(2) { sink.pushCount > 3 }, describe(pipeline, sink))
         pipeline.post(.penContact(down: true))
         // Probe a settled frame: mid-slide (progress 0.50 to 0.68) x=640 is the cream behind the sliding slot, and
         // the 67 ms tick lands there. LIVE snaps the spring to 1, and a frame still in flight is already near 1.
-        XCTAssertTrue(waitUntil(2.0) { pipeline.governorSnapshot.state == .live }, "ENGAGING settles to LIVE")
+        XCTAssertTrue(waitUntil(2.0) { pipeline.governorSnapshot.state == .live }, "ENGAGING settles to LIVE; " + describe(pipeline, sink))
         pipeline.renderQueue.sync {}
         sink.resetRecording()
-        XCTAssertTrue(waitUntil(1.0) { sink.pushCount >= 3 })
-        let frame = sink.lastPixelBuffer!
+        XCTAssertTrue(waitUntil(1.0) { sink.pushCount >= 3 }, "composed frames flow in LIVE; " + describe(pipeline, sink))
+        // No frame is reported as a failure with the pipeline's state, never as a crash that relaunches the bundle
+        // and hides the cause (CI-1, run 37179989574 mac-26).
+        let frame = try XCTUnwrap(sink.lastPixelBuffer, describe(pipeline, sink))
         XCTAssertFalse(frame === capture.buffer)
         // Composed frame: presenter on the right, mirror picture in the slot (not cream).
         XCTAssertFalse(SelfTest.matches(SelfTest.pixel(frame, 640, 540), Tokens.surfaceCream))

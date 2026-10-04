@@ -10,6 +10,20 @@ Owner of the `DaylightUITests` XCUITest target (`mac/project.yml`), `mac/Dayligh
 | App side: `--ui-test` mode and identifiers (e2f00dd) | built; UITestModeTests green | run 37180339019, mac and mac-26 jobs |
 | Suite, scripts, CI step (a3fba2a) | first run: compiled, ran in 195 s, 76 screenshots, status item menu reached directly (no fallback needed); 4 failures per appearance (round 2 below) | run 37180339019, mac job 111371850861 |
 
+| Round 2 (77c7ab6, 725eea1, 71531cb, e7b7897): fixes below, generic overflow and on-screen checks, docs check 55 of 55 | UI step green, `mac-ui-test: TEST SUCCEEDED in 168 s` (green run 1 of 3) | run 37182692894, mac job 111378699546 |
+
+### Round 2 defects fixed (each guarded by an assertion)
+
+- Settings and Welcome windows were centred while still zero wide, so on the runner's 1024 by 768 screen the Settings window's right part (the last tabs) was off screen: now sized before centring and kept on screen (guard: every window inside the screen; tab not reachable fails).
+- Nine tabs did not fit 560 pt: Settings is 720 by 520 (same guards).
+- Advanced "Perf log" label ran past the right edge; Overlay's Form laid out wider than the window on both sides: both are plain stacks now (guard: generic horizontal overflow check on every surface).
+- Test-side corrections: Form popups carry no label (found by label or value, options compared exactly); the Diagnostics report is read from the pasteboard.
+
+### Round 3 defects seen in the screenshots (in progress)
+
+- Settings > Mirror: the crop view is drawn over the "Quality" row and the footnote, and runs under the window bottom.
+- Settings > Saving: two misaligned columns; Saving and Share content vertically centred with an empty band at the top.
+
 ### Round 1 findings (run 37180339019)
 
 - Defect: Settings > Advanced "Perf log (one line per second, kept for Diagnostics and the export)" runs past the right edge of the window (label frame x 771 to 1191, window 511 to 1103).
@@ -38,11 +52,11 @@ Owner of the `DaylightUITests` XCUITest target (`mac/project.yml`), `mac/Dayligh
 ### What the suite proves
 
 1. Welcome on first launch: title, subtitle, rows 0 to 5 with the unsigned-build sentence exactly as `FailureText` and `docs/OWNER-NEXT-STEPS.md` quote it, the Launch at login toggle and Done.
-2. Every Settings tab (General, Hotkeys, Network, Mirror, Overlay, Saving, Advanced, Diagnostics): selected, scrolled to the bottom where it scrolls, the `.last` element exists and its frame lies inside the window frame; Mirror also shows "Transport" and "adb source" with their options.
-3. Preview, Diagnostics and the Allow panel each appear with their texts and buttons.
+2. Every Settings tab (General, Hotkeys, Network, Mirror, Overlay, Share, Saving, Advanced, Diagnostics; the window is 720 by 520 since round 2 so all nine tabs show): clicked directly (a tab that is not clickable fails), scrolled to the bottom where it scrolls, the `.last` element exists and its frame lies inside the window frame; every element lies horizontally inside its window, every window inside the screen; Mirror also shows "Transport" and "adb source" with their options.
+3. Preview, Diagnostics and the Allow panel each appear with their texts and buttons. The Diagnostics report is checked on the pasteboard after "Copy diagnostics", because the text view's accessibility value stops after about 512 characters.
 4. The menu lists every item in order, read from the status item or from `--ui-test-open menu`.
-5. Docs to UI: `scripts/ui-expectations.sh` extracts every Mac UI string the owner docs quote in a `menu bar > ...` or `Settings > <Tab> > ...` chain (and the Welcome window phrases) from `docs/OWNER-NEXT-STEPS.md`, `docs/SETUP.md` and `docs/TESTING-CHECKLIST.md` into `build/ui-expectations.json` (text, kind, file:line). The suite asserts each string appears in the UI as written; drift in the docs or the UI fails the test with the doc line.
-6. Each surface in light and in dark appearance; a screenshot (XCUIScreen.main.screenshot) at every step, attached to the result and saved as PNG under `build/ui-screenshots/<appearance>/NN-<step>.png`, uploaded as the artifact `mac-screenshots`.
+5. Docs to UI: `scripts/ui-expectations.sh` extracts every Mac UI string the owner docs quote in a `menu bar > ...` or `Settings > <Tab> > ...` chain (and the Welcome window phrases) from `docs/OWNER-NEXT-STEPS.md`, `docs/SETUP.md` and `docs/TESTING-CHECKLIST.md` into `build/ui-expectations.json` (text, kind, file:line; 55 strings on 2026-10-04). The suite logs "docs: checked N of M, misses K" and fails unless N equals M and K is 0. The suite asserts each string appears in the UI as written; drift in the docs or the UI fails the test with the doc line.
+6. Each surface in light and in dark appearance; a screenshot (XCUIScreen.main.screenshot) at every step, attached to the result and uploaded as the artifact `mac-screenshots` under `<appearance>/NN-<step>[-window].png`. The test runner is sandboxed and cannot write into `build/`, so `scripts/ui-thumbs.sh` exports the attachments from `build/ui-test.xcresult` and names them from its manifest; it also prints each image as a base64 JPEG line between `UI-THUMB-BEGIN` and `UI-THUMB-END` in the job log, with an accessibility dump per surface, for sessions that cannot download artifacts.
 
 ### CI
 

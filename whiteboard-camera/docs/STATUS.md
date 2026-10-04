@@ -490,4 +490,6 @@ Run https://github.com/12twelve12hi/daylight-control-your-mac/actions/runs/37163
 | Second camera device "Daylight Whiteboard (share)" for Zoom "Second camera", Meet "Present content from camera", Teams "Content from camera" | scoped: patch proposal in the handoff; the extension belongs to the Review 4 team tonight | none yet |
 | PostEvent automation of the call app's share shortcut | not built (one saved click for a permission prompt; TOO-SMALL.md section 10) | none |
 
+Run 37180339019 (head ea26915, which contains 8caff9d) proved it on macos-15: the 13 hosted `Share*Tests` passed in `make mac-test`, `make mac-smoke` printed `share:` and `follow:` probes all ok and `self-test: PASS`, and mac-26 was green. Its non-blocking UI suite failed only on the four assertions that already failed before the Share commits (Overlay popups, Advanced cut off, Diagnostics log; run 37179989574); the new Share tab and the "Share the whiteboard" submenu assertions raised nothing.
+
 Nothing here has run on the owner's Mac. The share window works on the unsigned build (it needs no camera extension); OWNER-NEXT-STEPS step 8c is the owner run.

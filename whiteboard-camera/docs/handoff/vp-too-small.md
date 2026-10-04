@@ -9,7 +9,7 @@ Writing rules: no em-dashes; LivePaper is a transflective LCD; the backlight is 
 | Commit | What | Proved by |
 |---|---|---|
 | ee69a2c | DaylightKit `Layout/FollowRegion.swift`: `FollowRegion` (fit, clamp, quad, helpers) and `FollowCamera` (hysteresis FP3 to FP7, springs FP8), tests `Layout/FollowRegionTests.swift` | kit-linux run 37179989574 green; mac `kit-test` |
-| 8caff9d | `mac/Daylight/Sources/Share/` (share window, renderer, settings, Settings tab view, menu, self-test probes), tests `mac/DaylightTests/Share/ShareTests.swift` | mac job `mac-test`, `mac-smoke` |
+| 8caff9d | `mac/Daylight/Sources/Share/` (share window, renderer, settings, Settings tab view, menu, self-test probes), tests `mac/DaylightTests/Share/ShareTests.swift` | run 37180339019 mac job: 13 `Share*Tests` passed, `share:` and `follow:` self-test probes ok, `self-test: PASS`; mac-26 green |
 | this docs commit | TOO-SMALL.md, this handoff, OWNER-NEXT-STEPS step 8c, STATUS 15, LOOSE_ENDS TS | the docs-to-UI step of `mac-ui-test` reads step 8c |
 
 Numbers with tests: FP1 to FP9 (`FollowRegionTests.testConstants` and the behaviour tests), SH1 and SH2 (`ShareWindowTests.testConstants`, `testContentSizeFitsTheScreen`, the "no change, no redraw" assertion in `testWindowShowsTheCanvasAndFollowsSettings`).

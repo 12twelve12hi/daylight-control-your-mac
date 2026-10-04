@@ -1,8 +1,8 @@
 # Testing checklist: the device run
 
-Everything the code could not prove without hardware, as atomic steps grouped into seven sessions (Session 4b is mirror over Wi-Fi, Session 6 is the optional Overlay mode) you can do on different days. Each row says what you do, what you see (or the exact log line), how long it takes, and which `docs/LOOSE_ENDS.md` row it answers (D1 to D23, E2 and so on, G rows), or "note" when a tick is enough. You never paste lines into LOOSE_ENDS: on a 📋 row you tap "Send facts to Mac" on the tablet (the web page's "?" card, or Daylight Ink > Settings > "This tablet"), and at the end of the day you choose menu bar > "Export diagnostics..." once and send back the zip it reveals in Finder. `docs/FEEDBACK.md` says what is inside and which file answers each D row. Results that surprise you: a sentence in your note, sent with the zip.
+Everything the code could not prove without hardware, as atomic steps grouped into eight sessions (Session 4b is mirror over Wi-Fi, Session 6 is the optional Overlay mode, Session 7 the optional share window for group calls) you can do on different days. Each row says what you do, what you see (or the exact log line), how long it takes, and which `docs/LOOSE_ENDS.md` row it answers (D1 to D23, E2 and so on, G rows), or "note" when a tick is enough. You never paste lines into LOOSE_ENDS: on a 📋 row you tap "Send facts to Mac" on the tablet (the web page's "?" card, or Daylight Ink > Settings > "This tablet"), and at the end of the day you choose menu bar > "Export diagnostics..." once and send back the zip it reveals in Finder. `docs/FEEDBACK.md` says what is inside and which file answers each D row. Results that surprise you: a sentence in your note, sent with the zip.
 
-Prerequisites per session are at the top of each one. Sessions 1 to 4b and 6 run on the unsigned build (the preview window stands in for the camera); session 5 needs the signed, notarized build of `docs/SIGNING.md`. Legend: 🟢 setup, ✍️ draw something, 🟡 make it fail on purpose, 🟣 confirm a file or a value, 📋 a fact the export collects (tap "Send facts to Mac" where the row says so; Export diagnostics once at the end), ⏱️ a timed wait.
+Prerequisites per session are at the top of each one. Sessions 1 to 4b, 6 and 7 run on the unsigned build (the preview window stands in for the camera); session 5 needs the signed, notarized build of `docs/SIGNING.md`. Legend: 🟢 setup, ✍️ draw something, 🟡 make it fail on purpose, 🟣 confirm a file or a value, 📋 a fact the export collects (tap "Send facts to Mac" where the row says so; Export diagnostics once at the end), ⏱️ a timed wait.
 
 Rows marked "proved in CI, confirm on device" already pass on an emulated Android 13 tablet at 1200x1600 and 200 dpi in the `android-emulator` CI job (`docs/SCREENSHOTS.md` has the pictures of every run); on the DC-1 you only confirm them.
 
@@ -200,6 +200,24 @@ Prerequisites: Daylight running with a webcam and the preview window open, in a 
 | 6.11 | 📋 | With `--perf-log`, hold the board up in Overlay for 20 s at each quality | one `perf overlay seg_ms=... mask_age_ms=... seg_dropped=... state=...` line per second next to the usual `perf` line; right after the third quality, menu bar > "Export diagnostics..." (`perf-log.txt` keeps the last 200 perf lines, about 100 s with Overlay on, so export before anything else) | 3 min | E30, PERFORMANCE.md |
 | 6.12 | 🟣 | Diagnostics or the log during Overlay | no line saying the mask had to be copied (if there is one, note it) | 30 s | E29 |
 | 6.13 | 🟢 | Settings > Overlay > switch off "Enable overlay mode"; return to the camera and wait 10 s | the Overlay menu item, the Hotkeys row and the picker choice are gone; Ctrl+Opt+Cmd+O does nothing; the `perf overlay` lines stop and the passthrough `perf` line reads as before Overlay (same fields, our code under 0.1 ms per frame) | 1 min | note |
+
+---
+
+## Session 7: big in a group call (optional) (⏱️ about 20 minutes, unsigned or signed build, a tablet and a second device in the call)
+
+Prerequisites: a tablet drawing on the Mac (Session 2 or 3), Zoom installed, and a second device (a phone or another computer) joined to the same Zoom meeting so you can see what viewers see. `docs/product/TOO-SMALL.md` explains why sharing is the only way to be big for everyone; `docs/OWNER-NEXT-STEPS.md` step 8c is the short version.
+
+| # | | Step | You see, or the log line | ⏱️ | Answers |
+|---|---|---|---|---|---|
+| 7.1 | 🟢 | menu bar > "Share the whiteboard" > "Show share window" | a window "Daylight Whiteboard" with only the page, about 85 % of the screen height; the log `share window shown (<w>x<h> pt, floats=false, titleBar=true)` | 1 min | note |
+| 7.2 | ✍️ | Draw a line and a highlighter stroke on the tablet | both appear in the window within a moment, highlighter under the ink, the same as in the preview | 1 min | note |
+| 7.3 | 🟢 | In Zoom: Share Screen (Command-Shift-S), pick the window "Daylight Whiteboard", then Share. Leave "Optimize for video clip" off | the second device shows the page as the big main picture; your camera tile stays as it is. If Zoom does not list the window: System Settings > Privacy and Security > Screen and System Audio Recording, tick zoom.us, restart Zoom | 3 min | TS-1 |
+| 7.4 | 🟣 | Cover the window with the Zoom window, draw, then minimise the share window, then bring it back | covered: the second device still follows your drawing; minimised: the share freezes; back: it moves again | 2 min | TS-2 |
+| 7.5 | 🟣 | Settings > Share > switch on "Hide the share window's title bar"; stop and start the Zoom share | note whether Zoom still lists "Daylight Whiteboard" without a title bar; switch it off again afterwards | 2 min | TS-1 |
+| 7.6 | 🟣 | Settings > Share > switch on "Open the share window when the whiteboard slides in"; close the window; touch the pen | the window appears by itself and Zoom keeps the focus | 1 min | note |
+| 7.7 | 🟣 | **The second-camera check.** Stop sharing. In Zoom: Share Screen > Advanced > "Content from 2nd Camera" (newer Zoom calls it "Second camera"), then Share. If another camera shows, click "Switch Camera" (top left) until "Daylight Camera" shows or the list comes round again | report three things in your note: (a) was "Daylight Camera" offered at all, (b) after how many "Switch Camera" clicks, (c) on the second device, is the shared picture sharp, the right way round (not mirrored), and full size. On the unsigned build the camera is not installed, so run this row on the signed build (Session 5) | 3 min | TS-3 |
+| 7.8 | 🟣 | Optional, same meeting: Zoom Settings > Share Screen > Advanced > "Use Mac System Picker" on; then hover the green button of the "Daylight Whiteboard" window | note whether a "Share" choice for Zoom appears there (a two-click path) | 2 min | TS-6 |
+| 7.9 | 🟣 | Optional: Activity Monitor while drawing for 30 s with the share window open | note Daylight's CPU percent with the window open and closed | 2 min | TS-7 |
 
 ---
 

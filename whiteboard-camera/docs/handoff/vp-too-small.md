@@ -1,6 +1,6 @@
-# Handoff: VP "too small" (phase 4, 2026-10-04)
+# Handoff: VP "too small" (phase 4, 2026-10-04), final
 
-Domain: the whiteboard is unreadable in a small call tile. Research and the ranked proposal: `docs/product/TOO-SMALL.md`. Owner run: `docs/OWNER-NEXT-STEPS.md` step 8c. Open items: `docs/LOOSE_ENDS.md` section TS. Status: `docs/STATUS.md` section 15.
+Domain: the whiteboard is unreadable in a small call tile. Research and the ranked proposal: `docs/product/TOO-SMALL.md`. Owner run: `docs/OWNER-NEXT-STEPS.md` step 8c and `docs/TESTING-CHECKLIST.md` Session 7 (row 7.7 is the Zoom second-camera check). Settings reference: `docs/SETUP.md` section 4 "Share". Open items: `docs/LOOSE_ENDS.md` section TS. Status: `docs/STATUS.md` section 15.
 
 Writing rules: no em-dashes; LivePaper is a transflective LCD; the backlight is DC dimming.
 
@@ -219,3 +219,7 @@ Extension cost with no share viewer: the share device's placeholder timer runs o
 3. Pipeline owner: the follow-the-pen wiring above.
 4. UI suite owner: `scripts/ui_expectations.py` `TABS` can gain "Share" once the suite has run the Share tab green, so the docs' "Settings > Share > ..." strings are asserted too.
 5. Product: the legibility test of ROADMAP-PROPOSAL item 0 should compare three routes, not two: camera tile, share window, and (once built) the second camera.
+
+## Status: final
+
+Final as of the docs commit that adds this section. Everything built is green in CI (runs 37180339019 and 37181016158); nothing here waits on this VP. The second camera device and the follow-the-pen wiring are handed over as written above.

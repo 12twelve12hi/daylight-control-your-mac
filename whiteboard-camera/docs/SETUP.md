@@ -34,7 +34,7 @@ Writing rules: no em-dashes; LivePaper is a transflective LCD; the backlight is 
 
 ### 1.4 The menu bar
 
-Top to bottom: the version line; "Open http://<ip>:7788 on your Daylight" (one line per address, Tailscale first with "(Tailscale)", click to copy) and a muted "http://<hostname>.local:7788 may also work on Wi-Fi"; while a tablet waits, "Allow <tablet>"; "Ink source" > "Web whiteboard" / "Daylight Ink app" / "Mirror the tablet"; "Hold" > "Auto" / "Camera" / "Studio Split" / "Whiteboard Only"; "Keep whiteboard" (ticked while pinned); "Clear"; "Camera"; "Whiteboard now (Studio Split)"; "Whiteboard now (Whiteboard Only)"; "Whiteboard now (Overlay)" (only while Settings > Overlay > "Enable overlay mode" is on, section 4 "Overlay"); "Preview window"; "Settings..."; "Diagnostics..."; "Export diagnostics..." (one zip to send back after a test, section 7); "Setup again"; "Quit Daylight". The icon shows a slashed camera when no webcam is found (row 4). A red dot with "Port 7788 is in use. Daylight is using 7789." (row 16) or "Nobody has connected yet. Same Wi-Fi? Office networks often block this: use USB or Tailscale." (row 18, after 60 s without a tablet) or "Set up over USB failed: <reason>" appears when relevant.
+Top to bottom: the version line; "Open http://<ip>:7788 on your Daylight" (one line per address, Tailscale first with "(Tailscale)", click to copy) and a muted "http://<hostname>.local:7788 may also work on Wi-Fi"; while a tablet waits, "Allow <tablet>"; "Ink source" > "Web whiteboard" / "Daylight Ink app" / "Mirror the tablet"; "Hold" > "Auto" / "Camera" / "Studio Split" / "Whiteboard Only"; "Keep whiteboard" (ticked while pinned); "Clear"; "Camera"; "Whiteboard now (Studio Split)"; "Whiteboard now (Whiteboard Only)"; "Whiteboard now (Overlay)" (only while Settings > Overlay > "Enable overlay mode" is on, section 4 "Overlay"); "Preview window"; "Share the whiteboard" > "Show share window" / "How to share it in a call..." / "Share settings..." (section 4 "Share"); "Settings..."; "Diagnostics..."; "Export diagnostics..." (one zip to send back after a test, section 7); "Setup again"; "Quit Daylight". The icon shows a slashed camera when no webcam is found (row 4). A red dot with "Port 7788 is in use. Daylight is using 7789." (row 16) or "Nobody has connected yet. Same Wi-Fi? Office networks often block this: use USB or Tailscale." (row 18, after 60 s without a tablet) or "Set up over USB failed: <reason>" appears when relevant.
 
 ### 1.5 Picking the camera in apps
 
@@ -206,6 +206,18 @@ Presenter Overlay (SPEC 6.7): the board full frame with you cut out of your back
 | "Opacity N %" | `overlayOpacity` | 100 (30 to 100) | how see-through the cut-out is |
 
 If you cannot be found in the picture 15 frames in a row, the board shows Studio Split and the menu says "Overlay mode could not find you in the camera picture, so Daylight is showing Studio Split. Turn Overlay off and on in Settings > Overlay to try again." (row 48); in a dark room the square shows your whole camera picture instead (row 49).
+
+### Share (the share window for group calls)
+
+The "Daylight Whiteboard" window shows only the page (the web whiteboard and Daylight Ink canvas at 1200 x 1600, or the mirror picture) for sharing as a window in Zoom, Meet, Teams, Slack or Webex, where a shared window fills every viewer's main picture (`docs/product/TOO-SMALL.md`). Open it from menu bar > "Share the whiteboard" > "Show share window" or the "Show share window" button at the bottom of this tab. It redraws only when the page changes, keeps working while covered by other windows, and pauses the share while minimised. The settings are stored apart from the main settings, as one JSON value under the UserDefaults key `com.twelve.daylight.share.v1`. Try it with `docs/OWNER-NEXT-STEPS.md` step 8c and `docs/TESTING-CHECKLIST.md` Session 7.
+
+| Control | Key | Default | Plain words |
+|---|---|---|---|
+| "Open the share window when the whiteboard slides in" | `openWithBoard` | off | the window appears by itself when the board engages, without taking focus from the call |
+| "Keep the share window above other windows" | `floats` | off | on keeps it on top; off lets you put it behind the call (covered is fine for sharing) |
+| "Hide the share window's title bar" | `hideTitleBar` | off | viewers see only the page; drag the page to move the window. Whether every call app lists a window without a title bar is not yet confirmed (LOOSE_ENDS TS-1) |
+
+Follow the pen (magnify the area you are writing in, inside the camera picture) is not a setting yet: its camera math is built and tested in DaylightKit (`FollowRegion`), and wiring it into the camera picture is the next step (LOOSE_ENDS TS-4).
 
 ### Saving
 

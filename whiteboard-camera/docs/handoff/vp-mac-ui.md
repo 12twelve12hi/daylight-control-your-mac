@@ -7,6 +7,16 @@ Owner of the `DaylightUITests` XCUITest target (`mac/project.yml`), `mac/Dayligh
 | Item | State | Proof |
 |---|---|---|
 | Design contract (below) | written | this file |
+| App side: `--ui-test` mode and identifiers (e2f00dd) | built; UITestModeTests green | run 37180339019, mac and mac-26 jobs |
+| Suite, scripts, CI step (a3fba2a) | first run: compiled, ran in 195 s, 76 screenshots, status item menu reached directly (no fallback needed); 4 failures per appearance (round 2 below) | run 37180339019, mac job 111371850861 |
+
+### Round 1 findings (run 37180339019)
+
+- Defect: Settings > Advanced "Perf log (one line per second, kept for Diagnostics and the export)" runs past the right edge of the window (label frame x 771 to 1191, window 511 to 1103).
+- Settings > Diagnostics tab not clickable by the suite (suspected: the eight tabs do not fit the 560 pt window).
+- Overlay popups matched only by label; SwiftUI popups expose an empty label.
+- Diagnostics window: the suite did not find the "log (last N lines):" line.
+- Artifacts and raw logs are on productionresultssa17.blob.core.windows.net, which this cloud environment's network policy blocks; the suite therefore also prints accessibility dumps and JPEG thumbnails into the job log.
 
 ## Design contract
 

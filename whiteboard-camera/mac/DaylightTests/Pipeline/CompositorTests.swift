@@ -175,7 +175,7 @@ final class CompositorTests: XCTestCase {
         }
         let thin = outputCoverage(centreRow: 270)
         let wide = outputCoverage(centreRow: 810)
-        print("camera line weight: 1 px stroke covers \(thin) output px at 1080p (\(thin * 720 / 1080) at 720p); 6 px stroke \(wide)")
+        print("hosted-test: camera line weight: 1 px stroke covers \(thin) output px at 1080p (\(thin * 720 / 1080) at 720p); 6 px stroke \(wide)")
         XCTAssertGreaterThanOrEqual(thin, 2.5 - 0.1, "2.5 output px at 1080p")
         XCTAssertGreaterThanOrEqual(thin * 720 / 1080, 2.5 * 720 / 1080 - 0.07, "1.7 output px at 720p")
         XCTAssertEqual(wide, 6 * 1080 / 1600, accuracy: 0.15, "a 6 px stroke is unchanged")

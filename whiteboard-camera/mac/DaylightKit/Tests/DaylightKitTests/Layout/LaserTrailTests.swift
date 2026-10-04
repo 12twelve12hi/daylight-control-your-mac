@@ -56,6 +56,6 @@ final class LaserTrailTests: XCTestCase {
         let z = LaserTrail.place(LaserTrail.Dot(x: 300, y: 400, radius: 10, alpha: 1), through: zoomed)!
         XCTAssertEqual(z.x + z.w / 2, 600, accuracy: 1e-9)
         XCTAssertEqual(z.w, 40, accuracy: 1e-9)
-        XCTAssertNil(LaserTrail.place(dot, through: zoomed), "outside the visible part")
+        XCTAssertNil(LaserTrail.place(LaserTrail.Dot(x: 900, y: 1200, radius: 10, alpha: 1), through: zoomed), "outside the visible part")
     }
 }

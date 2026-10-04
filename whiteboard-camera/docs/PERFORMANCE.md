@@ -88,6 +88,21 @@ These say the pipeline runs and the budgets are plausible; they say nothing abou
 
 Decisions these numbers drive: whether to switch on "Frame reuse (measure first)" (saves GPU in Whiteboard Only when nothing changes; LOOSE_ENDS E12) and "Deadline idling (measure first)" (sleeps the render clock between governor deadlines); both stay off until the numbers show a win (ARCHITECTURE 16). The spring stiffness (F11) is a feel decision, not a performance one.
 
+## 6. Follow the pen and the laser pointer (phase 5A)
+
+Follow the pen changes only the canvas quad's `dest` and `uv`: the same two IOSurface-backed canvas textures are sampled in place in the same single pass, so nothing is copied and the zero-copy passthrough path is untouched (follow applies only to composed board frames). The render queue does one `FollowCamera.update` per frame (a few dozen floating point operations and a lock to drain the rasterizer's inbox). The laser adds one blended quad per visible trail sample (at most 48) inside the panel scissor.
+
+Measured on the CI runner by `FollowPenTests.testCompositorDrawsTheFollowedQuadAndCostsNothingExtra` (GPU time, mean of 60 frames after 5 warm-up frames, printed as a `hosted-test: follow perf:` line in the mac job log):
+
+| Frame | GPU ms (macos-15 runner) |
+|---|---|
+| Whiteboard Only, full page | FILL |
+| Whiteboard Only, followed at the FP1 cap (2.5x) | FILL |
+| Studio Split, full page | FILL |
+| Studio Split, followed at the FP1 cap | FILL |
+
+The perf log (Settings > Advanced > "Perf log (one line per second, kept for Diagnostics and the export)") prints `follow: zoom <z> centre (<x>, <y>) <full page|following>` once a second while follow is on; `gpu_ms` on the `perf` line is the number to compare with follow off and on, on the owner's Mac.
+
 ## 📋 ADHD-friendly measurement checklist (⏱️ about 20 minutes, plus a 30-minute mirror soak)
 
 - [ ] 🟢 Quit Daylight; Terminal: `/Applications/Daylight.app/Contents/MacOS/Daylight --self-test --perf-log`. You see: probe lines, the Metal device name, `self-test: PASS`. Write the device and the cold command buffer time. ⏱️ 1 minute

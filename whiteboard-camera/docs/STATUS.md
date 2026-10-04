@@ -585,3 +585,15 @@ The owner's eight secrets went in on 2026-10-04 and run 37220975435 (dispatch, `
 The notary workflow's first run (37224586340, status only) found the first submission `Accepted` with no issues: the certificate, the two profiles, the hardened runtime, the timestamp and the signed adb were right the first time; Apple needed between 31 and 42 minutes. A dispatched run also keeps its own Linux concurrency groups now (LOOSE_ENDS SG-4) after a push cancelled run 37224451366's web and android jobs and skipped its mac job.
 
 Run 37224601354 (3f97fa8, dispatch `notarize: true`) produced the first notarized, stapled build: submission 117c0341 accepted after 21 seconds, `issues: null`, `stapler` worked for the DMG and the exported app, `spctl` says `accepted, source=Notarized Developer ID`; artifacts `Daylight-dmg` and `Daylight-signed` (LOOSE_ENDS SG-5). The run itself reads "cancelled" because a push replaced its queued android-emulator job (SG-4, fixed for every job in the commit that adds this paragraph).
+
+## Ink legibility (phase 5A, 2026-10-04)
+
+Camera line weight, follow the pen wired, laser pointer. Handoff: `docs/handoff/vp-ink-legibility.md`; open items: LOOSE_ENDS section IL.
+
+| What | State | Proved by |
+|---|---|---|
+| Camera line weight (D14): every stroke on the live outputs at least 2.5 output px at 1080p (highlighter 6.0), 1.7 px at 720p; tablet, JSON and PNG unchanged; no setting | built | run 37230614396 (fa949ce), all jobs green: `CameraLineWeightTests` (kit), `InkRasterizerTests`, `CompositorTests.testCameraLineWeightReachesTheOutput`, `make mac-smoke` PASS |
+| Follow the pen in Studio Split and Whiteboard Only, off by default, Settings > Advanced "Follow the pen on camera"; snap on Clear and new page, refit without animation on a layout change; zero copy kept | built | run 37231417812 (1928554), all jobs green: `FollowFrameTests` (kit), `FollowPenTests`, UI suite `checkFollowPen` (screenshots 17 and 18 in light and dark), `make mac-smoke` PASS |
+| Laser pointer (F3): web "Laser" tool, Daylight Ink Laser pill, Mac fading dot with a trail over the canvas, never saved | built; the Mac draws it once `InkRouter` calls `rasterizer.laser` (IL-4) | run 37232225890 (fa67f5b): `LaserTrailTests`, `LaserTests`, web `laser.test.ts` and `laser.spec.ts`, Android `LaserPointerTest`; `make golden-check` unchanged |
+
+Nothing here has run on the owner's Mac or the DC-1: TESTING-CHECKLIST 7.10 and 7.11 are the owner rows.

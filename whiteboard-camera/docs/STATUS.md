@@ -502,3 +502,18 @@ Full record: `docs/handoff/vp-review-4.md`. Acceptance run 37181016158 (2c2a847)
 - **Diagnostics export and `/api/facts`**: fixed WF-1 (stale result line on a resend), AF-1 (10 s head deadline), AF-2 (413 for an overflowing Content-Length), AF-3 (no control characters from a posted key in logs), DX-1 and DX-3 (IPv6 after `web:` and before `:` is redacted), DX-2 ("killed by signal N"), DX-4 (only UUID-shaped posted ids are rewritten) and DX-5 (no truncated zip after a failed write). DX-6 (self-test output is lost on a hang because stdout is buffered) is a request to the Mac UI VP.
 - **Fuzz parity**: `protocol/fuzz/` holds a seeded generator, a 761-case corpus and three harnesses (TypeScript, DaylightKit, Kotlin). `make fuzz-corpus` regenerates it; `make fuzz-check` runs in the golden job. Fixed FZ-1 (1 MiB cap, TypeScript), FZ-2 (non-UTF-8 names, Swift) and FZ-4 (STATE enums out of range, TypeScript and Swift). PROTOCOL 9 and 10 record the rules. Kotlin FZ-1, FZ-3, FZ-4 and FZ-5 are pinned as expected failures, with precise requests to the android owner.
 - **Open**: CI-1, a single mac-26 crash in `PipelineSmokeTests.testMirrorSourceIsComposedWhenSelected` (run 37179989574). It did not recur in two later runs. The test now reports state instead of crashing, and the crash frame needs the run's artifact (LOOSE_ENDS R4-5).
+
+## Emulator: Daylight Ink on an emulated DC-1 (phase 4, 2026-10-04)
+
+The new CI job `android-emulator` installs the debug APK and a test APK on an emulated Android 13 tablet (API 33 `google_apis` x86_64, forced to the DC-1's 1200x1600 at 200 dpi), runs 25 instrumented tests, kills and restores the app process, and uploads every screen as the artifact `android-screenshots` (`docs/SCREENSHOTS.md`). Details: `docs/handoff/vp-emulator.md`.
+
+- **What it found:** the APK crashed on every launch on Android 13 (EM-1, `EdgeToEdge` before `setContentView`), and the whiteboard canvas was 0 px tall (EM-2, `Toolbar` layout). Four smaller defects followed: buttons invisible to accessibility, ink lost on rotation, strokes lost on recreate, and a stray service start crashing. All six are fixed, each with a test.
+- **Why nothing caught them before:** the android job builds the APK and runs JVM tests; nothing had ever launched it.
+- **What still needs the DC-1:** the pen hardware (tool type, pressure, side button, hover), SolOS dialogs and status bar, the front-buffer renderer on SolOS, and the LivePaper transflective LCD.
+- **Checklist:** rows 3.2, 3.3, 3.6, 3.17, 4b.1 and 4b.12 are marked "proved in CI, confirm on device".
+
+Green runs of the job (non-blocking until three in a row; non-cancelled runs only):
+
+| Run | Commit | Job | Result |
+|---|---|---|---|
+| 37181876257 | 238ac9c | 111375916311 | green: `OK (25 tests)`, 12 screenshots, process-death check passed |

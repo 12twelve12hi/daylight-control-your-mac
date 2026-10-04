@@ -4,6 +4,8 @@ Everything the code could not prove without hardware, as atomic steps grouped in
 
 Prerequisites per session are at the top of each one. Sessions 1 to 4b and 6 run on the unsigned build (the preview window stands in for the camera); session 5 needs the signed, notarized build of `docs/SIGNING.md`. Legend: 🟢 setup, ✍️ draw something, 🟡 make it fail on purpose, 🟣 confirm a file or a value, 📋 a fact the export collects (tap "Send facts to Mac" where the row says so; Export diagnostics once at the end), ⏱️ a timed wait.
 
+Rows marked "proved in CI, confirm on device" already pass on an emulated Android 13 tablet at 1200x1600 and 200 dpi in the `android-emulator` CI job (`docs/SCREENSHOTS.md` has the pictures of every run); on the DC-1 you only confirm them.
+
 Writing rules: no em-dashes; LivePaper is a transflective LCD; the backlight is DC dimming; VRR is 45 to 90 Hz.
 
 How to read the log while you test: Terminal, `log stream --predicate 'subsystem == "com.twelve.daylight"' --level info`. Or menu bar > "Diagnostics..." (the last 200 lines are at the bottom). The failure rows named below are SPEC 13.3 rows; SPEC lists 1, 12, 13, 19, 21, 22, 28 and 33 as the ones to trigger on purpose on day one.
@@ -74,11 +76,11 @@ Prerequisites: "Ink source" > "Daylight Ink app"; a USB-C cable with USB debuggi
 | # | | Step | You see, or the log line | ⏱️ | Answers |
 |---|---|---|---|---|---|
 | 3.1 | 🟢 | Path A: cable in, Welcome window > "Set up over USB" | the app opens on the tablet within a few seconds; chip "Camera" with no Allow prompt | 2 min | D15 (`canDrawOverlays=true`) |
-| 3.2 | 🟢 | Path B (no cable): web page "?" > "Download Daylight Ink", Install, allow the source, open | "Welcome to Daylight Ink"; the first row switches from "Looking for your Mac... Enter its address if this takes long" to connected by itself on the same Wi-Fi; else type the Mac's address | 3 min | E15, D11 |
-| 3.3 | 🟢 | "Open the permission screen" > Daylight Ink > "Allow display over other apps" > Back; "Allow notifications"; "Start writing" | the row reads "Allowed"; the canvas appears | 2 min | note |
+| 3.2 | 🟢 | Path B (no cable): web page "?" > "Download Daylight Ink", Install, allow the source, open | "Welcome to Daylight Ink"; the first row switches from "Looking for your Mac... Enter its address if this takes long" to connected by itself on the same Wi-Fi; else type the Mac's address | 3 min | E15, D11; proved in CI, confirm on device (onboarding text, manual address to Connected (fake Mac)) |
+| 3.3 | 🟢 | "Open the permission screen" > Daylight Ink > "Allow display over other apps" > Back; "Allow notifications"; "Start writing" | the row reads "Allowed"; the canvas appears | 2 min | note; proved in CI, confirm on device (permission screen and back, "Allowed") |
 | 3.4 | 🟢 | Wi-Fi path: "Allow" on the Mac | chip "Camera" | 30 s | note |
 | 3.5 | ✍️ | Write one word | ink under the pen immediately (front buffer); chip "LIVE" within a quarter second; the board in the preview | 1 min | note |
-| 3.6 | 🟡 | Palm, finger, hover, side button in the air | nothing drawn | 1 min | note |
+| 3.6 | 🟡 | Palm, finger, hover, side button in the air | nothing drawn | 1 min | note; proved in CI, confirm on device (finger draws nothing (injected events)) |
 | 3.7 | 📋 | Settings > "This tablet" > "Send facts to Mac" (after a stroke and a side-button press) | "Sent to your Mac."; `tablet-facts.json` holds `pressureRange` (`normalised 0..1` or `raw ADC`) and `sideButton` (`BUTTON_STYLUS_PRIMARY` or `SECONDARY`) | 1 min | D3, D4 |
 | 3.8 | ✍️ | Flip the pen (eraser end) or tap "Erase", rub across the word | the touched strokes vanish on both sides | 30 s | note |
 | 3.9 | ✍️ | "Highlight", then "Undo", "Redo" | amber under black; undo on the Mac first, then the tablet; Redo back; both grey out when empty | 1 min | note |
@@ -89,7 +91,7 @@ Prerequisites: "Ink source" > "Daylight Ink app"; a USB-C cable with USB debuggi
 | 3.14 | 🟣 | Settings > "Send every pen sample at once (A/B against per-frame batching)" on; draw; compare | smoothness on the tablet and the Mac's `perf` line | 2 min | COMPARE.md |
 | 3.15 | 🟡 | Wi-Fi off for 5 s while writing, then on | chip "Looking for your Mac" then "Camera" or "LIVE" within about 10 s (strokes from the gap stay on the tablet only) | 1 min | note |
 | 3.16 | 📋 | Settings > "This tablet" > "Send facts to Mac" | "Sent to your Mac."; `tablet-facts.json` holds `model`, `release`, `display`, `density`, `tiramisuExt`, `canDrawOverlays` | 1 min | D2, D11, D15 |
-| 3.17 | 🟢 | Settings > "Show the pills now" (or "Ink source" > "Mirror the tablet" on the Mac with pills on) | two pills "Pin" and "Clear" top centre of the tablet; log `pills window added: TOP y=24 row=48px` then `pills frame x=<n> y=24 h=<n>`; "Pin" shows "KEEP" when pinned; "Hide the pills" removes them | 3 min | D5 |
+| 3.17 | 🟢 | Settings > "Show the pills now" (or "Ink source" > "Mirror the tablet" on the Mac with pills on) | two pills "Pin" and "Clear" top centre of the tablet; log `pills window added: TOP y=24 row=48px` then `pills frame x=<n> y=24 h=<n>`; "Pin" shows "KEEP" when pinned; "Hide the pills" removes them | 3 min | D5; proved in CI, confirm on device (Pin and Clear in the top strip) |
 | 3.18 | 🟣 | Over USB from the Mac's adb: `adb shell am start-foreground-service -n com.twelve.daylight.ink/.overlay.OverlayService --es pills top` | the pills appear without opening the app | 1 min | D15 |
 | 3.19 | 🟣 | Settings > "Start the pills at boot" on; reboot the tablet | the pills come back by themselves (A12 opt-in) | 3 min | A12 |
 | 3.20 | 🟢 | Next day: open the app | it reconnects with no prompt (Bonjour, then 127.0.0.1:7788, then the remembered host) | 1 min | note |
@@ -135,7 +137,7 @@ Prerequisites: Daylight Ink installed and allowed (Session 3), the tablet and th
 
 | # | | Step | You see, or the log line | ⏱️ | Answers |
 |---|---|---|---|---|---|
-| 4b.1 | 🟢 | Daylight Ink > Settings > "Share screen with your Mac" | the Android screen-capture prompt; write down its exact wording on SolOS; tap "Start now". The state line reads "Ready. The Mac starts the picture when it needs it" and the notification "Sharing screen with your Mac" appears | 2 min | D19 |
+| 4b.1 | 🟢 | Daylight Ink > Settings > "Share screen with your Mac" | the Android screen-capture prompt; write down its exact wording on SolOS; tap "Start now". The state line reads "Ready. The Mac starts the picture when it needs it" and the notification "Sharing screen with your Mac" appears | 2 min | D19; proved in CI, confirm on device (Android 13 prompt, "Start now" streams) |
 | 4b.2 | 🟢 | Look at the Mac (Diagnostics...) | within 2 s `mirror.wifi.tabletState` reads streaming, `mirror.wifi.streamSize: 1200x1600`, `mirror.wifi.engageSource: frame difference`; the tablet reads "Sharing with your Mac"; the menu shows row 37 once as information | 1 min | note |
 | 4b.3 | ✍️ | Open the SolOS note app, write one word from the camera state | the board slides in after the ink appears (within about half a second of the first stroke); note roughly how late (Session 4 measures it), and whether a still page, the clock or a blinking cursor ever starts it. Then lift the pen and wait 90 s: the board returns | 3 min | D20 |
 | 4b.4 | ⏱️ | Leave the page still for 30 s; watch `mirror.wifi.fps` | the tablet fps stays above 0 (about 4 repeat frames a second) and "The tablet's screen stream paused. Reconnecting..." (row 36) never appears | 1 min | D21 |
@@ -146,7 +148,7 @@ Prerequisites: Daylight Ink installed and allowed (Session 3), the tablet and th
 | 4b.9 | 🟡 | Mac: switch "Ink source" to "Daylight Ink app", then back to "Mirror the tablet" | the tablet reads "Ready..." while away and streams again on return with no new prompt | 1 min | note |
 | 4b.10 | 🟡 | Tap "Stop" in the tablet notification | the Mac shows the stream ended; the tablet reads "Sharing stopped on this tablet" | 1 min | note |
 | 4b.11 | 🟡 | Close Daylight Ink (swipe it away), keep the Mac on Mirror with Wi-Fi transport | the notification "Your Mac wants to mirror this screen. Tap to allow." appears (if the pills service keeps a connection); tap it, then "Start now"; the picture resumes. If nothing appears, the Mac shows "Open Daylight Ink on your Daylight to mirror over Wi-Fi." (row 38) | 2 min | D22 |
-| 4b.12 | 🟡 | Share again and tap "Cancel" in the Android prompt | the Mac shows "Daylight Ink was not allowed to share the tablet screen. On the tablet open Daylight Ink > Settings > Share screen with your Mac and choose Start now." (row 34) | 1 min | note |
+| 4b.12 | 🟡 | Share again and tap "Cancel" in the Android prompt | the Mac shows "Daylight Ink was not allowed to share the tablet screen. On the tablet open Daylight Ink > Settings > Share screen with your Mac and choose Start now." (row 34) | 1 min | note; proved in CI, confirm on device (tablet side: Cancel leaves the app healthy) |
 | 4b.13 | 🟡 | Lock the tablet screen while sharing, unlock | does sharing end ("Sharing stopped on this tablet")? | 1 min | D19 |
 | 4b.14 | 📋 | Daylight Ink > Settings > "This tablet" > "Send facts to Mac" while streaming (`mirrorEncoders`, `mirrorEncoder`, `mirrorStream` in `tablet-facts.json`); the Mac side, `mirror.wifi.bitrate`, `mirror.wifi.fps`, `mirror.wifi.decodeLatencyMs`, is in `diagnostics.txt` | the encoder name, the measured fps and bit rate, the decode latency | 2 min | D21 |
 | 4b.15 | ⏱️ | Battery and heat: charge to 100 percent, stream while writing for 60 minutes, note the percentage; then "Send facts to Mac" (`mirrorThermalMax`) | the drop per hour; thermal 3 or more means the frame rate was halved | 60 min | D23, COMPARE 2.1 |

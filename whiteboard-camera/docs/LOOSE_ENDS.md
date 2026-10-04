@@ -302,3 +302,15 @@ Engineering tickets that follow the owner's decisions of 2026-10-03, ready to be
 | R4-5 | CI-1: one mac-26 crash in `PipelineSmokeTests.testMirrorSourceIsComposedWhenSelected` (run 37179989574, artifact 11294917131). It passed on mac in that run and on both mac jobs in two later runs. | c7f7280 makes a recurrence a reported failure with the pipeline state. | Scripts owner: handoff request 4 (crash lines in the job log). Then read the frame and fix it if it is in Pipeline. |
 | R4-6 | OV-8: while the Overlay fallback draws Studio Split, the first press of D only changes the preferred layout (SPEC D46). | A second press returns to camera; Esc and O work. | Owner: a SPEC wording decision, if wanted. |
 | R4-7 | OV-7, tuning: masks older than 0.5 s show the rectangle, so a Mac that segments slower than about 0.23 s alternates between matte and rectangle. | The `perf overlay` line shows `mask_age_ms` and the state. | Session 6, together with E30 (segmentation time per quality). |
+
+## EM. Daylight Ink on an emulated DC-1 (phase 4, 2026-10-04)
+
+`docs/handoff/vp-emulator.md` lists the six defects the emulator found (EM-1 to EM-6), all fixed. The rows below are what stays open.
+
+| # | Item | Fallback in place | Owner, or how the owner confirms |
+|---|---|---|---|
+| EM-7 | Injected `MotionEvent`s stand in for the pen. Whether the DC-1's digitizer reports `TOOL_TYPE_STYLUS` and `TOOL_TYPE_ERASER`, its pressure range, side button and hover is unproved (D3, D4). | `PenInput` draws only stylus and eraser tool types; a finger never draws. | TESTING-CHECKLIST 3.5 to 3.7. |
+| EM-8 | The emulator's capture dialog and overlay permission screen are AOSP's (`com.android.systemui`, `com.android.settings`); SolOS's may differ in package and wording (D19). | The app only fires the intents and reacts to the result; it never looks for the dialog's buttons. | TESTING-CHECKLIST 3.3, 4b.1 and 4b.12. |
+| EM-9 | OnboardingActivity reconnects on every keystroke in the host field. | Harmless: the last address wins. | Android owner, optional: debounce by 500 ms. |
+| EM-10 | `OverlayService.onCreate` calls `startForeground` unguarded; a plain `startService` from the background would throw on Android 12 and later. Only Settings sends one, from the foreground. | None needed today. | Android owner, optional: wrap it like `ScreenStreamService`. |
+| EM-11 | The job is non-blocking (`continue-on-error: true`) until three consecutive non-cancelled green runs; STATUS records them. | A red emulator run fails no other job. | Emulator VP: remove `continue-on-error` naming the three runs. |

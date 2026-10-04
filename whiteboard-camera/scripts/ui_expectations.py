@@ -11,7 +11,7 @@ Chains recognised (Mac only):
   Settings > <Tab> > [switch on|off] "L"   kind setting (tab)
   Settings > <Tab> > "L" > "O" [/ "P"]     kind option (tab, parent L)
   menu bar > "Settings..." > <Tab> > ...   the same as Settings > <Tab> > ...
-Skipped: "System Settings > ...", "Daylight Ink > Settings > ...", "Settings > <not a Mac tab>" (Android, Zoom, Chrome).
+Skipped: "System Settings > ...", "Daylight Ink > Settings > ...", "Zoom Settings > ...", "Settings > <not a Mac tab>" (Android, Zoom, Chrome).
 Welcome window phrases (kind welcome):
   "Welcome to Daylight" (not "Welcome to Daylight Ink"), a quote in parentheses right after it, the quote after
   "first row reads", the titles after "Its rows, in order:" on such a line, the quotes in a "Welcome window: ..."
@@ -36,7 +36,7 @@ ROOT_SETTINGS = re.compile(r'(?<![A-Za-z])Settings' + SEP + r'([A-Z][A-Za-z]+)\b
 NEXT_QUOTE = re.compile(SEP + r'(?:switch (?:on|off) )?' + Q)
 ALT_QUOTE = re.compile(r'\s*/\s*' + Q)
 NEXT_TAB = re.compile(SEP + r'([A-Z][A-Za-z]+)\b')
-SKIP_BEFORE = ("System ", "Ink > ", "Ink ", "options > ", "app's ")
+SKIP_BEFORE = ("System ", "Ink > ", "Ink ", "options > ", "app's ", "Zoom ")
 
 
 def clean(text):

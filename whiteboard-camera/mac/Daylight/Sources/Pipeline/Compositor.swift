@@ -50,17 +50,25 @@ final class Compositor {
     /// The amber outline's distance from the person, in mask texels.
     static let defaultHaloRadius: Float = 3
 
+    /// One laser pointer dot in output pixels (LOOSE_ENDS F3), drawn over the canvas quad, inside the panel scissor.
+    struct LaserDot: Equatable {
+        var rect: PixelRect
+        var alpha: Double
+    }
+
     struct Inputs {
         var presenter: CVPixelBuffer?
         var canvas: CanvasInput
         var frame: StudioLayout.Frame
         var overlay: OverlayInput?
+        var laser: [LaserDot]
 
-        init(presenter: CVPixelBuffer?, canvas: CanvasInput, frame: StudioLayout.Frame, overlay: OverlayInput? = nil) {
+        init(presenter: CVPixelBuffer?, canvas: CanvasInput, frame: StudioLayout.Frame, overlay: OverlayInput? = nil, laser: [LaserDot] = []) {
             self.presenter = presenter
             self.canvas = canvas
             self.frame = frame
             self.overlay = overlay
+            self.laser = laser
         }
     }
 
@@ -69,6 +77,7 @@ final class Compositor {
     private let texturedPipeline: MTLRenderPipelineState
     private let canvasPipeline: MTLRenderPipelineState
     private let solidPipeline: MTLRenderPipelineState
+    private let dotPipeline: MTLRenderPipelineState
     private let library: MTLLibrary
     /// Created on the first overlay frame, so a library without `daylight_overlay` never breaks the other pipelines.
     private var overlayPipeline: MTLRenderPipelineState?
@@ -100,6 +109,7 @@ final class Compositor {
         texturedPipeline = try Compositor.makePipeline(device: device, vertex: vertex, fragment: try function("daylight_textured"), blending: false, label: "textured")
         canvasPipeline = try Compositor.makePipeline(device: device, vertex: vertex, fragment: try function("daylight_canvas"), blending: false, label: "canvas")
         solidPipeline = try Compositor.makePipeline(device: device, vertex: vertex, fragment: try function("daylight_solid"), blending: true, label: "solid")
+        dotPipeline = try Compositor.makePipeline(device: device, vertex: vertex, fragment: try function("daylight_dot"), blending: true, label: "dot")
         var cache: CVMetalTextureCache?
         let usage = MTLTextureUsage([.renderTarget, .shaderRead])
         let textureAttributes: [CFString: Any] = [kCVMetalTextureUsage: usage.rawValue]
@@ -205,6 +215,15 @@ final class Compositor {
             }
             for border in frame.borders {
                 drawSolid(encoder, rect: border, color: Tokens.borderSubtle, alpha: 1)
+            }
+            // The laser pointer: over the page, never in it (the canvas surfaces and the store never see it).
+            if frame.canvas != nil, !inputs.laser.isEmpty {
+                encoder.setRenderPipelineState(dotPipeline)
+                for dot in inputs.laser where dot.rect.w > 0 && dot.rect.h > 0 {
+                    var c = Compositor.float4(LaserTrail.color, alpha: min(max(dot.alpha, 0), 1))
+                    encoder.setFragmentBytes(&c, length: MemoryLayout<SIMD4<Float>>.size, index: 0)
+                    drawQuad(encoder, dest: dot.rect, uv: .full)
+                }
             }
             encoder.setScissorRect(fullScissor)
         }

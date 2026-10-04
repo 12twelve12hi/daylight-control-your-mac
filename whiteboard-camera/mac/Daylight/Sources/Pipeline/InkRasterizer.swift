@@ -2,6 +2,7 @@ import CoreGraphics
 import DaylightKit
 import Foundation
 import IOSurface
+import QuartzCore
 
 /// Draws `CanvasOp`s from the stroke model into the two canvas IOSurfaces with CoreGraphics (ARCHITECTURE 4):
 /// one `IOSurfaceLock` per op, a cached `CGContext` per layer (`byteOrder32Little | premultipliedFirst`, y-flipped CTM
@@ -39,6 +40,13 @@ final class InkRasterizer {
             clearAll()
             surfaces.activity.noteCleared()
         }
+    }
+
+    /// LASER_POINT (PROTOCOL 6.9): a trail sample for the camera board only. It never touches the canvas surfaces or
+    /// the store, so it is never saved, undone or erased.
+    func laser(x: Double, y: Double, intensity: Double, decay: Double, now: Double = CACurrentMediaTime()) {
+        let w = Double(surfaces.width), h = Double(surfaces.height)
+        surfaces.laser.withLock { $0.add(x: x, y: y, intensity: intensity, decay: decay, now: now, canvasWidth: w, canvasHeight: h) }
     }
 
     func clearAll() {

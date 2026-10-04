@@ -567,7 +567,8 @@ final class FramePipeline: PipelineControl {
             return
         }
         let presenter = cameraSlot.take()?.buffer
-        let inputs = Compositor.Inputs(presenter: presenter, canvas: canvas, frame: frame, overlay: overlayInput)
+        let laser = FramePipeline.laserDots(surfaces: surfaces, frame: frame, layers: f.inkSource != .mirror, now: now)
+        let inputs = Compositor.Inputs(presenter: presenter, canvas: canvas, frame: frame, overlay: overlayInput, laser: laser)
         let progress = out.progress
         compositor.render(inputs, into: target) { [weak self] gpuSeconds in
             guard let self = self else { return }
@@ -619,6 +620,19 @@ final class FramePipeline: PipelineControl {
             && CVPixelBufferGetWidth(pixelBuffer) == outputWidth
             && CVPixelBufferGetHeight(pixelBuffer) == outputHeight
             && CVPixelBufferGetPixelFormatType(pixelBuffer) == kCVPixelFormatType_32BGRA
+    }
+
+    /// The laser trail at `now`, placed through the frame's canvas quad (so it follows the pen camera too); none for
+    /// mirror pictures or frames without a canvas.
+    static func laserDots(surfaces: CanvasSurfaces, frame: StudioLayout.Frame, layers: Bool, now: Double) -> [Compositor.LaserDot] {
+        let dots = surfaces.laser.withLock { (trail: inout LaserTrail) -> [LaserTrail.Dot] in
+            trail.isEmpty ? [] : trail.dots(at: now)
+        }
+        guard layers, let quad = frame.canvas, !dots.isEmpty else { return [] }
+        let w = Double(surfaces.width), h = Double(surfaces.height)
+        return dots.compactMap { dot in
+            LaserTrail.place(dot, through: quad, canvasWidth: w, canvasHeight: h).map { Compositor.LaserDot(rect: $0, alpha: dot.alpha) }
+        }
     }
 
     private func recordComposedFrame(gpuMs: Double, progress: Double) {

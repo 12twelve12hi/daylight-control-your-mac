@@ -44,3 +44,10 @@ fragment float4 daylight_canvas(RasterData in [[stage_in]],
 fragment float4 daylight_solid(RasterData in [[stage_in]], constant float4 &color [[buffer(0)]]) {
     return color;
 }
+
+/// Laser pointer dot (LOOSE_ENDS F3): a disc filling the quad with a soft edge, alpha from the trail (blended).
+fragment float4 daylight_dot(RasterData in [[stage_in]], constant float4 &color [[buffer(0)]]) {
+    float d = length(in.uv * 2.0 - 1.0);
+    float a = color.a * (1.0 - smoothstep(0.7, 1.0, d));
+    return float4(color.rgb, a);
+}

@@ -21,6 +21,8 @@ final class CanvasSurfaces {
     let highlightTexture: MTLTexture?
     /// Ink boxes and page clears for follow the pen (written on ink.queue, drained on the render queue).
     let activity = InkActivity()
+    /// The laser pointer trail (LOOSE_ENDS F3): written on ink.queue, read on the render queue. Not part of the page.
+    let laser = Locked(LaserTrail())
     private let writes = Locked<UInt32>(0)
 
     init(device: MTLDevice?, width: Int = SolStream.canvasWidth, height: Int = SolStream.canvasHeight) throws {

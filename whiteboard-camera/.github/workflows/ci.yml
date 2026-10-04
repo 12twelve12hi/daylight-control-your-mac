@@ -15,12 +15,14 @@ on:
         default: false
 
 # Concurrency is per job (LOOSE_ENDS B16): the Linux jobs cancel their older runs for fast feedback; a mac job
-# that has started always finishes, with at most one newer mac job waiting behind it.
+# that has started always finishes, with at most one newer mac job waiting behind it. A dispatched run (a notarize
+# build) keeps its own Linux groups: run 37224451366 lost web and android to a push on the same ref, and its mac job
+# was skipped with them (LOOSE_ENDS SG-4).
 jobs:
   golden:
     runs-on: ubuntu-latest
     concurrency:
-      group: wbc-golden-${{ github.ref }}
+      group: wbc-golden-${{ github.ref }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || 'push' }}
       cancel-in-progress: true
     timeout-minutes: 10
     steps:
@@ -33,7 +35,7 @@ jobs:
   web:
     runs-on: ubuntu-latest
     concurrency:
-      group: wbc-web-${{ github.ref }}
+      group: wbc-web-${{ github.ref }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || 'push' }}
       cancel-in-progress: true
     timeout-minutes: 20
     steps:
@@ -61,7 +63,7 @@ jobs:
   android:
     runs-on: ubuntu-latest
     concurrency:
-      group: wbc-android-${{ github.ref }}
+      group: wbc-android-${{ github.ref }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || 'push' }}
       cancel-in-progress: true
     timeout-minutes: 30
     steps:
@@ -88,7 +90,7 @@ jobs:
   kit-linux:
     runs-on: ubuntu-latest
     concurrency:
-      group: wbc-kit-linux-${{ github.ref }}
+      group: wbc-kit-linux-${{ github.ref }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || 'push' }}
       cancel-in-progress: true
     timeout-minutes: 20
     container: swift:6.4-noble   # the official image has no make or python3, so the scripts run directly

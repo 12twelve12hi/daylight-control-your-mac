@@ -512,8 +512,13 @@ The new CI job `android-emulator` installs the debug APK and a test APK on an em
 - **What still needs the DC-1:** the pen hardware (tool type, pressure, side button, hover), SolOS dialogs and status bar, the front-buffer renderer on SolOS, and the LivePaper transflective LCD.
 - **Checklist:** rows 3.2, 3.3, 3.6, 3.17, 4b.1 and 4b.12 are marked "proved in CI, confirm on device".
 
-Green runs of the job (non-blocking until three in a row; non-cancelled runs only):
+Runs of the job that finished (cancelled runs do not count). Promoted to blocking after the three green runs in a row marked below:
 
 | Run | Commit | Job | Result |
 |---|---|---|---|
 | 37181876257 | 238ac9c | 111375916311 | green: `OK (25 tests)`, 12 screenshots, process-death check passed |
+| 37182541606 | afaed7d | 111377836433 | green |
+| 37182692894 | cdab9e7 | 111378272816 | red: a system dialog held focus (an ANR trace on the device, none of the app), 19 of 25 tests failed at once; fixed in 5874bbf (the script closes system dialogs) and 742d056 (the tests require window focus first) |
+| 37183448543 | 5874bbf | 111380456579 | green, streak 1 |
+| 37183673841 | b121134 | 111381109320 | green, streak 2 |
+| 37184526410 | 5302551 | 111383580460 | green, streak 3: `continue-on-error` removed from both workflows |

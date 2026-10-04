@@ -240,12 +240,11 @@ jobs:
 
   # Instrumented tests of Daylight Ink on an emulated Android 13 tablet shaped like the Daylight DC-1 (docs/SCREENSHOTS.md):
   # API 33 google_apis x86_64 on the "Nexus 10" profile, forced to 1200x1600 at 200 dpi by scripts/android-emulator.sh.
-  # Uses reactivecircus/android-emulator-runner@v2 with its README's KVM step and AVD snapshot cache recipe. Non-blocking
-  # for now: continue-on-error keeps a red run from failing the workflow; it is promoted to blocking after three green
-  # runs in a row. No other job needs it.
+  # Uses reactivecircus/android-emulator-runner@v2 with its README's KVM step and AVD snapshot cache recipe. Blocking
+  # since three green runs in a row (37183448543, 37183673841, 37184526410): a red run fails the workflow. No other job
+  # needs it.
   android-emulator:
     runs-on: ubuntu-latest
-    continue-on-error: true
     concurrency:
       group: wbc-android-emulator-${{ github.ref }}
       # Like the mac job: a started run finishes (the emulator needs about 20 minutes and the branch takes pushes from

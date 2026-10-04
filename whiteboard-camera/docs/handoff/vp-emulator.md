@@ -58,7 +58,7 @@ TESTING-CHECKLIST rows that the emulator already proves are marked "proved in CI
 
 ## 5. Green streak and promotion to blocking
 
-The record is the table in `docs/STATUS.md`, section "Emulator: Daylight Ink on an emulated DC-1". The job stays `continue-on-error: true` until three consecutive non-cancelled runs are green; the commit that removes it names the three runs.
+The record is the table in `docs/STATUS.md`, section "Emulator: Daylight Ink on an emulated DC-1". Promoted to blocking after runs 37183448543 (5874bbf), 37183673841 (b121134) and 37184526410 (5302551), green in a row. Run 37182692894 (cdab9e7) failed before them: a system dialog held focus (an ANR trace on the device, none of the app) and 19 tests failed at once. 5874bbf makes the script close system dialogs and print every process's ANR lines; 742d056 makes the tests dismiss a foreign "isn't responding" dialog and require window focus, failing with the focused window's name otherwise. No assertion was weakened.
 
 ## 6. UNVERIFIED, each with its guard
 
@@ -70,4 +70,5 @@ The record is the table in `docs/STATUS.md`, section "Emulator: Daylight Ink on 
 
 - **Commit trailers:** every commit carries this session's own attribution trailers, not the charter's pair, which names another session.
 - **Delegation:** an Opus manager built the CI job and another the tests and fixes. Sonnet workers only extracted CI log excerpts. The VP read every diff before committing and checked every claim against the CI logs.
-- **Review 4 request 3:** the Kotlin codec divergences FZ-1, FZ-3, FZ-4 and FZ-5 (LOOSE_ENDS R4-3) are taken up in this domain; see LOOSE_ENDS EM.
+- **Review 4 request 3, done in ed354b2:** the decoder caps payload_len at 1 MiB (FZ-1); ACK status outside 0..3 (FZ-3), STATE enums out of range (FZ-4) and MIRROR_CONTROL commands above 3 (FZ-5) no longer decode. An unreadable ACK while awaiting one makes Link INCOMPATIBLE ("Update Daylight", close 1002) instead of hanging at connecting. `FuzzCorpusTest.knownDivergent` is empty. Tests: `SolStreamTest`, `MirrorFramingTest` and `LinkTest` new cases.
+- **Review 4 request 7, done in cdab9e7:** a second "Send facts to Mac" tap while sending is ignored (`SettingsFactsTest.aSecondTapWhileSendingIsIgnored`).

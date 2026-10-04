@@ -1,6 +1,6 @@
 # Emulator screenshots: where every CI run puts them
 
-The `android-emulator` CI job runs the Daylight Ink instrumented tests on an emulated Android 13 tablet shaped like the Daylight DC-1 and keeps what the screen showed. It is in both workflows (`/.github/workflows/whiteboard-camera.yml` in the monorepo, `.github/workflows/ci.yml` standalone), runs beside the other Linux jobs and blocks nothing yet: it has `continue-on-error: true` until it has been green three runs in a row, then it becomes blocking. Locally: boot any API 33 emulator, then `make android-emulator-build android-emulator`.
+The `android-emulator` CI job runs the Daylight Ink instrumented tests on an emulated Android 13 tablet shaped like the Daylight DC-1 and keeps what the screen showed. It is in both workflows (`/.github/workflows/whiteboard-camera.yml` in the monorepo, `.github/workflows/ci.yml` standalone), runs beside the other Linux jobs and is blocking: a red run fails the workflow. It ran with `continue-on-error: true` until it had been green three runs in a row (37183448543, 37183673841, 37184526410). Locally: boot any API 33 emulator, then `make android-emulator-build android-emulator`.
 
 ## Where to find them
 
@@ -19,7 +19,7 @@ GitHub > Actions > pick the run > scroll to **Artifacts** at the bottom of the r
 | `logcat-app.txt` | The app's share of it: every line of a process the log shows starting for `com.twelve.daylight.ink` (main and `:sub` processes), the app's tags `DaylightInk.ui`, `.net`, `.ink`, `.overlay`, `.mirror`, `.facts`, any line naming the package (ActivityManager, PackageManager), `AndroidRuntime` (crash stacks) and `TestRunner`. |
 | `anr/` | `ls.txt` (the listing of `/data/anr` on the device) and the ANR trace files pulled from it. The script runs `adb root` first, which the google_apis image allows; on an image that refuses, `ls.txt` holds the permission error and the folder stays otherwise empty. |
 
-The job fails (red, but non-blocking for now) when the instrumentation output lacks `OK (`, reports `OK (0 tests)`, contains `FAILURES!!!`, `INSTRUMENTATION_FAILED` or `Process crashed`, when logcat shows a `FATAL EXCEPTION` in `com.twelve.daylight.ink` or `ANR in com.twelve.daylight.ink`, or when the process-death check fails. Each reason is printed as a `::error::` annotation and listed in `summary.txt`. `make scripts-check` proves these rules on Linux against sample outputs.
+The job fails (and with it the workflow run) when the instrumentation output lacks `OK (`, reports `OK (0 tests)`, contains `FAILURES!!!`, `INSTRUMENTATION_FAILED` or `Process crashed`, when logcat shows a `FATAL EXCEPTION` in `com.twelve.daylight.ink` or `ANR in com.twelve.daylight.ink`, or when the process-death check fails. Each reason is printed as a `::error::` annotation and listed in `summary.txt`. `make scripts-check` proves these rules on Linux against sample outputs.
 
 ## The emulated device and why
 

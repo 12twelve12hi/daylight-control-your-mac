@@ -39,7 +39,7 @@ Three conclusions shape the rest of this page:
 
 1. **Write big and thick by default.** The pen we ship is tuned for the tablet, not for a 720p stream. The output needs a minimum line weight (D13), and users need a quiet cue about letter size (D14).
 2. **Use the pixels we have.** Zooming the output to the area being written (D15, D16) and the landscape page (D17) at least double what the far side gets.
-3. **Give a full-resolution route for detail.** A page link or a PDF after the call (D39, M3) and, for fine work, a "board as a window" a viewer can screen share (M6).
+3. **Give a full-resolution route for detail.** A page link or a PDF after the call (D39, M3) and, for fine work, the "board as a window" a viewer can screen share (M6, built in commit 8caff9d as "Share the whiteboard").
 
 The measurement that settles all of this takes 20 minutes and should come before any build: write one sentence at three sizes, join a free Zoom account and a Google Meet call from a second machine, screenshot gallery and speaker views, and read them. That test is item 1 of `ROADMAP-PROPOSAL.md`.
 
@@ -206,6 +206,8 @@ An idea that fails 1 or 3 is marked **Conflicts**. Failing 4 or 5 gives **Tensio
 - **Effort:** M. **Risk:** low. **Stance:** Fits. mmhmm's founders said the habit that stuck was recorded explanation they could watch at double speed ([Wikipedia](https://en.wikipedia.org/wiki/Phil_Libin)).
 
 ### M6. "Board as a window" for screen sharing
+
+**Status: built while this research ran** (commit 8caff9d, menu bar > "Share the whiteboard", Settings > Share; unverified on device). A parallel session is working the same "too small" problem (DaylightKit `FollowRegion`, see D16). What remains from this idea is measuring it against the camera route in the v0.2 legibility test.
 
 - **Friction:** SP5, AC4, NC2. A screen share is sent sharper and costs 50 to 75 kbps against 600 kbps for 1:1 video ([Columbia College Chicago](https://colum.teamdynamix.com/TDClient/2029/Portal/KB/Article/102394/Bandwidth-requirements-for-Zoom)); Google Meet's notes now include screenshots of shared content ([Neowin](https://www.neowin.net/news/google-meets-ai-note-taker-will-soon-start-including-presentation-screenshots/)), which probably will not see ink in a camera feed (unverified).
 - **What the user sees:** a menu item "Open board window": a clean, resizable window of the current page that the user can share as a window in any app when detail matters; the camera keeps working.

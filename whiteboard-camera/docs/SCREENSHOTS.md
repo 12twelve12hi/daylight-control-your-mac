@@ -56,3 +56,32 @@ The tests run through `am instrument` and not through Gradle's `connectedDebugAn
 ## Process death: what the check really does
 
 Killing the app process from inside a test would also kill the instrumentation, which runs in the same process, so the check is in the script after the tests. It sends the same intent a launcher tap sends (`am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n com.twelve.daylight.ink/.ui.MainActivity`), waits 3 s, presses Home, kills the process, confirms `pidof` no longer reports the old pid, sends the launcher intent again, waits 3 s and takes `90-after-process-death.png`. Because the task still exists, the second launch brings it to the front and Android recreates the activity from its saved state, as when the system reclaims a backgrounded app and the owner returns to it. It is not literally a tap in Recents; if the system had dropped the task the launch would start fresh, which the picture would show.
+
+# Mac screenshots: the app's real windows on the CI runner
+
+The `mac` job (macos-15) runs `make mac-ui-test` after `make mac-smoke`: the XCUITest suite `mac/DaylightUITests` launches the unsigned Release `Daylight.app` that the same job built, once in light and once in dark appearance, drives every window and the menu bar item, takes a screenshot at every step and checks what it sees. Owner: `docs/handoff/vp-mac-ui.md` (design, rounds, runs). Locally on a Mac with Xcode: `make mac-generate mac-debug mac-ui-test`.
+
+## Where to find them
+
+GitHub > Actions > pick the run > **Artifacts** > **mac-screenshots** (a zip, uploaded green or red). The suite's log is `ui-test.log` in the **xcodebuild-logs** artifact. For a session that cannot download artifacts, the mac job's log also carries every image as a small JPEG (one base64 line between `UI-THUMB-BEGIN <path>` and `UI-THUMB-END`) and one accessibility line per element per surface (`DaylightUITests [<appearance>] ax <surface>:`).
+
+## What is in the zip
+
+`light/` and `dark/`, each with the same numbered steps; `-window` images show the window alone, the others the whole 1024 by 768 runner screen.
+
+| Step | What it shows |
+|---|---|
+| `01-welcome` | The Welcome window on a first launch: rows 0 to 5, the unsigned-build sentence, "Allow camera access", the Ink source picker, "Launch Daylight at login", "Done" |
+| `02-menu`, `03-menu-ink-source`, `04-menu-hold`, `05-menu-share-the-whiteboard` | The menu bar item opened by a real click, then each submenu |
+| `06` to `18` `settings-<tab>-top`, `-bottom`, `-wifi` | Every Settings tab (General, Hotkeys, Network, Mirror, Overlay, Share, Saving, Advanced, Diagnostics) at the top, at the bottom where it scrolls, and Mirror with the Wi-Fi transport chosen |
+| `19-preview` | The preview window (cream and empty: the runner has no camera) |
+| `20-diagnostics` | The Diagnostics window |
+| `21-allow` | The Allow panel for a fixture tablet ("UI test tablet", 192.168.1.40) |
+
+## What the suite checks
+
+- Every window lies on the screen; every Settings tab is reachable by a click; every element lies horizontally inside its window; no two visible elements overlap; every tab's content starts under the tab bar; every popup is visible and hittable; the last element of each tab is inside the window after scrolling.
+- The texts: the Welcome rows, the menu items in order with their submenus, every popup's options, the Allow prompt, and the Diagnostics report (read from the pasteboard after "Copy diagnostics").
+- Docs to UI: `scripts/ui-expectations.sh` collects every Mac menu item, tab, setting label, option and Welcome phrase that `docs/OWNER-NEXT-STEPS.md`, `docs/SETUP.md` and `docs/TESTING-CHECKLIST.md` quote (55 on 2026-10-04) and the suite fails, naming the doc line, when one is not in the UI as written.
+
+The app runs with `--ui-test`: a throwaway settings suite (so every launch is a first launch), no camera, no camera extension, no mirror, no global hotkeys and no network listener, so the runner never shows a permission prompt. What the screenshots cannot show: the real camera picture, the virtual camera in Zoom, a connected tablet. Those stay on `docs/TESTING-CHECKLIST.md`.

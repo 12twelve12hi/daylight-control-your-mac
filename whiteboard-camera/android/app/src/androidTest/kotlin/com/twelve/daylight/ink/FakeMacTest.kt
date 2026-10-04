@@ -99,9 +99,19 @@ class FakeMacTest {
             .commit()
         TestEnv.onMain { conn.setManualHost(mac.host, remember = true) }
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-            TestEnv.waitForResumed(MainActivity::class.java)
-            assertTrue("chip shows ${Texts.KEEP}", (device.wait(Until.hasObject(By.desc(Texts.KEEP).pkg(TestEnv.PKG)), connectMs) == true))
-            assertEquals(Phase.LIVE, TestEnv.onMain { conn.phase })
+            val main = TestEnv.waitForResumed(MainActivity::class.java)
+            // Three separate steps so a failure names the layer: the connection, the chip view, the accessibility tree.
+            val live = TestEnv.waitUntil(connectMs) { TestEnv.onMain { conn.phase == Phase.LIVE && conn.lastState != null } }
+            assertTrue("LIVE with a STATE: ${connectionReport()}", live)
+            val toolbar = TestEnv.findView(main, com.twelve.daylight.ink.ui.Toolbar::class.java)
+            assertNotNull("toolbar in ${TestEnv.layoutReport(main)}", toolbar)
+            val chipText = { TestEnv.onMain { toolbar!!.chip.text } }
+            assertTrue(
+                "chip view text '${chipText()}', expected '${Texts.KEEP}': ${connectionReport()}",
+                TestEnv.waitUntil { chipText() == Texts.KEEP },
+            )
+            val seen = device.wait(Until.hasObject(By.desc(Texts.KEEP).pkg(TestEnv.PKG)), TestEnv.WAIT_MS) == true
+            assertTrue("chip '${Texts.KEEP}' not in the accessibility tree: ${TestEnv.layoutReport(main)}", seen)
             // The golden STATE carries undo depth 3 and redo depth 0: Undo is enabled from it.
             assertTrue((device.wait(Until.hasObject(By.desc(Texts.TOOL_UNDO).enabled(true)), TestEnv.WAIT_MS) == true))
             assertTrue(device.hasObject(By.desc(Texts.TOOL_REDO).enabled(false)))
@@ -131,6 +141,13 @@ class FakeMacTest {
             assertArrayEquals(golden.copyOfRange(32, 43), ink.first().copyOfRange(32, 43))
         }
     }
+
+    private fun connectionReport(): String = TestEnv.onMain {
+        val s = conn.lastState
+        "phase=${conn.phase} url=${conn.currentUrl} state=" +
+            (if (s == null) "none" else "governor=${s.governor} flags=${s.flags} inkSource=${s.inkSource}") +
+            " candidates=${conn.candidates.all()}"
+    } + " fake: port=${mac.port} offered=${mac.offeredProtocols} handshakes=${mac.handshakeNames} opcodes=${mac.opcodes()}"
 
     /** Settings > Send facts to Mac posts PROTOCOL 15 JSON to the connected Mac and shows "Sent to your Mac." */
     @Test

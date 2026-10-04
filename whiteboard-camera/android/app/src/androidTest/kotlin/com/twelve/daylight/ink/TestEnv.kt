@@ -131,6 +131,30 @@ object TestEnv {
     fun <T : View> findView(activity: Activity, cls: Class<T>): T? = onMain { findView(activity.window.decorView, cls) }
 
     /**
+     * One line per interesting view of [activity] (class, size, padding, attached, visibility; PillView text), plus
+     * the activity's lifecycle stage and window focus: failure messages carry it so a CI log explains a layout failure
+     * without screenshots.
+     */
+    fun layoutReport(activity: Activity): String = onMain {
+        val stage = ActivityLifecycleMonitorRegistry.getInstance().getLifecycleStageOf(activity)
+        val sb = StringBuilder("${activity.javaClass.simpleName} stage=$stage focus=${activity.hasWindowFocus()}")
+        fun walk(v: View, depth: Int) {
+            val name = v.javaClass.simpleName
+            val interesting = depth <= 3 || name in setOf("InkCanvasLayout", "DryInkView", "WetInkSurface", "Toolbar", "PillView", "HorizontalScrollView")
+            if (interesting) {
+                sb.append("\n  ").append("  ".repeat(depth.coerceAtMost(8))).append(name)
+                    .append(' ').append(v.width).append('x').append(v.height)
+                    .append(" pad=").append(v.paddingLeft).append(',').append(v.paddingTop).append(',').append(v.paddingRight).append(',').append(v.paddingBottom)
+                    .append(" attached=").append(v.isAttachedToWindow).append(" vis=").append(v.visibility)
+                if (v is com.twelve.daylight.ink.ui.PillView) sb.append(" text='").append(v.text).append("' sel=").append(v.isSelected)
+            }
+            if (v is ViewGroup) for (i in 0 until v.childCount) walk(v.getChildAt(i), depth + 1)
+        }
+        walk(activity.window.decorView, 0)
+        sb.toString()
+    }
+
+    /**
      * Dark pixels (luminance below 100 of 255) in what [view] draws, rendered into a bitmap on the main thread; a
      * 4 px rim is skipped. Independent of the screen rotation and of the wet layer above the dry view.
      */

@@ -52,8 +52,9 @@ class WhiteboardTest {
 
     private fun dry(a: MainActivity): DryInkView {
         val v = TestEnv.findView(a, DryInkView::class.java)
-        assertNotNull("dry ink view", v)
-        assertTrue("dry view laid out", TestEnv.waitUntil { TestEnv.onMain { v!!.width > 0 && v.height > 0 } })
+        assertNotNull("dry ink view in ${TestEnv.layoutReport(a)}", v)
+        val laidOut = TestEnv.waitUntil { TestEnv.onMain { v!!.width > 0 && v.height > 0 } }
+        assertTrue("dry view laid out: ${TestEnv.layoutReport(a)}", laidOut)
         return v!!
     }
 
@@ -64,6 +65,43 @@ class WhiteboardTest {
     }
 
     private fun strokes(a: MainActivity): Int = TestEnv.onMain { a.strokeCount }
+
+    /**
+     * The toolbar is a row, the page gets the rest. Before the Toolbar fixes the tool pills were 0 px tall (density read
+     * before it was set) and the gaps and spacers stretched the row to the full screen height, so the canvas, and the
+     * dry view in it, measured 0 x 0 (android-emulator run 37180986677).
+     */
+    @Test
+    fun toolbarLeavesTheCanvasMostOfTheScreen() {
+        launch().use { scenario ->
+            val a = scenario.current()
+            val report = TestEnv.layoutReport(a)
+            val density = TestEnv.context.resources.displayMetrics.density
+            val toolbar = TestEnv.findView(a, com.twelve.daylight.ink.ui.Toolbar::class.java)
+            assertNotNull("toolbar in $report", toolbar)
+            val sizes = TestEnv.onMain {
+                val root = a.window.decorView
+                intArrayOf(root.width, root.height, toolbar!!.height)
+            }
+            val toolbarDp = sizes[2] / density
+            // 40 dp pills, 12 + 16 dp padding, plus the navigation bar inset: well under 200 dp.
+            assertTrue("toolbar ${sizes[2]} px = $toolbarDp dp tall (window ${sizes[0]}x${sizes[1]}): $report", toolbarDp in 60f..200f)
+            val dry = dry(a)
+            val dryH = TestEnv.onMain { dry.height }
+            assertTrue("dry view ${dryH} px tall, window ${sizes[1]} px: $report", dryH >= sizes[1] / 2)
+            val pills = TestEnv.onMain {
+                val out = ArrayList<Pair<String, Int>>()
+                fun walk(v: android.view.View) {
+                    if (v is PillView) out.add(v.text to v.height)
+                    if (v is android.view.ViewGroup) for (i in 0 until v.childCount) walk(v.getChildAt(i))
+                }
+                walk(toolbar!!)
+                out
+            }
+            for ((text, h) in pills) assertTrue("pill '$text' is $h px tall: $report", h >= (36 * density).toInt())
+            assertEquals("pills in $report", 9, pills.size)
+        }
+    }
 
     /** Test 3: the page renders empty, a stylus stroke draws, a finger stroke draws nothing. */
     @Test

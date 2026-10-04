@@ -110,6 +110,15 @@ final class RedactorTests: XCTestCase {
         XCTAssertEqual(redactor.redact("mac aa:bb:cc:dd:ee:ff at 14:05:09"), "mac aa:bb:cc:dd:ee:ff at 14:05:09", "MAC addresses and times still stay")
     }
 
+    /// Finder DX-3: an IPv6 address followed by a colon (the listener's `facts from <address>: <status>` and
+    /// `client <address>: ...` lines) was left whole.
+    func testIPv6FollowedByAColonIsCut() {
+        XCTAssertEqual(redactor.redact("facts from fe80::1c2b:3d4e:5f60:7a8b: 200"), "facts from x::7a8b: 200")
+        XCTAssertEqual(redactor.redact("client 2001:db8::42: malformed header dropped"), "client x::42: malformed header dropped")
+        XCTAssertEqual(redactor.redact("x::7a8b: 200"), "x::7a8b: 200", "idempotent")
+        XCTAssertEqual(redactor.redact("at 14:05:09.123 mac a4:83:e7:12:34:56: up"), "at 14:05:09.123 mac a4:83:e7:12:34:56: up", "times and MAC addresses stay")
+    }
+
     func testSSIDsAndSecrets() {
         XCTAssertEqual(redactor.redact("SSID: Mike Home WiFi\nnext"), "SSID: <ssid>\nnext")
         XCTAssertEqual(redactor.redact("wifi ssid=Office-5G, rssi=-50"), "wifi ssid=<ssid>, rssi=-50")
@@ -458,5 +467,62 @@ final class DiagnosticsExportTests: XCTestCase {
         XCTAssertLessThan(Date().timeIntervalSince(started), 10)
         let missing = runner.run("/nonexistent/tool", [], timeout: 1, maxBytes: 10)
         XCTAssertNotNil(missing.launchError)
+    }
+
+    /// Finder DX-2: a child that crashed was reported as "exit status 11"; it is a signal, not an exit status.
+    func testRealRunnerReportsADeathBySignal() {
+        let crashed = ProcessCommandRunner().run("/bin/sh", ["-c", "kill -SEGV $$"], timeout: 10, maxBytes: 1000)
+        XCTAssertFalse(crashed.timedOut)
+        XCTAssertNil(crashed.exitStatus)
+        XCTAssertEqual(crashed.signal, SIGSEGV)
+        let clean = ProcessCommandRunner().run("/bin/sh", ["-c", "exit 11"], timeout: 10, maxBytes: 1000)
+        XCTAssertEqual(clean.exitStatus, 11)
+        XCTAssertNil(clean.signal)
+    }
+
+    func testCrashedCommandIsNamedASignalInRow46AndTheManifest() throws {
+        let runner = FakeCommandRunner()
+        runner.results["log"] = CommandResult(output: Data(), exitStatus: nil, signal: 11)
+        runner.results["Daylight"] = CommandResult(output: Data("self-test: ok   render\n".utf8), exitStatus: nil, signal: 6)
+        let export = exporter(runner: runner)
+        var events: [DiagnosticsExporter.Event] = []
+        export.onEvent = { events.append($0) }
+        let outcome = try export.export(snapshot(), runSelfTest: true).get()
+        XCTAssertEqual(outcome.missing["unified-log.txt"], "log show was killed by signal 11")
+        XCTAssertTrue(events.contains(.partMissing(part: "the unified log", reason: "log show was killed by signal 11")))
+        let manifest = try entries(outcome)["MANIFEST.txt"] ?? ""
+        XCTAssertTrue(manifest.contains("killed by signal 6"), manifest)
+    }
+
+    /// Finder DX-4: an unauthenticated POST could make any 9 to 64 hex digits a "client id" that the redactor then
+    /// shortened everywhere in the zip; only UUID-shaped posted ids are shortened.
+    func testAPostedNonUUIDClientIdRewritesNothing() throws {
+        var snap = snapshot()
+        snap.diagnosticsText += "\nbytes=1000000000 frames=9000000001"
+        snap.tabletFacts.append(TabletFactsStore.Entry(
+            key: "web:000000000", source: "web", clientId: "000000000", sentAt: "2026-10-03T14:05:09Z", facts: [:],
+            receivedAt: date, remoteAddress: "192.168.1.41", allowed: false))
+        let files = try entries(try exporter(runner: FakeCommandRunner()).export(snap, runSelfTest: false).get())
+        let diagnostics = files["diagnostics.txt"] ?? ""
+        XCTAssertTrue(diagnostics.contains("bytes=1000000000 frames=9000000001"), diagnostics)
+        XCTAssertTrue(diagnostics.contains("client 6f1a2b3c... pending"), "the clients.json id is still shortened")
+        XCTAssertTrue(DiagnosticsExporter.isUUID(clientId))
+        XCTAssertTrue(DiagnosticsExporter.isUUID("AB51C6BA-17FD-4A67-BE3A-06A8540BA6AA"))
+        XCTAssertFalse(DiagnosticsExporter.isUUID("000000000"))
+        XCTAssertFalse(DiagnosticsExporter.isUUID("6f1a2b3c4d5e4f608a9b0c1d2e3f4a5b0000"))
+    }
+
+    /// Finder DX-5: a write that fails half way left a truncated diagnostics zip under the final name.
+    func testAFailedWriteLeavesNoZip() throws {
+        let folder = root.appendingPathComponent("Daylight Camera", isDirectory: true)
+        let export = exporter(folder: folder, runner: FakeCommandRunner())
+        var config = export.config
+        config.write = { data, url in
+            try Data(data.prefix(data.count / 2)).write(to: url)
+            throw DiagnosticsExporter.ExportError(reason: "disk full")
+        }
+        let failing = DiagnosticsExporter(config: config, runner: FakeCommandRunner())
+        guard case .failure = failing.export(snapshot(), runSelfTest: false) else { return XCTFail("the export must fail") }
+        XCTAssertEqual(try fm.contentsOfDirectory(atPath: folder.path), [], "no zip and no partial file left")
     }
 }

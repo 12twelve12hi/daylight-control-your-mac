@@ -5,8 +5,10 @@ import Foundation
 /// wrote more), its exit status, and whether the timeout ended it.
 struct CommandResult: Equatable {
     var output: Data
-    /// nil when the process never started (`launchError` says why) or had to be killed.
+    /// nil when the process never started (`launchError` says why), had to be killed, or died of a signal.
     var exitStatus: Int32?
+    /// The signal that ended the process when it was not the timeout's (a crash: 11 for SIGSEGV).
+    var signal: Int32?
     var timedOut: Bool
     /// The command wrote more than `maxBytes`; `output` holds the last `maxBytes`.
     var truncated: Bool
@@ -14,9 +16,10 @@ struct CommandResult: Equatable {
     var totalBytes: Int
     var launchError: String?
 
-    init(output: Data = Data(), exitStatus: Int32? = 0, timedOut: Bool = false, truncated: Bool = false, totalBytes: Int? = nil, launchError: String? = nil) {
+    init(output: Data = Data(), exitStatus: Int32? = 0, signal: Int32? = nil, timedOut: Bool = false, truncated: Bool = false, totalBytes: Int? = nil, launchError: String? = nil) {
         self.output = output
         self.exitStatus = exitStatus
+        self.signal = signal
         self.timedOut = timedOut
         self.truncated = truncated
         self.totalBytes = totalBytes ?? output.count
@@ -88,8 +91,12 @@ final class ProcessCommandRunner: CommandRunning {
         _ = reading.wait(timeout: .now() + 2)
         let buffer = collected.withLock { $0 }
         let didTimeOut = timedOut.withLock { $0 }
+        // terminationStatus is the signal number when the reason is uncaughtSignal (finder DX-2).
+        let crashed = !didTimeOut && process.terminationReason == .uncaughtSignal
+        let status: Int32? = (didTimeOut || crashed) ? nil : process.terminationStatus
+        let signal: Int32? = crashed ? process.terminationStatus : nil
         return CommandResult(
-            output: buffer.data, exitStatus: didTimeOut ? nil : process.terminationStatus, timedOut: didTimeOut,
+            output: buffer.data, exitStatus: status, signal: signal, timedOut: didTimeOut,
             truncated: buffer.total > buffer.data.count, totalBytes: buffer.total, launchError: nil)
     }
 }

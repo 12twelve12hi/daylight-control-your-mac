@@ -157,8 +157,8 @@ struct Redactor {
     private static let base64Candidate = regex("(?<![A-Za-z0-9+/_-])[A-Za-z0-9+/_-]{32,}={0,2}")
     private static let ipv4Pattern = regex("(?<![0-9.])(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\\.(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\\.(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])(?![0-9]|\\.[0-9])")
     /// Starts after a non-address character, or after a word and one colon (`web:fe80::1`, the tablet facts key of a
-    /// sender without a client id, finder DX-1).
-    private static let ipv6Candidate = regex("(?:(?<![0-9A-Za-z:.])|(?<=[A-Za-z]{2}:))(?:[0-9A-Fa-f]{0,4}:){2,7}[0-9A-Fa-f]{1,4}(?![0-9A-Fa-f:])")
+    /// sender without a client id, finder DX-1); may end before a lone colon (`client fe80::1: dropped`, DX-3).
+    private static let ipv6Candidate = regex("(?:(?<![0-9A-Za-z:.])|(?<=[A-Za-z]{2}:))(?:[0-9A-Fa-f]{0,4}:){2,7}[0-9A-Fa-f]{1,4}(?![0-9A-Fa-f]|:[0-9A-Fa-f:])")
 
     private static func regex(_ pattern: String) -> NSRegularExpression {
         // The patterns are constants; a typo fails the first test that redacts anything.

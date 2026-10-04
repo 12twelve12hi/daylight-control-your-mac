@@ -116,6 +116,8 @@ final class DiagnosticsExporter {
         var selfTestTimeout: Double = 120
         var adbVersionTimeout: Double = 5
         var timeZone: TimeZone = .current
+        /// Writes the finished zip to a file (tests make it fail half way).
+        var write: (Data, URL) throws -> Void = { data, url in try data.write(to: url, options: [.withoutOverwriting]) }
         var osVersion: String = ProcessInfo.processInfo.operatingSystemVersionString
         var macModel: String = DiagnosticsExporter.hardwareModel()
 
@@ -189,7 +191,9 @@ final class DiagnosticsExporter {
     func export(_ snapshot: Snapshot, runSelfTest: Bool) -> Result<Outcome, ExportError> {
         emit(.running("collecting app facts"))
         let clientsText = try? String(contentsOf: config.clientsFile, encoding: .utf8)
-        let ids = DiagnosticsExporter.clientIds(clientsJSON: clientsText) + snapshot.tabletFacts.compactMap { $0.clientId }
+        // A posted clientId is unauthenticated: only a UUID-shaped one may join the replace-everywhere list (DX-4).
+        let postedIds = snapshot.tabletFacts.compactMap { $0.clientId }.filter { DiagnosticsExporter.isUUID($0) }
+        let ids = DiagnosticsExporter.clientIds(clientsJSON: clientsText) + postedIds
         let redactor = Redactor(home: config.home, keptRoots: config.keptRoots, clientIds: ids)
         var parts: [Collected] = []
         parts.append(text(.diagnostics, snapshot.diagnosticsText, redactor))
@@ -226,7 +230,16 @@ final class DiagnosticsExporter {
         do {
             try FileManager.default.createDirectory(at: config.folder, withIntermediateDirectories: true)
             url = DiagnosticsExporter.uniqueURL(in: config.folder, date: snapshot.date, timeZone: config.timeZone)
-            try archive.write(to: url, options: [.withoutOverwriting])
+            // Written under a hidden name first and moved into place (a move never replaces an existing file), so a
+            // failed write leaves no truncated diagnostics zip behind (DX-5).
+            let partial = config.folder.appendingPathComponent(".\(UUID().uuidString).partial")
+            do {
+                try config.write(archive, partial)
+                try FileManager.default.moveItem(at: partial, to: url)
+            } catch {
+                try? FileManager.default.removeItem(at: partial)
+                throw error
+            }
         } catch {
             return fail(error.localizedDescription)
         }
@@ -331,6 +344,9 @@ final class DiagnosticsExporter {
         if result.timedOut && result.output.isEmpty {
             return missing(part, "\(tool) timed out after \(Int(timeout)) s")
         }
+        if let signal = result.signal, !keepOnFailure {
+            return missing(part, "\(tool) was killed by signal \(signal)")
+        }
         if let status = result.exitStatus, status != 0, !keepOnFailure {
             let first: String = result.text.split(separator: "\n").first.map(String.init) ?? ""
             var reason = "\(tool) exited with status \(status)"
@@ -348,6 +364,7 @@ final class DiagnosticsExporter {
         var c = Collected(part: part)
         if result.timedOut { c.extraNote = "partial: \(tool) timed out after \(Int(timeout)) s" }
         if let status = result.exitStatus, status != 0 { c.extraNote = "exit status \(status)" }
+        if let signal = result.signal { c.extraNote = "killed by signal \(signal)" }
         let bounded = DiagnosticsExporter.bound(Data(redactor.redact(text).utf8), cap: part.cap, keepTail: part.keepsTail)
         c.data = bounded.data
         if result.truncated || pre.truncatedFrom != nil || bounded.truncatedFrom != nil {
@@ -504,6 +521,21 @@ final class DiagnosticsExporter {
             n += 1
         }
         return candidate
+    }
+
+    /// `8-4-4-4-12` hex digits, the shape of a SolStream client id string.
+    static func isUUID(_ text: String) -> Bool {
+        let chars = Array(text.utf8)
+        guard chars.count == 36 else { return false }
+        for (i, c) in chars.enumerated() {
+            let isDashSlot = i == 8 || i == 13 || i == 18 || i == 23
+            let isDigit = c >= 48 && c <= 57
+            let isUpper = c >= 65 && c <= 70
+            let isLower = c >= 97 && c <= 102
+            if isDashSlot && c != 45 { return false }
+            if !isDashSlot && !(isDigit || isUpper || isLower) { return false }
+        }
+        return true
     }
 
     /// The `id` of every record in a clients.json text.

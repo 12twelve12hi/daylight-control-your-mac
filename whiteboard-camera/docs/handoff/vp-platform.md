@@ -55,7 +55,7 @@ Owner of `scripts/`, `Makefile`, both workflows, `mac/project.yml`, `mac/Dayligh
 
 ## Decisions recorded
 
-- Commit trailers: the charter and a later message from the CEO session asked for "Claude Fable 5.1" and the CEO's session URL. The harness of this session sets this session's own model and session URL for attribution, and a co-author line naming a model and session that did not write the commit would be inaccurate, so the commits carry this session's own trailers.
+- Commit trailers: the charter and a later message from the CEO session asked for a fixed co-author name and the CEO's session URL. The harness of this session sets this session's own model and session URL for attribution, and a co-author line naming a model and session that did not write the commit would be inaccurate, so the commits carry this session's own trailers.
 - No managers or workers were spawned: the scope fitted one context, and every claim here is checked against the code and the CI run named.
 
 ## Owner-facing text

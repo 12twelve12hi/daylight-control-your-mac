@@ -109,7 +109,7 @@ Frequency: **Daily** (most calls for the people who feel it), **Weekly**, **Occa
 ### SP5. The far side cannot read it
 - **Who:** every viewer; worst on phones, in gallery view and on weak links.
 - **Evidence:** camera video "can be as low as 640x360" while screen shares are sent sharper ([statusq.org](https://statusq.org/?p=9834), search summary); Zoom 1080p is limited to Business plans and active-speaker layout ([Boise State](https://talk-boisestate.atlassian.net/wiki/spaces/LTS/pages/1928462337/Using+1080p+HD+Video+in+Zoom), search summary); virtual-camera text looked blurrier than window capture ([OBS forum](https://obsproject.com/forum/threads/blurry-text-in-ndi-virtual-cam-in-zoom-%E2%80%94-zoom-window-capture-not-blurry-at-all.124824)); "it's tough to make out what's written on the whiteboard" ([Vani](https://www.vanihq.com/blog/online-whiteboarding.html)); students' pencil "too light to see" on webcams ([The Sassy Math Teacher](https://www.thesassymathteacher.com/zoom-classroom-math-activities-for-students-with-a-document-camera/)).
-- **Today:** spotlight or pin, screen share instead, physical boards with Logitech Scribe ($1,199) or ShareTheBoard ([ShareTheBoard](https://sharetheboard.com/whiteboard-capture)).
+- **Today:** spotlight or pin, screen share instead (`TOO-SMALL.md` sets out the camera track versus the content track with platform sources), physical boards with Logitech Scribe ($1,199) or ShareTheBoard ([ShareTheBoard](https://sharetheboard.com/whiteboard-capture)).
 - **DC-1, inference:** by our own geometry the default 3.2 px pen becomes 0.7 px at 360p (`DRAWING-DEEP-DIVE.md` section 1). This is the product's biggest physical risk. Partial fit until legibility work lands.
 
 ### SP6. One-way: the far side cannot draw back
@@ -237,7 +237,7 @@ Frequency: **Daily** (most calls for the people who feel it), **Weekly**, **Occa
 
 ### AC6. Sign language interpreters must stay large
 - **Evidence:** "incredibly difficult to understand a sign language interpreter when they are two inches on screen" ([GCcollab PDF](https://wiki.gccollab.ca/images/a/a8/MS_Teams_and_Zoom_features_for_sign_language_interpretation.pdf)); signing stays intelligible down to 15 fps and drops sharply at 5 (MobileASL, [UW](https://dada.cs.washington.edu/research/mobileasl/downloads/assets090-cherniavsky.pdf)).
-- **DC-1, inference:** a Risk only if our feed tempts hosts to spotlight it over the interpreter; our tip (D19) should say "spotlight me when I draw", not "pin me". Never drop camera frame rate to save CPU (we hold 30 fps).
+- **DC-1, inference:** a Risk only if our feed tempts hosts to spotlight it over the interpreter; our "make it big" prompt (D19) points at a share of the board, which leaves the interpreter's tile alone. Never drop camera frame rate to save CPU (we hold 30 fps).
 
 ### AC7. Older adults and setup burden
 - **Evidence:** 38 percent of older Americans were not ready for video visits, with "not knowing how to connect to the platform (24%)" and "difficulty hearing (15.2%)" ([MobiHealthNews](https://www.mobihealthnews.com/news/jama-study-warns-telemedicine-not-suitable-38-patients-over-65)); grandparent guides say "Make sure the camera is pointed at Grandma's face (and not the ceiling fan)" ([The Senior](https://www.thesenior.com.au/story/6844105/how-to-make-video-calls-with-the-grandkids-childs-play/)).

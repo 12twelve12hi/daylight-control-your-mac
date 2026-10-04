@@ -16,6 +16,9 @@ class Toolbar(context: Context) : LinearLayout(context) {
         fun undo(); fun redo(); fun newPage(); fun clear(); fun openSettings()
     }
 
+    // Declared first: the pill(...) initializers below read it (declared after them it was still 0f, so every tool
+    // pill came out 0 px tall with no padding; android-emulator run 37180986677).
+    private val d = resources.displayMetrics.density
     val chip: PillView = PillView(context)
     private val pen = pill(Texts.TOOL_PEN)
     private val highlight = pill(Texts.TOOL_HIGHLIGHT)
@@ -26,7 +29,6 @@ class Toolbar(context: Context) : LinearLayout(context) {
     private val clear = pill(Texts.TOOL_CLEAR)
     private val settings = pill(Texts.TOOL_SETTINGS)
     var actions: Actions? = null
-    private val d = resources.displayMetrics.density
 
     init {
         orientation = HORIZONTAL
@@ -35,14 +37,14 @@ class Toolbar(context: Context) : LinearLayout(context) {
         val pad = (12 * d).toInt()
         setPadding(pad, pad, pad, (16 * d).toInt())
         for (v in listOf(pen, highlight, erase)) add(v)
-        add(gap())
+        addGap()
         add(undo); add(redo)
-        add(spacer())
+        addSpacer()
         chip.heightPx = (46 * d).toInt()
         add(chip)
-        add(spacer())
+        addSpacer()
         add(newPage); add(clear)
-        add(gap())
+        addGap()
         add(settings)
         pen.onTap = { actions?.selectTool(Tools.PEN) }
         highlight.onTap = { actions?.selectTool(Tools.HIGHLIGHTER) }
@@ -70,8 +72,12 @@ class Toolbar(context: Context) : LinearLayout(context) {
         addView(v, lp)
     }
 
-    private fun gap(): View = View(context).apply { layoutParams = LayoutParams((10 * d).toInt(), 1) }
-    private fun spacer(): View = View(context).apply { layoutParams = LayoutParams(0, 1, 1f) }
+    // Gaps and spacers keep their own 1 px tall LayoutParams. They used to go through add(), whose WRAP_CONTENT height
+    // makes a bare View as tall as the parent allows: the toolbar then filled the screen and the canvas got 0 px
+    // (android-emulator run 37180986677). The spacer weight only acts once the scroll view's fillViewport
+    // re-measures the row at the screen width.
+    private fun addGap() = addView(View(context), LayoutParams((10 * d).toInt(), 1))
+    private fun addSpacer() = addView(View(context), LayoutParams(0, 1, 1f))
 
     fun setTool(tool: Int) {
         pen.selectedLook = tool == Tools.PEN

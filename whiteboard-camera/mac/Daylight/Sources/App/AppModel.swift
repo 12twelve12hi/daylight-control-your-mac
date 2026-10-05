@@ -333,6 +333,7 @@ final class AppModel: ObservableObject {
         case .camera: returnToCamera()
         case .overlay:
             if settings.overlayEnabled { whiteboardNow(.overlay) }
+        case .copyLastPage: copyLastPage()
         }
     }
 

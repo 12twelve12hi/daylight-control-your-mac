@@ -594,7 +594,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hotkeys.onAction = { [weak self] action in self?.model.hotkey(action) }
         hotkeys.onCopyLastPage = { [weak self] in self?.model.copyLastPage() }
         hotkeys.registerAll()
-        if let text = hotkeys.copyLastPageConflict { telemetry.note("hotkeys", "Copy last page: \(text)") }
         settingsContext.hotkeyConflicts = hotkeys.conflictTexts
         for (action, text) in hotkeys.conflictTexts {
             telemetry.note("hotkeys", "\(Hotkeys.title(action)): \(text)")

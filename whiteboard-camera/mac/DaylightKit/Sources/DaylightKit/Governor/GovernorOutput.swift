@@ -7,6 +7,9 @@ public enum SaveReason: String, Codable {
     case autosave
     case modeChanged
     case quit
+    /// The fresh page for a new call (DRAWING-DEEP-DIVE D6): the ink router saves the idle page when a new call opens
+    /// the camera. Not a governor effect; the governor never emits it.
+    case newCall
 }
 
 public enum GovernorEffect: Equatable {

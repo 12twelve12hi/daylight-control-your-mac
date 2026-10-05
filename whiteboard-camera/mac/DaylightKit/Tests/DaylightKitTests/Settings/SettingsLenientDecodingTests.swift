@@ -77,9 +77,29 @@ final class SettingsLenientDecodingTests: XCTestCase {
         let old = #""hotkeys":{"#
         XCTAssertTrue(json.contains(old))
         let newer = json.replacingOccurrences(of: old, with: #""hotkeys":{"annotate":{"keyCode":0,"modifiers":6400},"#)
-        XCTAssertEqual(try decode(newer), stored, "the unknown action is dropped, the five known bindings stay")
+        XCTAssertEqual(try decode(newer), stored, "the unknown action is dropped, the known bindings stay")
         let malformed = try decode(#"{"port":7790,"hotkeys":{"clear":"Ctrl+C"}}"#)
         XCTAssertEqual(malformed.hotkeys, Settings.defaultHotkeys, "a malformed hotkeys value falls back to the defaults")
         XCTAssertEqual(malformed.port, 7790)
+    }
+
+    /// A blob from a build before `copyLastPage` (six actions, Clear rebound) keeps its bindings; `validated()` adds
+    /// Ctrl+Opt+Cmd+P. A rebound Copy last page is stored under its raw value and reads back.
+    func testAStoredHotkeyMapWithoutCopyLastPageGetsTheDefaultChord() throws {
+        let older = #"{"port":7790,"hotkeys":{"whiteboardOnly":{"keyCode":13,"modifiers":6400},"studioSplit":{"keyCode":2,"modifiers":6400},"keep":{"keyCode":40,"modifiers":6400},"clear":{"keyCode":9,"modifiers":256},"camera":{"keyCode":53,"modifiers":6400},"overlay":{"keyCode":31,"modifiers":6400}}}"#
+        let s = try decode(older)
+        XCTAssertEqual(s.port, 7790)
+        XCTAssertEqual(s.hotkeys.count, 6)
+        XCTAssertNil(s.hotkeys[.copyLastPage], "an older blob has no Copy last page binding")
+        XCTAssertEqual(s.hotkeys[.clear], HotkeyBinding(keyCode: 9, modifiers: 256))
+        let validated = s.validated()
+        XCTAssertEqual(validated.hotkeys[.copyLastPage], HotkeyBinding(keyCode: 0x23, modifiers: HotkeyBinding.defaultModifiers), "validated() fills it in")
+        XCTAssertEqual(validated.hotkeys[.clear], HotkeyBinding(keyCode: 9, modifiers: 256), "the rebound Clear stays")
+
+        var rebound = validated
+        rebound.hotkeys[.copyLastPage] = HotkeyBinding(keyCode: 0x0B, modifiers: HotkeyBinding.defaultModifiers)
+        let json = try encoded(rebound)
+        XCTAssertTrue(json.contains(#""copyLastPage":{"keyCode":11,"modifiers":6400}"#), json)
+        XCTAssertEqual(try decode(json), rebound)
     }
 }

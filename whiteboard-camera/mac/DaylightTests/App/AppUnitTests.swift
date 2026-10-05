@@ -25,11 +25,14 @@ final class HotkeysTests: XCTestCase {
         XCTAssertEqual(defaults[.keep]?.keyCode, 0x28)
         XCTAssertEqual(defaults[.clear]?.keyCode, 0x08)
         XCTAssertEqual(defaults[.camera]?.keyCode, 0x35)
+        XCTAssertEqual(defaults[.copyLastPage]?.keyCode, 0x23)
         let chord: UInt32 = (1 << 8) | (1 << 11) | (1 << 12)
         for action in HotkeyAction.allCases { XCTAssertEqual(defaults[action]?.modifiers, chord) }
         XCTAssertEqual(Hotkeys.describe(defaults[.whiteboardOnly]!), "Ctrl+Opt+Cmd+W")
         XCTAssertEqual(Hotkeys.describe(defaults[.camera]!), "Ctrl+Opt+Cmd+Esc")
         XCTAssertEqual(Hotkeys.title(.keep), "Keep whiteboard")
+        XCTAssertEqual(Hotkeys.describe(defaults[.copyLastPage]!), "Ctrl+Opt+Cmd+P")
+        XCTAssertEqual(Hotkeys.title(.copyLastPage), "Copy last page")
     }
 
     func testIDsRoundTripAndSignature() {
@@ -41,8 +44,21 @@ final class HotkeysTests: XCTestCase {
         XCTAssertEqual(Hotkeys.fourCharCode("dylt"), 0x64796C74)
         XCTAssertEqual(Hotkeys.alreadyUsedStatus, -9878)
         let hotkeys = Hotkeys(settings: Settings.defaults)
-        XCTAssertEqual(hotkeys.bindings.count, 5)
+        XCTAssertEqual(hotkeys.bindings.count, 6, "five layout and board chords plus Copy last page; Overlay is off")
+        XCTAssertEqual(hotkeys.bindings[.copyLastPage], HotkeyBinding(keyCode: 0x23, modifiers: HotkeyBinding.defaultModifiers))
+        XCTAssertEqual(Hotkeys.id(for: .copyLastPage), 7, "appended after Overlay (id 6); the old fixed id 100 is gone")
         XCTAssertTrue(hotkeys.conflicts.isEmpty)
+    }
+
+    /// Handoff vp-fresh-page request 4: Copy last page goes through the normal binding path, so a Daylight action
+    /// rebound to its chord is reported as a duplicate with the Settings text.
+    func testCopyLastPageIsAnOrdinaryRebindableAction() {
+        var bindings = Settings.defaults.hotkeys
+        XCTAssertNil(Hotkeys.duplicate(of: .copyLastPage, binding: bindings[.copyLastPage]!, in: bindings))
+        bindings[.clear] = bindings[.copyLastPage]
+        XCTAssertEqual(Hotkeys.duplicate(of: .clear, binding: bindings[.clear]!, in: bindings), .copyLastPage)
+        XCTAssertEqual(Hotkeys.conflictText(.duplicate(.clear, .copyLastPage)), "Already used by Copy last page")
+        XCTAssertEqual(Hotkeys.conflictText(.duplicate(.copyLastPage, .clear)), "Already used by Clear")
     }
 
     func testOverlayHotkeyOnlyWhileOverlayIsEnabled() {
@@ -50,15 +66,15 @@ final class HotkeysTests: XCTestCase {
         var enabled = Settings.defaults
         enabled.overlayEnabled = true
         let hotkeys = Hotkeys(settings: enabled)
-        XCTAssertEqual(hotkeys.bindings.count, 6)
+        XCTAssertEqual(hotkeys.bindings.count, 7)
         XCTAssertEqual(hotkeys.bindings[.overlay], HotkeyBinding(keyCode: 0x1F, modifiers: HotkeyBinding.defaultModifiers), "Ctrl+Opt+Cmd+O")
         XCTAssertEqual(Hotkeys.describe(hotkeys.bindings[.overlay]!), "Ctrl+Opt+Cmd+O")
         XCTAssertEqual(Hotkeys.title(.overlay), "Overlay")
         // Nothing is registered here (no registerAll), so toggling only changes the bindings in effect.
         hotkeys.setOverlayEnabled(false)
-        XCTAssertEqual(hotkeys.bindings.count, 5)
-        hotkeys.setOverlayEnabled(true)
         XCTAssertEqual(hotkeys.bindings.count, 6)
+        hotkeys.setOverlayEnabled(true)
+        XCTAssertEqual(hotkeys.bindings.count, 7)
         // AppModel's notification (posted with the default, off, so a hosting app's hotkeys stay as they are).
         NotificationCenter.default.post(name: Hotkeys.overlayEnabledChanged, object: nil, userInfo: ["enabled": false])
         XCTAssertFalse(hotkeys.overlayEnabled)

@@ -84,7 +84,7 @@ final class MenuBar: NSObject, NSMenuDelegate {
         }
         // D40 and D41: the board as the follow-up.
         menu.addItem(NSMenuItem.separator())
-        let copy = add(MenuBar.copyLastPageTitle, #selector(copyLastPage(_:)), hotkey: nil, chord: Hotkeys.copyLastPageBinding)
+        let copy = add(MenuBar.copyLastPageTitle, #selector(copyLastPage(_:)), hotkey: .copyLastPage)
         if !model.canCopyLastPage {
             // No action: disabled whether or not the menu auto-enables its items.
             copy.action = nil
@@ -153,12 +153,10 @@ final class MenuBar: NSObject, NSMenuDelegate {
     }
 
     @discardableResult
-    private func add(_ title: String, _ action: Selector, hotkey: HotkeyAction?, chord: HotkeyBinding? = nil) -> NSMenuItem {
+    private func add(_ title: String, _ action: Selector, hotkey: HotkeyAction?) -> NSMenuItem {
         var label = title
         if let hotkey = hotkey, let binding = model.settings.hotkeys[hotkey] {
             label += "  (\(Hotkeys.describe(binding)))"
-        } else if let chord = chord {
-            label += "  (\(Hotkeys.describe(chord)))"
         }
         let entry = NSMenuItem(title: label, action: action, keyEquivalent: "")
         entry.target = self

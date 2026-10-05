@@ -530,7 +530,7 @@ final class InkRouter {
     private func startFreshPageForNewCall(idleSeconds: Double) {
         onLog?("fresh page: saved \(store.committedCount) strokes, idle \(Int(idleSeconds)) s, reason=new_call")
         // The new call is a new session (the idle span is past the SPEC 12 gap): its first page is page-01 again.
-        newPage(id: UUID(), width: Double(SolStream.canvasWidth), height: Double(SolStream.canvasHeight), index: 0)
+        newPage(id: UUID(), width: Double(SolStream.canvasWidth), height: Double(SolStream.canvasHeight), index: 0, reason: .newCall)
         finishSessionHandout()   // D39: the last call's session gets its PDF, queued after the page save above
         lastInkMonotonic = nil
         lastInkWall = nil
@@ -569,8 +569,9 @@ final class InkRouter {
 
     /// New page (PAGE_CHANGE): save the current page if it has ink, start blank, board stays up. The save takes its
     /// snapshot of the store before the page changes, and the STATE that announces the new page goes out after it.
-    func newPage(id: UUID, width: Double, height: Double, index: Int? = nil) {
-        savePage(reason: .pageChange)
+    /// `reason` is the saved JSON's `session.reason`: `.newCall` for the fresh page of a new call (D6).
+    func newPage(id: UUID, width: Double, height: Double, index: Int? = nil, reason: SaveReason = .pageChange) {
+        savePage(reason: reason)
         let op = store.newPage(id: id, index: index ?? store.pageIndex + 1, width: width, height: height)
         rasterizer?.apply(op, store: store)
         saver?.forgetPage(id)

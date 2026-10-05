@@ -378,4 +378,12 @@ final class StrokeStoreTests: XCTestCase {
         XCTAssertEqual(doc.strokes[0].points[1], PageDocument.Point(x: 100, y: 200.25, pressure: 0.2, tMs: 8))
         XCTAssertEqual(doc.page.index, 1)
     }
+
+    /// The fresh page for a new call (D6, LOOSE_ENDS FP-2) is written as `"reason":"newCall"` and reads back.
+    func testTheNewCallReasonRoundTrips() throws {
+        XCTAssertEqual(SaveReason.newCall.rawValue, "newCall")
+        let data = try JSONEncoder().encode([SaveReason.newCall])
+        XCTAssertEqual(String(decoding: data, as: UTF8.self), "[\"newCall\"]")
+        XCTAssertEqual(try JSONDecoder().decode([SaveReason].self, from: data), [.newCall])
+    }
 }

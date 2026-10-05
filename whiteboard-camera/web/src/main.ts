@@ -6,6 +6,7 @@ import { PressureTracker, buildFactsPayload, fullscreenStateOf, sendFacts, wakeL
 import { Chip } from "./chip.js";
 import type { ConnectionPhase } from "./chip-state.js";
 import { CANVAS_H, CANVAS_W, InkCanvas } from "./ink.js";
+import { PageFollow } from "./page.js";
 import * as protocol from "./protocol.js";
 import { newUuid16, type HandshakeAck, type StateReport } from "./protocol.js";
 import { Toolbar, type Tool } from "./tools.js";
@@ -72,8 +73,8 @@ const cardEl = $("card");
 
 // -- page model ----------------------------------------------------------------
 
-let pageId = newUuid16();
-let pageIndex = 0;
+/** The page id and index; follows STATE `page_index` like Daylight Ink (handoff vp-fresh-page request 3). */
+const page = new PageFollow(newUuid16);
 let lastState: StateReport | null = null;
 let lastAck: HandshakeAck | null = null;
 let info: ApiInfo | null = null;
@@ -100,6 +101,7 @@ const client = new InkClient(socketUrl(), identity(), {
   },
   onState(state: StateReport) {
     lastState = state;
+    page.applyState(state.pageIndex);
     chip.setState(state);
     toolbar.setDepths(state.undoDepth, state.redoDepth);
     ink.applyDepths(state.undoDepth, state.redoDepth);
@@ -117,18 +119,17 @@ client.ring.onDropStroke = (key) => ink.forget(key);
 
 const toolbar = new Toolbar(toolbarEl, {
   setTool(tool: Tool) { ink.tool = tool; },
-  undo() { client.sendControl(client.encoder.undo(pageId)); },
-  redo() { client.sendControl(client.encoder.redo(pageId)); },
+  undo() { client.sendControl(client.encoder.undo(page.pageId)); },
+  redo() { client.sendControl(client.encoder.redo(page.pageId)); },
   newPage() {
     // The page id and index advance only when the Mac heard about them (a refused control is dropped, PROTOCOL 9).
-    const id = newUuid16();
-    if (!client.sendControl(client.encoder.pageChange(id, CANVAS_W, CANVAS_H, pageIndex + 1))) return;
-    pageId = id;
-    pageIndex += 1;
+    const next = page.next();
+    if (!client.sendControl(client.encoder.pageChange(next.id, CANVAS_W, CANVAS_H, next.index))) return;
+    page.committed(next);
     ink.clearLocal();
   },
   clear() {
-    if (!client.sendControl(client.encoder.clear(pageId))) return;
+    if (!client.sendControl(client.encoder.clear(page.pageId))) return;
     ink.clearLocal();
   },
   info() { toggleCard(); },
@@ -314,8 +315,8 @@ const debug = {
   get toolbarLive() { return toolbar.isLive; },
   constants: { REFUSED_REDIAL_MS },
   get chip() { return { ...chip.current, breath: chip.breathWeight(), taps: chip.stats.taps, longPresses: chip.stats.longPresses }; },
-  get pageIndex() { return pageIndex; },
-  get pageId() { return protocol.uuidToString(pageId); },
+  get pageIndex() { return page.pageIndex; },
+  get pageId() { return protocol.uuidToString(page.pageId); },
   get visibleStrokes() { return ink.strokeCount; },
   get wakeLockHeld() { return wakeLockHeld(); },
   get bufferedAmount() { return client.bufferedAmount; },

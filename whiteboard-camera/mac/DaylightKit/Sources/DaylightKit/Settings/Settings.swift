@@ -10,6 +10,9 @@ public enum HotkeyAction: String, Codable, CaseIterable, CodingKeyRepresentable 
     case camera
     /// Overlay layout (SPEC 6.7); registered only while `Settings.overlayEnabled`.
     case overlay
+    /// Menu "Copy last page" (DRAWING-DEEP-DIVE D40): the current page, or the last page saved in this run, on the
+    /// clipboard as a PNG. A stored map without it gets the default from `validated()`.
+    case copyLastPage
 }
 
 /// A Carbon hotkey: virtual key code plus modifier mask (cmdKey 1<<8, optionKey 1<<11, controlKey 1<<12).
@@ -35,6 +38,8 @@ public struct HotkeyBinding: Codable, Equatable {
     public static let keyEscape: UInt32 = 0x35
     /// kVK_ANSI_O, the Overlay hotkey.
     public static let keyO: UInt32 = 0x1F
+    /// kVK_ANSI_P, the Copy last page hotkey.
+    public static let keyP: UInt32 = 0x23
 }
 
 public enum MirrorPinClearMode: String, Codable {
@@ -187,6 +192,7 @@ public struct Settings: Codable, Equatable {
         .clear: HotkeyBinding(keyCode: HotkeyBinding.keyC, modifiers: HotkeyBinding.defaultModifiers),
         .camera: HotkeyBinding(keyCode: HotkeyBinding.keyEscape, modifiers: HotkeyBinding.defaultModifiers),
         .overlay: HotkeyBinding(keyCode: HotkeyBinding.keyO, modifiers: HotkeyBinding.defaultModifiers),
+        .copyLastPage: HotkeyBinding(keyCode: HotkeyBinding.keyP, modifiers: HotkeyBinding.defaultModifiers),
     ]
 
     /// The "Low bandwidth" mirror preset (SPEC section 11): 1200 / 4000000 / 24.

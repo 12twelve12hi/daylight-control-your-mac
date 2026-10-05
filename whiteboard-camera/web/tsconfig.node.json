@@ -21,6 +21,7 @@
     "src/geometry.ts",
     "src/laser.ts",
     "src/chip-state.ts",
+    "src/page.ts",
     "tests/unit"
   ]
 }

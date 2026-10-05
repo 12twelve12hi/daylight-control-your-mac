@@ -53,6 +53,8 @@ enum SelfTest {
         }
         OverlaySelfTest.run(device: device, report: report)
         ShareSelfTest.run(report: report)
+        followFrameProbe(report: report)
+        laserProbe(report: report)
         socketRoundTrip(device: device, report: report, perfLog: arguments.perfLog)
         vendorFacts(report: report)
         extensionFacts(report: report)
@@ -61,6 +63,64 @@ enum SelfTest {
         report.note(report.failures == 0 ? "PASS" : "\(report.failures) probe(s) failed")
         fflush(stdout)
         return report.failures == 0 ? 0 : 1
+    }
+
+    // MARK: Ink legibility probes (handoff vp-ink-legibility R5; CPU only, no Metal device needed)
+
+    /// One followed frame: a scripted ink box in the page's top-left corner, fed through `InkActivity` with fixed stamps
+    /// and drained by `FollowDriver` as the render queue does. Past FP6 the camera zooms in, so the canvas quad differs
+    /// from the full page. Prints `follow-frame: PASS` when every check passed.
+    static func followFrameProbe(report: Report) {
+        let before = report.failures
+        let activity = InkActivity()
+        let driver = FollowDriver(activity: activity)
+        let layout = LayoutStyle.whiteboardOnly
+        let full = StudioLayout.frame(progress: 1, layout: layout, orientation: .portrait, canvasAspect: StudioLayout.portraitAspect, breath: 0)
+        func frame(_ now: Double) -> StudioLayout.Frame {
+            return driver.frame(full, layout: layout, progress: 1, now: now, enabled: true, followable: true)
+        }
+        let box = PixelRect(x: 100, y: 100, w: 200, h: 60)
+        _ = frame(0)
+        activity.noteInk(box, at: 0.1)
+        _ = frame(0.1)
+        activity.noteInk(box, at: 1.0)
+        _ = frame(1.0)
+        _ = frame(2.7)
+        let followed = frame(4.7)
+        report.check("follow-frame: the camera left the full page after FP6", !driver.isFullPage)
+        guard let quad = followed.canvas, let page = full.canvas else {
+            report.check("follow-frame: both frames have a canvas quad", false)
+            return
+        }
+        report.check("follow-frame: the followed quad differs from the full page", quad != page, "followed \(quad.dest) uv \(quad.uv), full \(page.dest)")
+        report.check("follow-frame: a part of the page, magnified", quad.uv.u1 < 1 && quad.dest.w > page.dest.w, "uv.u1 \(quad.uv.u1), dest.w \(quad.dest.w)")
+        if report.failures == before { report.note("follow-frame: PASS") }
+    }
+
+    /// One laser sample through `InkRasterizer.laser`: a LaserDot over the page, no stroke in the store, no ink box for
+    /// follow the pen. Prints `laser: PASS` when every check passed.
+    static func laserProbe(report: Report) {
+        let before = report.failures
+        let surfaces: CanvasSurfaces
+        do {
+            surfaces = try CanvasSurfaces(device: nil)
+        } catch {
+            report.check("laser: canvas surfaces", false, "\(error)")
+            return
+        }
+        let rasterizer = InkRasterizer(surfaces: surfaces)
+        let store = StrokeStore()
+        rasterizer.laser(x: 600, y: 800, intensity: 1, decay: 0.5, now: 100)
+        let frame = StudioLayout.frame(progress: 1, layout: .whiteboardOnly, orientation: .portrait, canvasAspect: StudioLayout.portraitAspect, breath: 0)
+        let dots = FramePipeline.laserDots(surfaces: surfaces, frame: frame, layers: true, now: 100)
+        report.check("laser: one sample gives one LaserDot", dots.count == 1, "\(dots.count) dots")
+        if let dot = dots.first {
+            let cx = dot.rect.x + dot.rect.w / 2, cy = dot.rect.y + dot.rect.h / 2
+            report.check("laser: the dot is at the page centre (960, 540) at full strength", abs(cx - 960) < 1e-6 && abs(cy - 540) < 1e-6 && abs(dot.alpha - 1) < 1e-9, "centre (\(cx), \(cy)) alpha \(dot.alpha)")
+        }
+        report.check("laser: no stroke in the store", store.committedCount == 0 && store.undoDepth == 0 && !store.hasInk)
+        report.check("laser: not ink for follow the pen", surfaces.activity.drain().boxes.isEmpty)
+        if report.failures == before { report.note("laser: PASS") }
     }
 
     // MARK: Render probes (SPEC 6 numbers)

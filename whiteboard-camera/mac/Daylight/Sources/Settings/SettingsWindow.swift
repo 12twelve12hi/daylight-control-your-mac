@@ -152,6 +152,7 @@ struct SettingsView: View {
         case .clear: return "Clear"
         case .camera: return "Camera"
         case .overlay: return "Overlay"
+        case .copyLastPage: return "Copy last page"
         }
     }
 

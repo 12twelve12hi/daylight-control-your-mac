@@ -145,7 +145,8 @@ final class OverlaySettingsTests: XCTestCase {
     }
 
     func testOverlayHotkeyIsAppendedLast() {
-        XCTAssertEqual(HotkeyAction.allCases.last, .overlay)
+        XCTAssertEqual(HotkeyAction.allCases.firstIndex(of: .overlay), 5, "appended after Camera: hotkey id 6")
+        XCTAssertEqual(HotkeyAction.allCases.last, .copyLastPage, "Copy last page came after it: id 7")
         XCTAssertEqual(HotkeyAction.allCases.firstIndex(of: .camera), 4, "existing ids 1 to 5 unchanged")
         XCTAssertEqual(Settings.defaultHotkeys[.overlay], HotkeyBinding(keyCode: 0x1F, modifiers: (1 << 8) | (1 << 11) | (1 << 12)))
     }

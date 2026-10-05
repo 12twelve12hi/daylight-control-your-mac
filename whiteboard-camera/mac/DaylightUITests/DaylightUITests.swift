@@ -53,6 +53,7 @@ final class DaylightUISession {
     static let menuOrder = [
         "Ink source", "Hold", "Keep whiteboard", "Clear", "Camera",
         "Whiteboard now (Studio Split)", "Whiteboard now (Whiteboard Only)", "Whiteboard now (Overlay)",
+        "Copy last page", "Send today's board...",
         "Preview window", "Share the whiteboard", "Settings...", "Diagnostics...", "Export diagnostics...", "Setup again", "Quit Daylight",
     ]
     static let inkSourceItems = ["Web whiteboard", "Daylight Ink app", "Mirror the tablet"]
@@ -71,7 +72,7 @@ final class DaylightUISession {
     /// HotkeyAction raw values and the row labels of Settings > Hotkeys (SettingsWindow.swift title(_:)), overlay enabled.
     static let hotkeyRows: [(action: String, label: String)] = [
         ("whiteboardOnly", "Whiteboard Only"), ("studioSplit", "Studio Split"), ("keep", "Keep whiteboard (Pin)"),
-        ("clear", "Clear"), ("camera", "Camera"), ("overlay", "Overlay"),
+        ("clear", "Clear"), ("camera", "Camera"), ("overlay", "Overlay"), ("copyLastPage", "Copy last page"),
     ]
     static let allowPrompt = "Allow 'UI test tablet' to draw on Daylight Camera? It connected from 192.168.1.40."
     /// Settings > Advanced, "Follow the pen on camera" (SettingsView.followPenID and followPenExplanation), off by default.

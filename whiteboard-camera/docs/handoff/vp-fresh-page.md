@@ -32,6 +32,17 @@ Owner-facing strings: "Copy last page", "Send today's board...", "No saved board
 
 Request R1 of `docs/handoff/vp-ink-legibility.md` is done, as amended for review F6: `InkRouter` hands LASER_POINT to `InkRasterizer.laser` scaled by `c.scale`; `InkRouterTests.testLaserPointDrawsAScaledDotAndNoStroke` uses a 600 x 800 handshake and checks the dot at twice the wire coordinates and no stroke (LOOSE_ENDS FP-6).
 
+## Acceptance (run https://github.com/12twelve12hi/daylight-control-your-mac/actions/runs/37384519102, bb938fa, 2026-10-05)
+
+| Ticket | Criterion | State |
+|---|---|---|
+| T1 | mac and kit-linux green; Kit rule test (9:59, 10:01, empty page, viewers 1 to 2); hosted save-before-announce test with the strokes in the PNG and JSON; TESTING-CHECKLIST row in Session 2 | MET: kit-linux ran all 424 Kit tests (5 `FreshPageTests`); mac `make mac-test` TEST SUCCEEDED with `testNewCallOnAStalePageSavesItBeforeAnnouncingABlankPage`, `testAPageFromBeforeASleepIsFreshAfterTheWake`, `testAnOpenStrokeKeepsThePage` passed; row 2.24 |
+| T2 | mac green; three-page PDF count and size; clipboard PNG dimensions; the "Send today's board..." sentence; both items quoted in OWNER-NEXT-STEPS; docs-to-UI check green; no submenu changed | MET: 7 `SessionPDFTests` passed; `mac-ui-test` "docs: checked 62 of 62, misses 0" with both menu items; `self-test: PASS` |
+| T3 | a test reads the chunk back and compares it with the sidecar | MET: 10 `PNGTextChunkTests` on Linux and macOS, `SessionSaverTests` chunk-equals-sidecar passed |
+| R1 (Ink Legibility) | LASER_POINT drawn, scaled, no stroke | MET: `testLaserPointDrawsAScaledDotAndNoStroke` passed |
+
+The same run's non-blocking mac-26 leg failed one test outside this domain: `H264DecoderTests.testNonKeyFramesAreDroppedUntilAKeyFrame` ("row 27: restart after 12 s without a key frame", `DaylightTests/Mirror`, job 112015260017); every test of this domain passed there too. Recorded for the Mirror owner, not touched.
+
 ## Requests for other domains
 
 1. Kit `Governor/GovernorOutput.swift` (integrator): add `case newCall` to `SaveReason`; then `InkRouter.startFreshPageForNewCall` passes it through `newPage` (today the JSON says `pageChange`, LOOSE_ENDS FP-2). One line in `newPage`: take a `reason: SaveReason = .pageChange` parameter.

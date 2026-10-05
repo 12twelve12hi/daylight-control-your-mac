@@ -21,8 +21,10 @@ final class InkRouter {
     /// Wall-clock time of the newest ink (the monotonic clock stops while the Mac sleeps): the D6 fresh-page rule and
     /// the SPEC 12 session gap both measure idle time across a sleep.
     private(set) var lastInkWall: Date?
-    /// Daylight Camera's viewer count as last reported (SPEC C3), for the D6 0 -> 1 transition.
-    private(set) var viewers = 0
+    /// Daylight Camera's viewer count as last reported (SPEC C3) and since when it has been 0, for the D6 new call.
+    private(set) var viewers = FreshPage.Viewers()
+    /// A new call arrived while a stroke was open (review F6): the rule is decided again when the last stroke lifts.
+    private(set) var freshPagePending = false
     /// Injectable for tests.
     var wallClock: () -> Date = { Date() }
     private var autosaveTimer: DispatchSourceTimer?
@@ -113,6 +115,7 @@ final class InkRouter {
         if c.isActiveSource { recomputeActive() }
         onClientsChanged?(clientSnapshots)
         broadcastState()
+        freshPageAfterLift()
     }
 
     // MARK: Messages
@@ -261,12 +264,14 @@ final class InkRouter {
             c.openStrokeIDs.remove(id)
             pipeline.post(.lift(strokeID: id))
             broadcastState()
+            freshPageAfterLift()
         case let .strokeCancel(id):
             guard c.openStrokeIDs.contains(id) else { return }
             if let op = store.cancel(id: id) { rasterizer?.apply(op, store: store) }
             c.openStrokeIDs.remove(id)
             pipeline.post(.cancel(strokeID: id))
             broadcastState()
+            freshPageAfterLift()
         case .undo:
             if let op = store.undo(now: now) {
                 rasterizer?.apply(op, store: store)
@@ -507,24 +512,55 @@ final class InkRouter {
 
     // MARK: Fresh page for a new call (DRAWING-DEEP-DIVE D6)
 
-    /// Daylight Camera's viewer count changed (the sink's `onViewerCount`, hopped to ink.queue). On 0 -> 1 with a page
-    /// whose newest ink is older than `FreshPage.idleSeconds`, the page is saved and a blank page starts before any
-    /// pen-down of the new call can engage: a STROKE_START that arrives after the count is handled after this, on the
-    /// same queue. The clients see the new page through STATE (page_index 0, no strokes, depths 0).
+    /// Daylight Camera's viewer count changed (the sink's `onViewerCount`, hopped to ink.queue; the watcher reports
+    /// changes only). A new call is a 0 -> 1 or more after a 0 that lasted `FreshPage.settledZeroSeconds` (the sink's
+    /// revalidate reconnect and a Zoom video toggle report a short 0 inside a call). On a new call, while the board is
+    /// off the air (PASSTHROUGH, not pinned, no board hold) and the page's newest ink is older than
+    /// `FreshPage.idleSeconds`, the page is saved and a blank page starts before any pen-down of the new call can
+    /// engage: a STROKE_START that arrives after the count is handled after this, on the same queue. With a stroke
+    /// open the decision waits for the last lift. The clients see the new page through STATE (page_index 0, no
+    /// strokes, depths 0).
     func viewersChanged(_ count: Int) {
-        let previous = viewers
-        viewers = max(count, 0)
         let now = wallClock()
-        let penOnGlass = connections.values.contains { !$0.openStrokeIDs.isEmpty } || !store.activeStrokeIDs.isEmpty
-        guard FreshPage.shouldStart(previousViewers: previous, viewers: viewers, hasInk: store.hasInk, newestInkAt: lastInkWall, now: now, penOnGlass: penOnGlass),
-              let newest = lastInkWall else { return }
-        startFreshPageForNewCall(idleSeconds: now.timeIntervalSince(newest))
+        let newCall = viewers.update(count, at: now)
+        if viewers.count == 0 { freshPagePending = false }   // the call ended before the lift
+        guard newCall else { return }
+        freshPagePending = false
+        applyFreshPageRule(now: now)
     }
 
-    /// The Mac woke from sleep: the camera's clients reopen it, so the next count of 1 or more is a new call even if no
-    /// count of 0 was reported before the sleep.
-    func noteWake() {
-        viewers = 0
+    /// The Mac woke from sleep; `currentCount` is the watcher's count read at the wake. A 0 there starts the zero at
+    /// the wake at the latest; a 1 or more does nothing (a call that holds the camera across a sleep keeps its page).
+    func noteWake(currentCount: Int) {
+        viewers.noteWake(currentCount: currentCount, at: wallClock())
+        if viewers.count == 0 { freshPagePending = false }
+    }
+
+    /// The board as the rule sees it: the governor snapshot (the same lock-guarded read STATE uses) and the store.
+    private func freshPageBoard() -> FreshPage.Board {
+        let governor = pipeline.governorSnapshot
+        let penOnGlass = connections.values.contains { !$0.openStrokeIDs.isEmpty } || !store.activeStrokeIDs.isEmpty
+        return FreshPage.Board(state: governor.state, pinned: governor.pinned, hold: governor.hold, hasInk: store.hasInk, penOnGlass: penOnGlass, newestInkAt: lastInkWall)
+    }
+
+    private func applyFreshPageRule(now: Date) {
+        switch FreshPage.decide(newCall: true, board: freshPageBoard(), now: now) {
+        case .keep:
+            break
+        case .waitForLift:
+            freshPagePending = true
+        case .start:
+            guard let newest = lastInkWall else { return }
+            startFreshPageForNewCall(idleSeconds: now.timeIntervalSince(newest))
+        }
+    }
+
+    /// Review F6: a new call that arrived during a stroke is decided when the last open stroke lifts or is cancelled
+    /// (the call still running and every other condition still holding).
+    private func freshPageAfterLift() {
+        guard freshPagePending, viewers.count >= 1 else { return }
+        freshPagePending = false
+        applyFreshPageRule(now: wallClock())
     }
 
     private func startFreshPageForNewCall(idleSeconds: Double) {
@@ -579,7 +615,8 @@ final class InkRouter {
     }
 
     /// Governor effect `savePage(reason:)` and every other save trigger; a page is written only when dirty.
-    func savePage(reason: SaveReason) {
+    /// `written`, when given, hears on io.queue whether the queued save succeeded (not called when nothing was saved).
+    func savePage(reason: SaveReason, written: ((Bool) -> Void)? = nil) {
         guard let saver = saver, store.isDirty else { return }
         let start = sessionStart ?? Date()
         if sessionStart == nil { sessionStart = start }
@@ -589,6 +626,7 @@ final class InkRouter {
         let stamp = CACurrentMediaTime()
         setSaving(true)
         saver.save(document, strokes: snapshot, sessionStart: start, pageKey: store.pageID) { [weak self] result in
+            if case .success = result { written?(true) } else { written?(false) }
             guard let self = self else { return }
             self.queue.async {
                 self.setSaving(false)
@@ -650,33 +688,48 @@ final class InkRouter {
         if let start = handout.takeIfIdle(nowWall: nowWall, nowMonotonic: nowMonotonic) { writeHandout(start) }
     }
 
-    /// "Send today's board...": saves a dirty page, writes the pending session's PDF, then calls `completion` on
-    /// io.queue after every queued write (with the PDF written now, or nil when none was due). ink.queue.
-    func writeCurrentSessionPDF(completion: @escaping (URL?) -> Void) {
-        savePage(reason: .autosave)
+    /// What "Send today's board..." learned from writing the current session: the PDF written now (nil when none was
+    /// due), and whether the page save or the PDF write failed (review F8: the alert then says so).
+    struct CurrentSessionWrite: Equatable {
+        var pdf: URL?
+        var failed: Bool
+    }
+
+    /// "Send today's board...": saves a dirty page (`.sendBoard`), writes the pending session's PDF, then calls
+    /// `completion` on io.queue after every queued write. ink.queue.
+    func writeCurrentSessionPDF(completion: @escaping (CurrentSessionWrite) -> Void) {
+        // The save's result and the PDF's are both delivered on the serial io.queue, the save's first, so this box
+        // is only touched there.
+        final class Outcome { var saveFailed = false }
+        let outcome = Outcome()
+        savePage(reason: .sendBoard, written: { ok in if !ok { outcome.saveFailed = true } })
         if let start = handout.takePending() {
-            writeHandout(start, completion: completion)
+            writeHandout(start) { result in
+                switch result {
+                case let .success(url): completion(CurrentSessionWrite(pdf: url, failed: outcome.saveFailed))
+                case .failure: completion(CurrentSessionWrite(pdf: nil, failed: true))
+                }
+            }
         } else if let saver = saver {
-            saver.queue.async { completion(nil) }
+            saver.queue.async { completion(CurrentSessionWrite(pdf: nil, failed: outcome.saveFailed)) }
         } else {
-            completion(nil)
+            completion(CurrentSessionWrite(pdf: nil, failed: false))
         }
     }
 
-    private func writeHandout(_ start: Date, completion: ((URL?) -> Void)? = nil) {
+    private func writeHandout(_ start: Date, completion: ((Result<URL?, Error>) -> Void)? = nil) {
         guard let saver = saver else {
-            completion?(nil)
+            completion?(.success(nil))
             return
         }
         saver.writeSessionPDF(sessionStart: start) { [weak self] result in
             switch result {
             case let .success(url):
                 if let url = url { self?.queue.async { self?.onLog?("session PDF written: \(url.lastPathComponent)") } }
-                completion?(url)
             case let .failure(error):
                 self?.queue.async { self?.onLog?("session PDF failed: \(error)") }
-                completion?(nil)
             }
+            completion?(result)
         }
     }
 

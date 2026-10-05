@@ -108,6 +108,21 @@ public enum PNGTextChunk {
         return Data(out)
     }
 
+    /// `png` without any text chunk (`iTXt`, `tEXt` or `zTXt`) named `keyword`; every other chunk is kept byte for
+    /// byte and in order. Used before a saved page goes to the clipboard (review F4), so the copy never carries the
+    /// strokes JSON. Throws like `chunks` for data that is not a PNG or is cut off.
+    public static func removing(keyword: String, from png: Data) throws -> Data {
+        let bytes = [UInt8](png)
+        let list = try chunks(bytes)
+        var out: [UInt8] = signature
+        out.reserveCapacity(bytes.count)
+        for item in list {
+            if isTextChunk(item.type) && chunkKeyword(item.data) == keyword { continue }
+            out.append(contentsOf: bytes[item.offset..<(item.offset + 12 + item.data.count)])
+        }
+        return Data(out)
+    }
+
     // MARK: Reading
 
     /// Every chunk in file order (IEND included; anything after IEND is ignored).

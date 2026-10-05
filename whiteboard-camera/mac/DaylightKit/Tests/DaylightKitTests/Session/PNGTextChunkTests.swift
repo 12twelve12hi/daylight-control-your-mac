@@ -104,4 +104,20 @@ final class PNGTextChunkTests: XCTestCase {
         XCTAssertThrowsError(try PNGTextChunk.iTXtData(keyword: String(repeating: "k", count: 80), text: Data()))
         XCTAssertNoThrow(try PNGTextChunk.iTXtData(keyword: String(repeating: "k", count: 79), text: Data()))
     }
+
+    /// Review F4: the clipboard copy of a saved page drops the strokes chunk and keeps everything else byte for byte.
+    func testRemovingTheStrokesChunkGivesBackTheImage() throws {
+        let withComment = try PNGTextChunk.inserting(keyword: "Comment", text: Data("hello".utf8), into: tinyPNG)
+        let saved = try PNGTextChunk.inserting(keyword: PNGTextChunk.strokesKeyword, text: Data("{\"clientLabel\" : \"Mike's DC-1\"}".utf8), into: withComment)
+        let stripped = try PNGTextChunk.removing(keyword: PNGTextChunk.strokesKeyword, from: saved)
+        XCTAssertNil(try PNGTextChunk.readText(keyword: PNGTextChunk.strokesKeyword, from: stripped))
+        XCTAssertEqual(stripped, withComment, "every other chunk kept, in order")
+        XCTAssertEqual(try PNGTextChunk.readText(keyword: "Comment", from: stripped), Data("hello".utf8))
+        XCTAssertEqual(try PNGTextChunk.removing(keyword: PNGTextChunk.strokesKeyword, from: tinyPNG), tinyPNG, "nothing to remove")
+        var plain = Array(Hex.decode(tinyPNGHex)!.prefix(8 + 25 + 24))
+        plain += PNGTextChunk.chunk(type: "tEXt", data: Array("daylight-strokes".utf8) + [0x00] + Array("{}".utf8))
+        plain += PNGTextChunk.chunk(type: "IEND", data: [])
+        XCTAssertEqual(try PNGTextChunk.removing(keyword: "daylight-strokes", from: Data(plain)), tinyPNG, "a tEXt chunk of that keyword goes too")
+        XCTAssertThrowsError(try PNGTextChunk.removing(keyword: "daylight-strokes", from: Data("not a png".utf8)))
+    }
 }

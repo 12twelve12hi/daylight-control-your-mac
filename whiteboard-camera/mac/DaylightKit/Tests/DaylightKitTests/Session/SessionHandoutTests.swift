@@ -135,4 +135,12 @@ final class SessionHandoutTests: XCTestCase {
         XCTAssertTrue(SessionHandout.isTimeName("09-00-00"))
         XCTAssertFalse(SessionHandout.isTimeName("09:00:00"))
     }
+
+    /// Review F8: a failed write of the current session is said out loud, never a silent older PDF.
+    func testAFailedWriteOfTodaysBoardIsSaid() {
+        let older = URL(fileURLWithPath: "/r/Daylight Camera/2026-10-03/18-00-00/session.pdf")
+        XCTAssertEqual(SessionHandout.afterWriteFailure(.send(older)), .sendAfterNotice(older, "Could not write today's board; sending the last saved one."))
+        XCTAssertEqual(SessionHandout.afterWriteFailure(.nothing(SessionHandout.nothingToSend)), .nothing("Could not write today's board."))
+        XCTAssertEqual(SessionHandout.afterWriteFailure(.sendAfterNotice(older, "x")), .sendAfterNotice(older, "x"))
+    }
 }

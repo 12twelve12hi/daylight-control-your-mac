@@ -189,22 +189,34 @@ final class MenuBar: NSObject, NSMenuDelegate {
         model.prepareBoardToSend { [weak self] choice in self?.present(choice) }
     }
 
-    /// The share sheet next to the status item with the PDF, or the one-line alert when there is nothing to send.
+    /// The share sheet next to the status item with the PDF, or the one-line alert when there is nothing to send. When
+    /// the current session could not be written, the alert says so first, then the older PDF's share sheet opens.
     private func present(_ choice: SessionHandout.SendChoice) {
         switch choice {
         case let .send(url):
-            guard let button = item.button else { return }
-            let picker = NSSharingServicePicker(items: [url])
-            sharePicker = picker
-            NSApp.activate()
-            picker.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+            share(url)
         case let .nothing(text):
-            let alert = NSAlert()
-            alert.messageText = text
-            alert.addButton(withTitle: "OK")
-            NSApp.activate()
-            alert.runModal()
+            showAlert(text)
+        case let .sendAfterNotice(url, text):
+            showAlert(text)
+            share(url)
         }
+    }
+
+    private func share(_ url: URL) {
+        guard let button = item.button else { return }
+        let picker = NSSharingServicePicker(items: [url])
+        sharePicker = picker
+        NSApp.activate()
+        picker.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+    }
+
+    private func showAlert(_ text: String) {
+        let alert = NSAlert()
+        alert.messageText = text
+        alert.addButton(withTitle: "OK")
+        NSApp.activate()
+        alert.runModal()
     }
 
     @objc private func togglePreview(_ sender: Any?) {

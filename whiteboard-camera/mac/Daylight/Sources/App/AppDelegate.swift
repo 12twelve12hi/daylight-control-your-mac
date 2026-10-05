@@ -411,8 +411,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             pipeline?.setViewerCount(count)
             self?.inkQueue.async { self?.router?.viewersChanged(count) }
         }
-        _ = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: nil) { [weak self] _ in
-            self?.inkQueue.async { self?.router?.noteWake() }
+        // The wake carries the watcher's count at that moment (a lock-guarded read): a 0 starts the zero there at the
+        // latest, a running call keeps its page (review F2).
+        _ = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: nil) { [weak self, weak sink] _ in
+            let count = sink?.viewerCount ?? 0
+            self?.inkQueue.async { self?.router?.noteWake(currentCount: count) }
         }
         sinkStatusChanged(sink.status)
         sink.start()

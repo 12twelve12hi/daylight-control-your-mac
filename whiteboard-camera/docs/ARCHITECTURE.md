@@ -169,7 +169,7 @@ public enum GovernorEvent: Equatable {
 }
 public struct GovernorConfig: Equatable { public var idleTimeout: Double = 90, preWarningLead: Double = 5, snapBackWindow: Double = 0.080, snapBackMaxProgress: Double = 0.15, springK: Double = 1200, engageOnEraser: Bool = false, autoEngage: Bool = true; public init() }
 public enum GovernorEffect: Equatable { case stateChanged(from: GovernorState, to: GovernorState), savePage(reason: SaveReason), clearCanvas, preWarningStarted, preWarningCancelled, pinChanged(Bool), holdChanged(HoldMode) }
-public enum SaveReason: String, Codable { case returned, cleared, pageChange, autosave, modeChanged, quit, newCall }   // newCall: the fresh page for a new call (D61), saved by the ink router, never a governor effect
+public enum SaveReason: String, Codable { case returned, cleared, pageChange, autosave, modeChanged, quit, newCall, sendBoard }   // newCall: the fresh page for a new call (D61); sendBoard: "Send today's board..." (D62); both saved by the ink router, never a governor effect
 public struct GovernorOutput: Equatable { public var state: GovernorState, progress: Double, pinned: Bool, hold: HoldMode, layout: LayoutStyle, preWarning: Bool, breath: Double /* 0...1 */, msToReturn: UInt32 /* 0xFFFFFFFF none */, activeContacts: Int, effects: [GovernorEffect] }
 public struct EngageGovernor {
     public init(config: GovernorConfig = .init(), now: Double)

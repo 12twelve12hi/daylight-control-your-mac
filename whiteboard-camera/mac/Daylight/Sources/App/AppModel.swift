@@ -371,17 +371,23 @@ final class AppModel: ObservableObject {
     }
 
     /// Menu "Send today's board...": writes the current session's PDF if one is due, then decides what to send
-    /// (`AppModel.boardToSend`); `completion` runs on main.
+    /// (`AppModel.boardToSend`); when the current session's save or PDF write failed, the choice carries the sentence
+    /// that says so (`SessionHandout.afterWriteFailure`, review F8). `completion` runs on main.
     func prepareBoardToSend(completion: @escaping (SessionHandout.SendChoice) -> Void) {
         let root = router?.saver?.root ?? (settings.saveDirectory ?? SessionSaver.defaultRoot())
         let calendar = router?.saver?.calendar ?? Calendar(identifier: .gregorian)
-        let decide: () -> Void = {
-            DispatchQueue.main.async { completion(AppModel.boardToSend(root: root, today: Date(), calendar: calendar)) }
+        let telemetry = self.telemetry
+        let decide: (Bool) -> Void = { failed in
+            DispatchQueue.main.async {
+                let choice = AppModel.boardToSend(root: root, today: Date(), calendar: calendar)
+                if failed { telemetry?.note("app", "send today's board: the current session could not be written") }
+                completion(failed ? SessionHandout.afterWriteFailure(choice) : choice)
+            }
         }
         if let router = router {
-            router.queue.async { router.writeCurrentSessionPDF { _ in decide() } }
+            router.queue.async { router.writeCurrentSessionPDF { written in decide(written.failed) } }
         } else {
-            decide()
+            decide(false)
         }
     }
 

@@ -66,7 +66,7 @@ Prerequisites: "Ink source" > "Web whiteboard"; the DC-1 on the same Wi-Fi (USB 
 | 2.21 | 🟣 | Optional: try the muted `http://<hostname>.local:7788` line in Chrome | does it load? | 1 min | D8 (`.local`) |
 | 2.22 | 🟣 | Optional (LOOSE_ENDS A5): "?" card, copy the `chrome://flags` line and the origin, paste in Chrome, Enabled, Relaunch | "?" shows `secure true` afterwards | 2 min | A5 |
 | 2.23 | ⏱️ | Leave the tablet alone for its screen-timeout period while LIVE | with `wake lock true held` the screen stays on; otherwise note it | 3 min | D8 |
-| 2.24 | ⏱️ | Signed build only (an unsigned build has no camera viewers). Draw a word in a Zoom call, leave the call, wait 11 minutes, open Zoom again with Daylight Camera and touch the pen to the glass | draw, wait, reopen Zoom: the board is blank, yesterday's page is in the folder (the word is in the last `page-NN.png` of the previous `~/Documents/Daylight Camera/<date>/<time>/` folder); log `fresh page: saved <n> strokes, idle <s> s, reason=new_call`; the tablet page is blank too. Before 10 minutes the word is still there | 13 min | FP-1 |
+| 2.24 | ⏱️ | Signed build only (an unsigned build has no camera viewers). Draw a word in a Zoom call, leave the call, wait 11 minutes, open Zoom again with Daylight Camera and touch the pen to the glass | draw, wait, reopen Zoom: the board is blank, yesterday's page is in the folder (the word is in the last `page-NN.png` of the previous `~/Documents/Daylight Camera/<date>/<time>/` folder); log `fresh page: saved <n> strokes, idle <s> s, reason=new_call`; the tablet page is blank too. Before 10 minutes the word is still there, and it also stays while the board is kept or held on the whiteboard (a board that is being shown is never wiped) | 13 min | FP-1 |
 
 ---
 

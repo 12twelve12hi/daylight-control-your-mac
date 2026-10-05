@@ -29,6 +29,9 @@ final class SessionSaver {
     private var pageURLs: [UUID: (png: URL, json: URL)] = [:]
     /// Session folder path -> the session PDF this saver wrote there (D39): rewritten in place, never another's.
     private var pdfURLs: [String: URL] = [:]
+    /// Session start -> every folder a page of that session was written to, oldest first (review F7: a save folder
+    /// changed in Settings mid-session leaves earlier pages under the old root; the session PDF follows the pages).
+    private var sessionFolders: [Date: [URL]] = [:]
     private var pendingWrites = 0
     private let idle = DispatchGroup()
     private var mirrorContext: CIContext?
@@ -95,6 +98,7 @@ final class SessionSaver {
         do {
             let directory = sessionDirectory(sessionStart: sessionStart)
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            noteFolder(directory, sessionStart: sessionStart)
             let urls = urlsFor(pageKey: pageKey, index: strokes.pageIndex, directory: directory)
             guard let image = PNGExporter.render(strokes) else { throw SessionSaverError.render }
             // The strokes JSON goes inside the PNG as an `iTXt` chunk `daylight-strokes` (the same bytes as the
@@ -164,6 +168,7 @@ final class SessionSaver {
             do {
                 let directory = self.sessionDirectory(sessionStart: sessionStart)
                 try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                self.noteFolder(directory, sessionStart: sessionStart)
                 let name = SessionFiles.mirrorName(sessionStart: sessionStart, calendar: self.calendar)
                 let url = SessionFiles.uniqueURL(directory.appendingPathComponent(name).appendingPathExtension("png"), exists: { FileManager.default.fileExists(atPath: $0.path) })
                 let image = try self.cropped(pixelBuffer, uv: uv)
@@ -192,18 +197,41 @@ final class SessionSaver {
         return cg
     }
 
+    /// Records, on `queue`, a folder a page of this session was written to.
+    private func noteFolder(_ directory: URL, sessionStart: Date) {
+        lock.lock()
+        defer { lock.unlock() }
+        var folders = sessionFolders[sessionStart] ?? []
+        if !folders.contains(directory) { folders.append(directory) }
+        sessionFolders[sessionStart] = folders
+    }
+
+    /// The folders this session's pages were written to (oldest first), or the folder under the current root when
+    /// this saver wrote none (a session from before a relaunch).
+    func sessionFoldersForPDF(sessionStart: Date) -> [URL] {
+        lock.lock()
+        let folders = sessionFolders[sessionStart] ?? []
+        lock.unlock()
+        return folders.isEmpty ? [sessionDirectory(sessionStart: sessionStart)] : folders
+    }
+
     /// D39: every page image of the session's folder (`SessionHandout.pageFiles` order) as one PDF, one page per
     /// image with the image's pixel size as its media box in points (1200x1600 for a page). Queued on `queue` after
     /// every save enqueued before it, so the PDF holds the latest page. Written with `Data.write(.atomic)` (a temporary
-    /// file in the folder, then a rename). The result is nil when the folder holds no page image.
+    /// file in the folder, then a rename). The folders are the ones the session's pages were actually written to
+    /// (review F7), not the current root: after a save-folder change mid-session each folder gets the PDF of its own
+    /// pages. The result is the newest folder's PDF, nil when no folder holds a page image.
     func writeSessionPDF(sessionStart: Date, completion: ((Result<URL?, Error>) -> Void)? = nil) {
         begin()
         queue.async { [weak self] in
             guard let self = self else { return }
             let result: Result<URL?, Error>
             do {
-                let url = try self.writePDF(directory: self.sessionDirectory(sessionStart: sessionStart))
-                result = .success(url)
+                var newest: URL?
+                for directory in self.sessionFoldersForPDF(sessionStart: sessionStart) {
+                    if let url = try self.writePDF(directory: directory) { newest = url }
+                }
+                result = .success(newest)
             } catch {
                 result = .failure(error)
             }

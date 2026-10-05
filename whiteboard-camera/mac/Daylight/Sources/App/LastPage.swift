@@ -6,13 +6,15 @@ import Foundation
 /// test writes to a private `NSPasteboard(name:)`, never the owner's clipboard.
 enum LastPage {
     /// The current page rendered from the stroke model when it has ink (1200x1600, PaperBg, like a saved page),
-    /// otherwise the bytes of the last saved page PNG, otherwise nil.
+    /// otherwise the last saved page PNG without its `daylight-strokes` chunk (review F4: the clipboard never carries
+    /// the strokes, the client label or the session times), otherwise nil. A saved file that does not parse as a PNG
+    /// is not copied.
     static func pngData(snapshot: StrokeStore?, fallback: URL?) -> Data? {
         if let store = snapshot, store.hasInk, let image = PNGExporter.render(store), let data = try? PNGExporter.pngData(image) {
             return data
         }
         if let url = fallback, let data = try? Data(contentsOf: url) {
-            return data
+            return try? PNGTextChunk.removing(keyword: PNGTextChunk.strokesKeyword, from: data)
         }
         return nil
     }

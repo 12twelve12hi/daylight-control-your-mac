@@ -386,4 +386,12 @@ final class StrokeStoreTests: XCTestCase {
         XCTAssertEqual(String(decoding: data, as: UTF8.self), "[\"newCall\"]")
         XCTAssertEqual(try JSONDecoder().decode([SaveReason].self, from: data), [.newCall])
     }
+
+    /// Review F8: "Send today's board..." saves with its own reason, not `autosave`.
+    func testTheSendBoardReasonRoundTrips() throws {
+        XCTAssertEqual(SaveReason.sendBoard.rawValue, "sendBoard")
+        let data = try JSONEncoder().encode([SaveReason.sendBoard])
+        XCTAssertEqual(String(decoding: data, as: UTF8.self), "[\"sendBoard\"]")
+        XCTAssertEqual(try JSONDecoder().decode([SaveReason].self, from: data), [.sendBoard])
+    }
 }

@@ -10,6 +10,8 @@ public enum SaveReason: String, Codable {
     /// The fresh page for a new call (DRAWING-DEEP-DIVE D6): the ink router saves the idle page when a new call opens
     /// the camera. Not a governor effect; the governor never emits it.
     case newCall
+    /// Menu "Send today's board..." saves the dirty page before writing the session PDF (D41). Not a governor effect.
+    case sendBoard
 }
 
 public enum GovernorEffect: Equatable {

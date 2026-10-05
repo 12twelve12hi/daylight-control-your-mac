@@ -8,6 +8,10 @@ public enum SessionHandout {
     public static let pdfExtension = "pdf"
     /// The owner-facing line when "Send today's board..." finds nothing to send.
     public static let nothingToSend = "No saved board to send yet."
+    /// The owner-facing line when the current session's page save or PDF write failed and there is nothing older.
+    public static let couldNotWrite = "Could not write today's board."
+    /// The owner-facing line when the current session's page save or PDF write failed and an older PDF is sent.
+    public static let couldNotWriteSendingLast = "Could not write today's board; sending the last saved one."
 
     // MARK: Page order
 
@@ -103,6 +107,21 @@ public enum SessionHandout {
         case send(URL)
         /// Nothing to send: show this sentence.
         case nothing(String)
+        /// The current session could not be written (review F8): show this sentence, then share this older PDF.
+        case sendAfterNotice(URL, String)
+    }
+
+    /// The choice after the current session's save or PDF write failed: the owner is told, never silently handed the
+    /// previous session's PDF.
+    public static func afterWriteFailure(_ choice: SendChoice) -> SendChoice {
+        switch choice {
+        case let .send(url):
+            return .sendAfterNotice(url, couldNotWriteSendingLast)
+        case .nothing:
+            return .nothing(couldNotWrite)
+        case .sendAfterNotice:
+            return choice
+        }
     }
 
     /// The PDF "Send today's board..." offers: today's newest session folder that holds a session PDF (its highest

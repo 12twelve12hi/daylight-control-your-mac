@@ -17,6 +17,11 @@ final class FakePipeline: PipelineControl {
     }
 
     var governorSnapshot: GovernorOutput { return governor.snapshot }
+    /// Moves the governor's clock to `t` and ticks it once (the real pipeline ticks from its render loop).
+    func advance(to t: Double) {
+        now = t
+        _ = governor.tick(now: t)
+    }
     func setViewerCount(_ n: Int) {}
     func setPreviewVisible(_ visible: Bool) {}
     func setSinkConnected(_ connected: Bool) {}
@@ -416,6 +421,7 @@ final class InkRouterTests: XCTestCase {
         router.wallClock = { clock }
         let (connection, transport) = connect(address: "127.0.0.1")
         drawGoldenStroke(connection)
+        boardOffAir()
         let oldPage = router.store.pageID
         let oldSession = try XCTUnwrap(router.sessionStart)
         var logs: [String] = []
@@ -429,7 +435,7 @@ final class InkRouterTests: XCTestCase {
         XCTAssertEqual(router.store.committedCount, 1)
         router.viewersChanged(0)
 
-        clock = clock.addingTimeInterval(2)   // 10:01
+        clock = clock.addingTimeInterval(3)   // 10:02, after a settled zero of 3 s
         let urls = waitForSave { router.viewersChanged(1) }
         XCTAssertEqual(urls, ["page-01.json", "page-01.png"])
         let at = try XCTUnwrap(statesAtSave, "the save started")
@@ -445,7 +451,7 @@ final class InkRouterTests: XCTestCase {
         XCTAssertEqual(router.store.committedCount, 0)
         XCTAssertFalse(router.store.hasInk)
         XCTAssertEqual(CanvasSurfaces.pixel(surfaces.ink, x: 650, y: 900).a, 0, "the board shows the blank page")
-        XCTAssertTrue(logs.contains("fresh page: saved 1 strokes, idle 601 s, reason=new_call"), "\(logs)")
+        XCTAssertTrue(logs.contains("fresh page: saved 1 strokes, idle 602 s, reason=new_call"), "\(logs)")
 
         let directory = saver.sessionDirectory(sessionStart: oldSession)
         let document = try JSONDecoder().decode(PageDocument.self, from: Data(contentsOf: directory.appendingPathComponent("page-01.json")))
@@ -479,21 +485,131 @@ final class InkRouterTests: XCTestCase {
         XCTAssertEqual(pngCount(), 2)
     }
 
-    /// D6 across a sleep: the monotonic clock stops while the Mac sleeps, the wall clock does not; after a wake the next
-    /// viewer count of 1 is a new call even without a 0 before the sleep.
+    /// The real governor back in PASSTHROUGH (camera only), as after a return: the board is off the air.
+    private func boardOffAir(file: StaticString = #filePath, line: UInt = #line) {
+        pipeline.post(.returnNow)
+        for _ in 0..<60 where pipeline.governorSnapshot.state != .passthrough {
+            pipeline.advance(to: pipeline.now + 0.5)
+        }
+        XCTAssertEqual(pipeline.governorSnapshot.state, .passthrough, file: file, line: line)
+        XCTAssertFalse(pipeline.governorSnapshot.pinned, file: file, line: line)
+    }
+
+    /// Fails the test if any page save happens while `body` runs.
+    private func expectNoSave(_ body: () -> Void, file: StaticString = #filePath, line: UInt = #line) {
+        router.onSaveResult = { _ in XCTFail("no save expected", file: file, line: line) }
+        body()
+        inkQueue.sync {}
+        ioQueue.sync {}
+        inkQueue.sync {}
+        router.onSaveResult = nil
+    }
+
+    /// D6 across a sleep, as the watcher reports it (changes only): the call ends, the Mac sleeps, the wake finds the
+    /// camera closed, and the morning's first viewer is a new call on last night's page (the wall clock counts the
+    /// sleep, the monotonic clock does not).
     func testAPageFromBeforeASleepIsFreshAfterTheWake() {
         var clock = Date(timeIntervalSince1970: 1_791_036_309)
         router.wallClock = { clock }
         let (connection, _) = connect(address: "127.0.0.1")
         router.viewersChanged(1)
         drawGoldenStroke(connection)
+        boardOffAir()
+        clock = clock.addingTimeInterval(60)
+        router.viewersChanged(0)   // the call ends
         clock = clock.addingTimeInterval(8 * 3600)
-        router.viewersChanged(1)
-        XCTAssertEqual(router.store.committedCount, 1, "no transition, no fresh page")
-        router.noteWake()
+        router.noteWake(currentCount: 0)
+        XCTAssertEqual(router.store.committedCount, 1, "the wake alone changes nothing")
+        clock = clock.addingTimeInterval(0.5)
         _ = waitForSave { router.viewersChanged(1) }
         XCTAssertEqual(router.store.committedCount, 0)
         XCTAssertEqual(pngCount(), 1)
+    }
+
+    /// Review F2: a call that holds the camera across a sleep keeps its page, also when a second app opens the camera
+    /// after the wake (the watcher reports 1 -> 2, never a 0).
+    func testAWakeDuringARunningCallKeepsThePage() {
+        var clock = Date(timeIntervalSince1970: 1_791_036_309)
+        router.wallClock = { clock }
+        let (connection, _) = connect(address: "127.0.0.1")
+        router.viewersChanged(1)
+        drawGoldenStroke(connection)
+        boardOffAir()
+        clock = clock.addingTimeInterval(8 * 3600)
+        expectNoSave {
+            router.noteWake(currentCount: 1)
+            router.viewersChanged(2)
+            router.viewersChanged(1)
+        }
+        XCTAssertEqual(router.store.committedCount, 1)
+        XCTAssertEqual(router.viewers.count, 1)
+        XCTAssertEqual(pngCount(), 0)
+    }
+
+    /// Review F1: the sink's revalidate reconnect and a Zoom video toggle report 1, 0, 1 inside a call. A 0 shorter
+    /// than 3 s keeps even a stale page; a 0 of 3 s makes the next viewer a new call.
+    func testAViewerBounceInsideACallKeepsAStalePage() {
+        var clock = Date(timeIntervalSince1970: 1_791_036_309)
+        router.wallClock = { clock }
+        let (connection, _) = connect(address: "127.0.0.1")
+        router.viewersChanged(1)
+        drawGoldenStroke(connection)
+        boardOffAir()
+        clock = clock.addingTimeInterval(3600)
+        expectNoSave {
+            router.viewersChanged(0)
+            clock = clock.addingTimeInterval(2)
+            router.viewersChanged(1)
+        }
+        XCTAssertEqual(router.store.committedCount, 1, "a bounce of 2 s is the same call")
+        router.viewersChanged(0)
+        clock = clock.addingTimeInterval(3)
+        _ = waitForSave { router.viewersChanged(1) }
+        XCTAssertEqual(router.store.committedCount, 0, "a settled zero, then a viewer: a new call")
+        XCTAssertEqual(pngCount(), 1)
+    }
+
+    /// Review F1: a board on the air (LIVE, pinned, held) is never wiped, however stale its ink; a board off the air
+    /// with fresh ink is kept too.
+    func testAStalePageIsKeptWhileTheBoardIsOnTheAir() {
+        var clock = Date(timeIntervalSince1970: 1_791_036_309)
+        router.wallClock = { clock }
+        let (connection, _) = connect(address: "127.0.0.1")
+        drawGoldenStroke(connection)
+        for _ in 0..<60 where pipeline.governorSnapshot.state != .live {
+            pipeline.advance(to: pipeline.now + 0.05)
+        }
+        XCTAssertEqual(pipeline.governorSnapshot.state, .live)
+        clock = clock.addingTimeInterval(3600)
+        expectNoSave {
+            router.viewersChanged(1)   // LIVE
+            router.viewersChanged(0)
+            clock = clock.addingTimeInterval(10)
+            pipeline.post(.pin(1))
+            XCTAssertTrue(pipeline.governorSnapshot.pinned)
+            router.viewersChanged(1)   // pinned
+        }
+        boardOffAir()
+        pipeline.post(.hold(.whiteboard))
+        XCTAssertEqual(pipeline.governorSnapshot.hold, .whiteboard)
+        expectNoSave {
+            router.viewersChanged(0)
+            clock = clock.addingTimeInterval(10)
+            router.viewersChanged(1)   // Hold Whiteboard
+        }
+        XCTAssertEqual(router.store.committedCount, 1)
+        pipeline.post(.hold(.auto))
+        boardOffAir()
+        drawSecondStroke(connection)
+        boardOffAir()
+        clock = clock.addingTimeInterval(60)
+        expectNoSave {
+            router.viewersChanged(0)
+            clock = clock.addingTimeInterval(10)
+            router.viewersChanged(1)   // PASSTHROUGH, ink 70 s old
+        }
+        XCTAssertEqual(router.store.committedCount, 2)
+        XCTAssertEqual(pngCount(), 0)
     }
 
     /// A pen on the glass is never wiped from under it, however old the page's last finished stroke.
@@ -504,10 +620,48 @@ final class InkRouterTests: XCTestCase {
         drawGoldenStroke(connection)
         clock = clock.addingTimeInterval(3600)
         drawSecondStrokeStartOnly(connection)
+        boardOffAir()
         clock = clock.addingTimeInterval(3600)
         router.viewersChanged(1)
         XCTAssertEqual(router.store.committedCount, 1)
         XCTAssertFalse(router.store.activeStrokeIDs.isEmpty)
+        XCTAssertTrue(router.freshPagePending, "decided again at the lift")
+    }
+
+    /// Review F6: a new call that arrives during an open stroke is deferred to the lift, not dropped.
+    func testANewCallDuringAnOpenStrokeStartsTheFreshPageAtTheLift() {
+        var clock = Date(timeIntervalSince1970: 1_791_036_309)
+        router.wallClock = { clock }
+        let (connection, _) = connect(address: "127.0.0.1")
+        drawGoldenStroke(connection)
+        drawSecondStrokeStartOnly(connection)
+        let id = UUID(uuidString: "30313233-3435-3637-3839-3a3b3c3d3e3f")!
+        let points = [SolStream.Point(x: 100, y: 100, pressure: 0.6, deltaMs: 0), SolStream.Point(x: 300, y: 120, pressure: 0.6, deltaMs: 8)]
+        router.handle(Codec.encode(.strokeChunk(id: id, points: points), timestampUs: 41), from: connection, hostTimeNs: 41)
+        boardOffAir()
+        clock = clock.addingTimeInterval(3600)
+        expectNoSave { router.viewersChanged(1) }
+        XCTAssertTrue(router.freshPagePending)
+        XCTAssertEqual(router.store.committedCount, 1)
+        let urls = waitForSave { router.handle(Codec.encode(.strokeCommit(id: id, pointCount: 2), timestampUs: 42), from: connection, hostTimeNs: 42) }
+        XCTAssertEqual(urls, ["page-01.json", "page-01.png"])
+        XCTAssertFalse(router.freshPagePending)
+        XCTAssertEqual(router.store.committedCount, 0, "the fresh page started at the lift")
+        XCTAssertEqual(pngCount(), 1)
+
+        // A call that ends before the lift drops the pending new call.
+        drawGoldenStroke(connection)
+        drawSecondStrokeStartOnly(connection)
+        router.handle(Codec.encode(.strokeChunk(id: id, points: points), timestampUs: 43), from: connection, hostTimeNs: 43)
+        boardOffAir()
+        router.viewersChanged(0)
+        clock = clock.addingTimeInterval(3600)
+        router.viewersChanged(1)
+        XCTAssertTrue(router.freshPagePending)
+        router.viewersChanged(0)
+        XCTAssertFalse(router.freshPagePending, "the call ended before the lift")
+        expectNoSave { router.handle(Codec.encode(.strokeCommit(id: id, pointCount: 2), timestampUs: 44), from: connection, hostTimeNs: 44) }
+        XCTAssertEqual(router.store.committedCount, 2)
     }
 
     private func drawSecondStrokeStartOnly(_ connection: InkConnection) {

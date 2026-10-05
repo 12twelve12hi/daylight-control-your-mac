@@ -1,4 +1,6 @@
+import CoreGraphics
 import DaylightKit
+import ImageIO
 import XCTest
 @testable import Daylight
 
@@ -390,6 +392,124 @@ final class InkRouterTests: XCTestCase {
         XCTAssertEqual(router.store.committedCount, 0)
         XCTAssertEqual(transport.states.last?.pageIndex, 1)
         XCTAssertEqual(pipeline.events.last, .activity)
+    }
+
+    /// The red channel (0...255) of one pixel of a saved PNG, top-left origin.
+    private func redAt(_ url: URL, x: Int, y: Int) throws -> (width: Int, height: Int, red: UInt8) {
+        let source = try XCTUnwrap(CGImageSourceCreateWithURL(url as CFURL, nil))
+        let image = try XCTUnwrap(CGImageSourceCreateImageAtIndex(source, 0, nil))
+        var pixels = [UInt8](repeating: 0, count: image.width * image.height * 4)
+        let space = CGColorSpaceCreateDeviceRGB()
+        let drawn: Bool = pixels.withUnsafeMutableBytes { raw in
+            guard let ctx = CGContext(data: raw.baseAddress, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: image.width * 4, space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+            ctx.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+            return true
+        }
+        XCTAssertTrue(drawn)
+        return (image.width, image.height, pixels[(y * image.width + x) * 4])
+    }
+
+    /// DRAWING-DEEP-DIVE D6: the first viewer of a new call on a page whose newest ink is older than 10 minutes saves
+    /// that page (its strokes in the PNG and the JSON) before the blank page is announced to the clients.
+    func testNewCallOnAStalePageSavesItBeforeAnnouncingABlankPage() throws {
+        var clock = Date(timeIntervalSince1970: 1_791_036_309)
+        router.wallClock = { clock }
+        let (connection, transport) = connect(address: "127.0.0.1")
+        drawGoldenStroke(connection)
+        let oldPage = router.store.pageID
+        let oldSession = try XCTUnwrap(router.sessionStart)
+        var logs: [String] = []
+        router.onLog = { logs.append($0) }
+        var statesAtSave: Int?
+        router.onSaving = { saving in if saving && statesAtSave == nil { statesAtSave = transport.states.count } }
+
+        clock = clock.addingTimeInterval(9 * 60 + 59)
+        router.viewersChanged(1)
+        XCTAssertNil(statesAtSave, "9:59 after the last stroke the page stays")
+        XCTAssertEqual(router.store.committedCount, 1)
+        router.viewersChanged(0)
+
+        clock = clock.addingTimeInterval(2)   // 10:01
+        let urls = waitForSave { router.viewersChanged(1) }
+        XCTAssertEqual(urls, ["page-01.json", "page-01.png"])
+        let at = try XCTUnwrap(statesAtSave, "the save started")
+        XCTAssertGreaterThan(at, 0)
+        XCTAssertEqual(transport.states[at - 1].strokeCount, 1, "the last STATE before the save still shows the old page")
+        XCTAssertGreaterThan(transport.states.count, at, "a STATE announced the new page after the save started")
+        let announced = transport.states[at]
+        XCTAssertEqual(announced.strokeCount, 0)
+        XCTAssertEqual(announced.undoDepth, 0)
+        XCTAssertEqual(announced.redoDepth, 0)
+        XCTAssertEqual(announced.pageIndex, 0, "the new call is a new session: its first page is page 0 again")
+        XCTAssertNotEqual(router.store.pageID, oldPage)
+        XCTAssertEqual(router.store.committedCount, 0)
+        XCTAssertFalse(router.store.hasInk)
+        XCTAssertEqual(CanvasSurfaces.pixel(surfaces.ink, x: 650, y: 900).a, 0, "the board shows the blank page")
+        XCTAssertTrue(logs.contains("fresh page: saved 1 strokes, idle 601 s, reason=new_call"), "\(logs)")
+
+        let directory = saver.sessionDirectory(sessionStart: oldSession)
+        let document = try JSONDecoder().decode(PageDocument.self, from: Data(contentsOf: directory.appendingPathComponent("page-01.json")))
+        XCTAssertEqual(document.strokes.map { $0.id }, ["00010203-0405-0607-0809-0a0b0c0d0e0f"], "the last call's stroke is in the JSON")
+        let png = try redAt(directory.appendingPathComponent("page-01.png"), x: 650, y: 900)
+        XCTAssertEqual(png.width, 1200)
+        XCTAssertEqual(png.height, 1600)
+        XCTAssertLessThan(png.red, 128, "the last call's stroke is in the PNG")
+
+        // A second app joining the call, and the call ending and starting again on the blank page, change nothing.
+        router.onSaveResult = { _ in XCTFail("nothing more to save") }
+        router.viewersChanged(2)
+        router.viewersChanged(0)
+        clock = clock.addingTimeInterval(3600)
+        router.viewersChanged(1)
+        inkQueue.sync {}
+        ioQueue.sync {}
+        router.onSaveResult = nil
+        XCTAssertEqual(pngCount(), 1)
+
+        // The new call's first stroke opens a new session folder and saves as its page-01.
+        drawSecondStroke(connection)
+        let newSession = try XCTUnwrap(router.sessionStart)
+        XCTAssertNotEqual(newSession, oldSession)
+        XCTAssertEqual(waitForSave { router.savePage(reason: .returned) }, ["page-01.json", "page-01.png"])
+        XCTAssertNotEqual(saver.sessionDirectory(sessionStart: newSession), directory)
+        XCTAssertEqual(pngCount(), 2)
+    }
+
+    /// D6 across a sleep: the monotonic clock stops while the Mac sleeps, the wall clock does not; after a wake the next
+    /// viewer count of 1 is a new call even without a 0 before the sleep.
+    func testAPageFromBeforeASleepIsFreshAfterTheWake() {
+        var clock = Date(timeIntervalSince1970: 1_791_036_309)
+        router.wallClock = { clock }
+        let (connection, _) = connect(address: "127.0.0.1")
+        router.viewersChanged(1)
+        drawGoldenStroke(connection)
+        clock = clock.addingTimeInterval(8 * 3600)
+        router.viewersChanged(1)
+        XCTAssertEqual(router.store.committedCount, 1, "no transition, no fresh page")
+        router.noteWake()
+        _ = waitForSave { router.viewersChanged(1) }
+        XCTAssertEqual(router.store.committedCount, 0)
+        XCTAssertEqual(pngCount(), 1)
+    }
+
+    /// A pen on the glass is never wiped from under it, however old the page's last finished stroke.
+    func testAnOpenStrokeKeepsThePage() {
+        var clock = Date(timeIntervalSince1970: 1_791_036_309)
+        router.wallClock = { clock }
+        let (connection, _) = connect(address: "127.0.0.1")
+        drawGoldenStroke(connection)
+        clock = clock.addingTimeInterval(3600)
+        drawSecondStrokeStartOnly(connection)
+        clock = clock.addingTimeInterval(3600)
+        router.viewersChanged(1)
+        XCTAssertEqual(router.store.committedCount, 1)
+        XCTAssertFalse(router.store.activeStrokeIDs.isEmpty)
+    }
+
+    private func drawSecondStrokeStartOnly(_ connection: InkConnection) {
+        let id = UUID(uuidString: "30313233-3435-3637-3839-3a3b3c3d3e3f")!
+        let start = StrokeStart(id: id, tool: .pen, colorARGB: 0xFF11_1111, baseWidth: 3.2, pointer: .stylus, phase: .contact, pressure: 0.6)
+        router.handle(Codec.encode(.strokeStart(start), timestampUs: 40), from: connection, hostTimeNs: 40)
     }
 
     func testControlMessagesMapToGovernorEvents() {

@@ -49,6 +49,8 @@ final class AppModel: ObservableObject {
     @Published var mirrorStatusText = "mirror mode not available in this build"
     /// Row 48: Overlay fell back to Studio Split; the menu shows its sentence until Overlay is toggled in Settings.
     @Published private(set) var overlayFellBack = false
+    /// D40: the newest page PNG saved in this run ("Copy last page" falls back to it when the page is blank).
+    @Published private(set) var lastSavedPNG: URL?
 
     let settingsStore: SettingsStore
     let signed: Bool
@@ -260,6 +262,7 @@ final class AppModel: ObservableObject {
 
     func noteSaved(_ urls: [URL]) {
         lastSaveError = nil
+        if let png = urls.last(where: { $0.pathExtension == "png" }) { lastSavedPNG = png }
         telemetry?.note("save", "saved " + urls.map { $0.lastPathComponent }.joined(separator: ", "))
     }
 
@@ -331,6 +334,61 @@ final class AppModel: ObservableObject {
         case .overlay:
             if settings.overlayEnabled { whiteboardNow(.overlay) }
         }
+    }
+
+    // MARK: The board as the follow-up (D40, D41)
+
+    /// Menu "Copy last page" is enabled: the current page has ink, or a page was saved in this run. Asks ink.queue
+    /// synchronously (main never waits on anything that waits on main there, like `saveOnQuit`).
+    var canCopyLastPage: Bool {
+        if lastSavedPNG != nil { return true }
+        guard let router = router else { return false }
+        return router.queue.sync { router.pageHasInk }
+    }
+
+    /// Menu "Copy last page" and Ctrl+Opt+Cmd+P: the current page (rendered from the stroke model) or else the last
+    /// saved page as PNG on `pasteboard`. `completion` runs on main with whether anything was copied.
+    func copyLastPage(to pasteboard: NSPasteboard = .general, completion: ((Bool) -> Void)? = nil) {
+        let fallback = lastSavedPNG
+        let telemetry = self.telemetry
+        let finish: (StrokeStore?) -> Void = { snapshot in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let data = LastPage.pngData(snapshot: snapshot, fallback: fallback)
+                DispatchQueue.main.async {
+                    var copied = false
+                    if let data = data { copied = LastPage.put(data, on: pasteboard) }
+                    telemetry?.note("app", copied ? "copy last page: \(data?.count ?? 0) bytes" : "copy last page: nothing to copy")
+                    completion?(copied)
+                }
+            }
+        }
+        if let router = router {
+            router.queue.async { finish(router.currentPageSnapshot()) }
+        } else {
+            finish(nil)
+        }
+    }
+
+    /// Menu "Send today's board...": writes the current session's PDF if one is due, then decides what to send
+    /// (`AppModel.boardToSend`); `completion` runs on main.
+    func prepareBoardToSend(completion: @escaping (SessionHandout.SendChoice) -> Void) {
+        let root = router?.saver?.root ?? (settings.saveDirectory ?? SessionSaver.defaultRoot())
+        let calendar = router?.saver?.calendar ?? Calendar(identifier: .gregorian)
+        let decide: () -> Void = {
+            DispatchQueue.main.async { completion(AppModel.boardToSend(root: root, today: Date(), calendar: calendar)) }
+        }
+        if let router = router {
+            router.queue.async { router.writeCurrentSessionPDF { _ in decide() } }
+        } else {
+            decide()
+        }
+    }
+
+    /// The PDF to share, or the sentence to show (`SessionHandout.boardToSend` over the real folders).
+    static func boardToSend(root: URL, today: Date, calendar: Calendar = Calendar(identifier: .gregorian)) -> SessionHandout.SendChoice {
+        return SessionHandout.boardToSend(root: root, today: today, calendar: calendar, list: { url in
+            try? FileManager.default.contentsOfDirectory(atPath: url.path)
+        })
     }
 
     /// "Open http://100.x.y.z:7788 on your Daylight" lines (SPEC 9.2 step 1).

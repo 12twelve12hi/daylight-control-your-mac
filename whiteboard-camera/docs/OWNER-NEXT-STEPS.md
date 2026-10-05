@@ -262,10 +262,14 @@ If it fails: the tablet says "Your Mac did not accept the facts (404). Update Da
 | Board up without drawing | | | D (Studio Split), W (Whiteboard Only), O (Overlay, only while enabled) | "Whiteboard now (Studio Split)", "Whiteboard now (Whiteboard Only)", "Whiteboard now (Overlay)" (only while enabled) |
 | New page (saves the old one, board stays) | toolbar "New page" | | | |
 | Force a layout, no idle return | | | | "Hold" > "Camera" / "Studio Split" / "Whiteboard Only" / "Auto" |
+| Paste the page into Slack, mail or notes | | | P | "Copy last page" |
+| Send the whole call as one PDF | | | | "Send today's board..." |
 
 Lift the pen and the board returns to the camera after 90 s; the divider breathes amber from 85 s and the chip counts "Returning in 5". Touching the pen during the countdown or the slide cancels the return. Hotkeys are in Settings > Hotkeys; pressing the active layout hotkey again returns to the camera.
 
 Where sessions are saved: `~/Documents/Daylight Camera/<yyyy-MM-dd>/<HH-mm-ss>/page-01.png` plus `page-01.json` (the strokes), one pair per page; mirror sessions write `mirror-<HH-mm-ss>.png`. Saved on return, on Clear, on New page, every 60 s while drawing, on Hold: Camera and on quit. Settings > Saving changes the folder.
+
+After a call: menu bar > "Copy last page" (or Ctrl+Opt+Cmd+P) puts the page on the clipboard as a picture, ready to paste. Menu bar > "Send today's board..." opens the share sheet with `session.pdf`, every page of today's last session in one file (the last session's if today has none); with nothing saved yet it says "No saved board to send yet." The PDF is written next to the PNGs when a session ends (10 minutes without ink). Each saved PNG also carries its strokes inside it. When a new call opens Daylight Camera and the page was last drawn on more than 10 minutes earlier, the old page is saved and the call starts on a blank page.
 
 Switching ink sources: menu bar > "Ink source" > "Web whiteboard" / "Daylight Ink app" / "Mirror the tablet". It applies at once; a tablet on the other source shows "Ink source is <web / Daylight Ink / mirror> on the Mac" instead of silently not drawing.
 

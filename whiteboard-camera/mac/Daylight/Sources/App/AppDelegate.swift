@@ -406,7 +406,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         sink.onStatusChange = { [weak self] status in
             DispatchQueue.main.async { self?.sinkStatusChanged(status) }
         }
-        sink.onViewerCount = { [weak pipeline] count in pipeline?.setViewerCount(count) }
+        // The count reaches the ink router on ink.queue too, ahead of any pen-down that follows it (D6 fresh page).
+        sink.onViewerCount = { [weak self, weak pipeline] count in
+            pipeline?.setViewerCount(count)
+            self?.inkQueue.async { self?.router?.viewersChanged(count) }
+        }
+        _ = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: nil) { [weak self] _ in
+            self?.inkQueue.async { self?.router?.noteWake() }
+        }
         sinkStatusChanged(sink.status)
         sink.start()
     }
@@ -585,7 +592,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func wireHotkeys() {
         let hotkeys = Hotkeys(settings: settingsStore.settings)
         hotkeys.onAction = { [weak self] action in self?.model.hotkey(action) }
+        hotkeys.onCopyLastPage = { [weak self] in self?.model.copyLastPage() }
         hotkeys.registerAll()
+        if let text = hotkeys.copyLastPageConflict { telemetry.note("hotkeys", "Copy last page: \(text)") }
         settingsContext.hotkeyConflicts = hotkeys.conflictTexts
         for (action, text) in hotkeys.conflictTexts {
             telemetry.note("hotkeys", "\(Hotkeys.title(action)): \(text)")

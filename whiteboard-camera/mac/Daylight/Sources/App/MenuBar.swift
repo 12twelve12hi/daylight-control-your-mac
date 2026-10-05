@@ -11,6 +11,11 @@ final class MenuBar: NSObject, NSMenuDelegate {
     var onExportDiagnostics: (() -> Void)?
     /// Menu bar > "Share the whiteboard" (Share/ShareMenu.swift); nil leaves the item out.
     var shareMenu: (() -> NSMenuItem)?
+    /// "Send today's board...": kept while the share sheet is up.
+    private var sharePicker: NSSharingServicePicker?
+
+    static let copyLastPageTitle = "Copy last page"
+    static let sendBoardTitle = "Send today's board..."
 
     init(model: AppModel) {
         self.model = model
@@ -77,6 +82,16 @@ final class MenuBar: NSObject, NSMenuDelegate {
         if model.settings.overlayEnabled {
             add("Whiteboard now (Overlay)", #selector(overlay(_:)), hotkey: .overlay)
         }
+        // D40 and D41: the board as the follow-up.
+        menu.addItem(NSMenuItem.separator())
+        let copy = add(MenuBar.copyLastPageTitle, #selector(copyLastPage(_:)), hotkey: nil, chord: Hotkeys.copyLastPageBinding)
+        if !model.canCopyLastPage {
+            // No action: disabled whether or not the menu auto-enables its items.
+            copy.action = nil
+            copy.target = nil
+            copy.isEnabled = false
+        }
+        add(MenuBar.sendBoardTitle, #selector(sendBoard(_:)), hotkey: nil)
         menu.addItem(NSMenuItem.separator())
         let preview = add("Preview window", #selector(togglePreview(_:)), hotkey: nil)
         preview.state = (model.preview?.isVisible ?? false) ? .on : .off
@@ -138,10 +153,12 @@ final class MenuBar: NSObject, NSMenuDelegate {
     }
 
     @discardableResult
-    private func add(_ title: String, _ action: Selector, hotkey: HotkeyAction?) -> NSMenuItem {
+    private func add(_ title: String, _ action: Selector, hotkey: HotkeyAction?, chord: HotkeyBinding? = nil) -> NSMenuItem {
         var label = title
         if let hotkey = hotkey, let binding = model.settings.hotkeys[hotkey] {
             label += "  (\(Hotkeys.describe(binding)))"
+        } else if let chord = chord {
+            label += "  (\(Hotkeys.describe(chord)))"
         }
         let entry = NSMenuItem(title: label, action: action, keyEquivalent: "")
         entry.target = self
@@ -167,6 +184,30 @@ final class MenuBar: NSObject, NSMenuDelegate {
     @objc private func openDiagnostics(_ sender: Any?) { model.onOpenDiagnostics?() }
     @objc private func exportDiagnostics(_ sender: Any?) { onExportDiagnostics?() }
     @objc private func setupAgain(_ sender: Any?) { model.onSetupAgain?() }
+
+    @objc private func copyLastPage(_ sender: Any?) { model.copyLastPage() }
+
+    @objc private func sendBoard(_ sender: Any?) {
+        model.prepareBoardToSend { [weak self] choice in self?.present(choice) }
+    }
+
+    /// The share sheet next to the status item with the PDF, or the one-line alert when there is nothing to send.
+    private func present(_ choice: SessionHandout.SendChoice) {
+        switch choice {
+        case let .send(url):
+            guard let button = item.button else { return }
+            let picker = NSSharingServicePicker(items: [url])
+            sharePicker = picker
+            NSApp.activate()
+            picker.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        case let .nothing(text):
+            let alert = NSAlert()
+            alert.messageText = text
+            alert.addButton(withTitle: "OK")
+            NSApp.activate()
+            alert.runModal()
+        }
+    }
 
     @objc private func togglePreview(_ sender: Any?) {
         guard let preview = model.preview else { return }

@@ -69,6 +69,17 @@ enum PNGExporter {
         }
     }
 
+    /// The PNG bytes of `image` in memory (the saved page adds its strokes chunk before writing them atomically).
+    static func pngData(_ image: CGImage) throws -> Data {
+        let data = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(data as CFMutableData, UTType.png.identifier as CFString, 1, nil) else {
+            throw PNGExporterError.destination
+        }
+        CGImageDestinationAddImage(destination, image, nil)
+        guard CGImageDestinationFinalize(destination) else { throw PNGExporterError.finalize }
+        return data as Data
+    }
+
     static func write(_ image: CGImage, to url: URL) throws {
         guard let destination = CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil) else {
             throw PNGExporterError.destination

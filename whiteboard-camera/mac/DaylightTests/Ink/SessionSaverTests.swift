@@ -1,4 +1,5 @@
 import DaylightKit
+import ImageIO
 import XCTest
 @testable import Daylight
 
@@ -103,6 +104,38 @@ final class SessionSaverTests: XCTestCase {
         let saver = SessionSaver(root: root, queue: queue, writeJSON: false)
         let urls = save(saver, store, start: Date(), reason: .quit)
         XCTAssertEqual(urls.count, 1, "JSON off writes only the PNG")
+    }
+
+    /// Strokes inside the PNG: the `daylight-strokes` iTXt chunk holds the sidecar's exact bytes, and the PNG still
+    /// decodes at 1200x1600.
+    func testPNGCarriesTheSidecarJSONByteForByte() throws {
+        let saver = SessionSaver(root: root, queue: queue)
+        let urls = save(saver, storeWithStroke(), start: Date(timeIntervalSince1970: 1_790_000_400))
+        XCTAssertEqual(urls.count, 2)
+        let png = try Data(contentsOf: urls[0])
+        let sidecar = try Data(contentsOf: urls[1])
+        let embedded = try PNGTextChunk.readText(keyword: PNGTextChunk.strokesKeyword, from: png)
+        XCTAssertEqual(embedded, sidecar, "the chunk is the sidecar, byte for byte")
+        XCTAssertEqual(try PNGTextChunk.chunks(png).last?.type, "IEND")
+        guard let source = CGImageSourceCreateWithURL(urls[0] as CFURL, nil), let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+            return XCTFail("the PNG with the text chunk no longer decodes")
+        }
+        XCTAssertEqual(image.width, 1200)
+        XCTAssertEqual(image.height, 1600)
+    }
+
+    /// "Save strokes JSON" off skips the sidecar file only: the PNG still carries the strokes.
+    func testJSONOffStillEmbedsTheStrokes() throws {
+        let saver = SessionSaver(root: root, queue: queue, writeJSON: false)
+        let urls = save(saver, storeWithStroke(), start: Date(timeIntervalSince1970: 1_790_000_500))
+        XCTAssertEqual(urls.count, 1)
+        let png = try Data(contentsOf: urls[0])
+        guard let embedded = try PNGTextChunk.readText(keyword: PNGTextChunk.strokesKeyword, from: png) else {
+            return XCTFail("no daylight-strokes chunk")
+        }
+        let decoded = try JSONDecoder().decode(PageDocument.self, from: embedded)
+        XCTAssertEqual(decoded.schema, "daylight-whiteboard-strokes/1")
+        XCTAssertEqual(decoded.strokes.count, 2)
     }
 
     /// APPA-05: a folder chosen in Settings applies to the next save without a restart; a save queued before the

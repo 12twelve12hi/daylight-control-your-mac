@@ -66,6 +66,7 @@ Prerequisites: "Ink source" > "Web whiteboard"; the DC-1 on the same Wi-Fi (USB 
 | 2.21 | 🟣 | Optional: try the muted `http://<hostname>.local:7788` line in Chrome | does it load? | 1 min | D8 (`.local`) |
 | 2.22 | 🟣 | Optional (LOOSE_ENDS A5): "?" card, copy the `chrome://flags` line and the origin, paste in Chrome, Enabled, Relaunch | "?" shows `secure true` afterwards | 2 min | A5 |
 | 2.23 | ⏱️ | Leave the tablet alone for its screen-timeout period while LIVE | with `wake lock true held` the screen stays on; otherwise note it | 3 min | D8 |
+| 2.24 | ⏱️ | Signed build only (an unsigned build has no camera viewers). Draw a word in a Zoom call, leave the call, wait 11 minutes, open Zoom again with Daylight Camera and touch the pen to the glass | draw, wait, reopen Zoom: the board is blank, yesterday's page is in the folder (the word is in the last `page-NN.png` of the previous `~/Documents/Daylight Camera/<date>/<time>/` folder); log `fresh page: saved <n> strokes, idle <s> s, reason=new_call`; the tablet page is blank too. Before 10 minutes the word is still there | 13 min | FP-1 |
 
 ---
 
@@ -220,6 +221,9 @@ Prerequisites: a tablet drawing on the Mac (Session 2 or 3), Zoom installed, and
 | 7.9 | 🟣 | Optional: Activity Monitor while drawing for 30 s with the share window open | note Daylight's CPU percent with the window open and closed | 2 min | TS-7 |
 | 7.10 | ✍️ | Camera line weight: in a call at 720p (the second device watching your camera tile), draw one line with light pressure on the tablet, then press Ctrl+Opt+Cmd+C (Clear saves the page as a PNG) | on the second device the line on camera reads at least as bold as it does on the tablet; the line on the tablet itself looks unchanged; the saved PNG shows the line at the tablet's width, not the bolder camera width | 3 min | note |
 | 7.11 | ✍️ | Settings > Advanced > switch on "Follow the pen on camera". Write small in one corner of the page for 3 s; then stop for 30 s; write again and press Ctrl+Opt+Cmd+C (Clear); write again with the board in Studio Split and press Ctrl+Opt+Cmd+W (Whiteboard Only); finally switch it off again and write | the board zooms in on the corner (at most 2.5 times); after 30 s without ink it returns to the full page; Clear snaps back to the full page at once; the layout switch refits without animation; with the switch off the board stays on the full page while you write | 3 min | TS-4 |
+| 7.12 | 🟣 | After the call: menu bar > "Copy last page", then paste into Notes or a Slack message | the page appears as a 1200x1600 picture; Ctrl+Opt+Cmd+P does the same; log `copy last page: <n> bytes` | 1 min | FP-4 |
+| 7.13 | 🟣 | Menu bar > "Send today's board...", pick Mail | the share sheet opens next to the menu bar icon and Mail attaches `session.pdf` with one page per saved page; on a Mac with nothing saved yet the alert says "No saved board to send yet." | 2 min | FP-4 |
+| 7.14 | 🟣 | Open the last `page-NN.png` in a text editor or run `strings page-01.png \| head` in Terminal | the text `daylight-strokes` followed by the page JSON is inside the PNG | 1 min | FP-5 |
 
 ---
 

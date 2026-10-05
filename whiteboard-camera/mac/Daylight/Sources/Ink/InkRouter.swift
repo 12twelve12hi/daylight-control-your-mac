@@ -18,8 +18,17 @@ final class InkRouter {
     private var lastGlobalFlags: StateReport.Flags = []
     private(set) var sessionStart: Date?
     private var lastInkMonotonic: Double?
+    /// Wall-clock time of the newest ink (the monotonic clock stops while the Mac sleeps): the D6 fresh-page rule and
+    /// the SPEC 12 session gap both measure idle time across a sleep.
+    private(set) var lastInkWall: Date?
+    /// Daylight Camera's viewer count as last reported (SPEC C3), for the D6 0 -> 1 transition.
+    private(set) var viewers = 0
+    /// Injectable for tests.
+    var wallClock: () -> Date = { Date() }
     private var autosaveTimer: DispatchSourceTimer?
     private var saving = false
+    /// D39: which session still needs its `session.pdf` (see `SessionHandout`).
+    private(set) var handout = HandoutTracker()
 
     /// "Daylight <version> (<build>)" for the JSON `app` field.
     var appLabel = "Daylight"
@@ -480,12 +489,48 @@ final class InkRouter {
     // MARK: Pages and saving (SPEC 12)
 
     private func noteInk(now: Double) {
-        if SessionFiles.startsNewSession(lastInkAt: lastInkMonotonic, now: now) {
-            sessionStart = Date()
+        let wall = wallClock()
+        let wallGap = lastInkWall.map { wall.timeIntervalSince($0) } ?? 0
+        handout.noteInk(wall: wall, monotonic: now)
+        if SessionFiles.startsNewSession(lastInkAt: lastInkMonotonic, now: now) || wallGap > SessionFiles.sessionGapSeconds {
+            finishSessionHandout()   // D39: the session that just ended gets its PDF
+            sessionStart = wall
             saver?.forgetAllPages()
             onLog?("new session \(sessionStart!)")
         }
         lastInkMonotonic = now
+        lastInkWall = wall
+    }
+
+    // MARK: Fresh page for a new call (DRAWING-DEEP-DIVE D6)
+
+    /// Daylight Camera's viewer count changed (the sink's `onViewerCount`, hopped to ink.queue). On 0 -> 1 with a page
+    /// whose newest ink is older than `FreshPage.idleSeconds`, the page is saved and a blank page starts before any
+    /// pen-down of the new call can engage: a STROKE_START that arrives after the count is handled after this, on the
+    /// same queue. The clients see the new page through STATE (page_index 0, no strokes, depths 0).
+    func viewersChanged(_ count: Int) {
+        let previous = viewers
+        viewers = max(count, 0)
+        let now = wallClock()
+        let penOnGlass = connections.values.contains { !$0.openStrokeIDs.isEmpty } || !store.activeStrokeIDs.isEmpty
+        guard FreshPage.shouldStart(previousViewers: previous, viewers: viewers, hasInk: store.hasInk, newestInkAt: lastInkWall, now: now, penOnGlass: penOnGlass),
+              let newest = lastInkWall else { return }
+        startFreshPageForNewCall(idleSeconds: now.timeIntervalSince(newest))
+    }
+
+    /// The Mac woke from sleep: the camera's clients reopen it, so the next count of 1 or more is a new call even if no
+    /// count of 0 was reported before the sleep.
+    func noteWake() {
+        viewers = 0
+    }
+
+    private func startFreshPageForNewCall(idleSeconds: Double) {
+        onLog?("fresh page: saved \(store.committedCount) strokes, idle \(Int(idleSeconds)) s, reason=new_call")
+        // The new call is a new session (the idle span is past the SPEC 12 gap): its first page is page-01 again.
+        newPage(id: UUID(), width: Double(SolStream.canvasWidth), height: Double(SolStream.canvasHeight), index: 0)
+        finishSessionHandout()   // D39: the last call's session gets its PDF, queued after the page save above
+        lastInkMonotonic = nil
+        lastInkWall = nil
     }
 
     /// Clear from any input (SPEC 7): save if ink, clear both layers and the undo stack, then let the governor
@@ -519,10 +564,11 @@ final class InkRouter {
         if hadInk { broadcastState() }
     }
 
-    /// New page (PAGE_CHANGE): save the current page if it has ink, start blank, board stays up.
-    func newPage(id: UUID, width: Double, height: Double) {
+    /// New page (PAGE_CHANGE): save the current page if it has ink, start blank, board stays up. The save takes its
+    /// snapshot of the store before the page changes, and the STATE that announces the new page goes out after it.
+    func newPage(id: UUID, width: Double, height: Double, index: Int? = nil) {
         savePage(reason: .pageChange)
-        let op = store.newPage(id: id, index: store.pageIndex + 1, width: width, height: height)
+        let op = store.newPage(id: id, index: index ?? store.pageIndex + 1, width: width, height: height)
         rasterizer?.apply(op, store: store)
         saver?.forgetPage(id)
         broadcastState()
@@ -548,6 +594,7 @@ final class InkRouter {
                 self.onSaveResult?(result)
             }
         }
+        if let finished = handout.noteSaveQueued(sessionStart: start) { writeHandout(finished) }
     }
 
     private func setSaving(_ v: Bool) {
@@ -565,6 +612,7 @@ final class InkRouter {
         timer.setEventHandler { [weak self] in
             guard let self = self else { return }
             if self.store.isDirty { self.savePage(reason: .autosave) }
+            self.writeHandoutIfIdle(nowWall: self.wallClock())
         }
         autosaveTimer = timer
         timer.activate()
@@ -577,8 +625,66 @@ final class InkRouter {
 
     /// Quit: save the page if dirty and wait up to `timeout` for the writer (SPEC 12).
     func saveOnQuit(timeout: Double) {
-        queue.sync { self.savePage(reason: .quit) }
+        queue.sync {
+            self.savePage(reason: .quit)
+            self.finishSessionHandout()
+        }
         saver?.waitUntilIdle(timeout: timeout)
+    }
+
+    // MARK: The board as the follow-up (D39, D40, D41)
+
+    /// D39: writes the pending session's `session.pdf` now (a new session starts, quit, or a fresh page for a new
+    /// call ends the session). Queued on io.queue after the saves already queued. ink.queue.
+    func finishSessionHandout() {
+        if let start = handout.takePending() { writeHandout(start) }
+    }
+
+    /// Autosave tick: the pending session's PDF once it is idle past the 10-minute gap by the wall clock or the
+    /// monotonic clock (the Mac may have slept). ink.queue.
+    func writeHandoutIfIdle(nowWall: Date = Date(), nowMonotonic: Double = CACurrentMediaTime()) {
+        if let start = handout.takeIfIdle(nowWall: nowWall, nowMonotonic: nowMonotonic) { writeHandout(start) }
+    }
+
+    /// "Send today's board...": saves a dirty page, writes the pending session's PDF, then calls `completion` on
+    /// io.queue after every queued write (with the PDF written now, or nil when none was due). ink.queue.
+    func writeCurrentSessionPDF(completion: @escaping (URL?) -> Void) {
+        savePage(reason: .autosave)
+        if let start = handout.takePending() {
+            writeHandout(start, completion: completion)
+        } else if let saver = saver {
+            saver.queue.async { completion(nil) }
+        } else {
+            completion(nil)
+        }
+    }
+
+    private func writeHandout(_ start: Date, completion: ((URL?) -> Void)? = nil) {
+        guard let saver = saver else {
+            completion?(nil)
+            return
+        }
+        saver.writeSessionPDF(sessionStart: start) { [weak self] result in
+            switch result {
+            case let .success(url):
+                if let url = url { self?.queue.async { self?.onLog?("session PDF written: \(url.lastPathComponent)") } }
+                completion?(url)
+            case let .failure(error):
+                self?.queue.async { self?.onLog?("session PDF failed: \(error)") }
+                completion?(nil)
+            }
+        }
+    }
+
+    /// D40 "Copy last page": a value copy of the current page when it has ink, nil otherwise. The caller renders it
+    /// off ink.queue (`LastPage.pngData`) so the ink path never waits on a 1200x1600 render. ink.queue.
+    func currentPageSnapshot() -> StrokeStore? {
+        return store.hasInk ? store : nil
+    }
+
+    /// Whether the current page has ink (the menu enables "Copy last page"). ink.queue.
+    var pageHasInk: Bool {
+        return store.hasInk
     }
 
     func updateSettings(_ s: Settings) {

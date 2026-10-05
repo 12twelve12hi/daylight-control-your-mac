@@ -1,15 +1,19 @@
+import CoreGraphics
 import CoreImage
 import CoreVideo
 import DaylightKit
 import Foundation
+import ImageIO
 
 enum SessionSaverError: Error {
     case render
     case mirrorCrop
+    case pdfContext
 }
 
 /// Writes `page-NN.png` and `page-NN.json` into `<root>/Daylight Camera/<yyyy-MM-dd>/<HH-mm-ss>/` (SPEC 12) on
-/// io.queue. The first write of a page picks a unique name (`-2`, `-3` on collision); later writes of the same page
+/// io.queue. The PNG carries the same JSON bytes in an `iTXt` chunk with the keyword `daylight-strokes`
+/// (`PNGTextChunk`), also when `writeJSON` is off (then only the sidecar file is skipped). The first write of a page picks a unique name (`-2`, `-3` on collision); later writes of the same page
 /// (autosave) overwrite the same two files until `forgetPage` (Clear, New page) breaks the binding.
 ///
 /// The binding is created inside the queued write, so `forgetPage` and `forgetAllPages` are queued on the same serial
@@ -23,6 +27,8 @@ final class SessionSaver {
     var onError: ((Error) -> Void)?
     private let lock = NSLock()
     private var pageURLs: [UUID: (png: URL, json: URL)] = [:]
+    /// Session folder path -> the session PDF this saver wrote there (D39): rewritten in place, never another's.
+    private var pdfURLs: [String: URL] = [:]
     private var pendingWrites = 0
     private let idle = DispatchGroup()
     private var mirrorContext: CIContext?
@@ -91,19 +97,27 @@ final class SessionSaver {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             let urls = urlsFor(pageKey: pageKey, index: strokes.pageIndex, directory: directory)
             guard let image = PNGExporter.render(strokes) else { throw SessionSaverError.render }
-            try PNGExporter.write(image, to: urls.png)
+            // The strokes JSON goes inside the PNG as an `iTXt` chunk `daylight-strokes` (the same bytes as the
+            // sidecar), whether or not the sidecar is written: the PNG alone is enough to rebuild the board.
+            let json = try SessionSaver.strokesJSON(document)
+            let png = try PNGTextChunk.inserting(keyword: PNGTextChunk.strokesKeyword, text: json, into: PNGExporter.pngData(image))
+            try png.write(to: urls.png, options: [.atomic])
             var written = [urls.png]
             if writeJSON {
-                let encoder = JSONEncoder()
-                encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes, .prettyPrinted]
-                let data = try encoder.encode(document)
-                try data.write(to: urls.json, options: [.atomic])
+                try json.write(to: urls.json, options: [.atomic])
                 written.append(urls.json)
             }
             return .success(written)
         } catch {
             return .failure(error)
         }
+    }
+
+    /// The page's strokes JSON (SPEC 12 schema v1), exactly as the sidecar and the PNG chunk hold it.
+    static func strokesJSON(_ document: PageDocument) throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes, .prettyPrinted]
+        return try encoder.encode(document)
     }
 
     private func urlsFor(pageKey: UUID, index: Int, directory: URL) -> (png: URL, json: URL) {
@@ -176,6 +190,60 @@ final class SessionSaver {
         if mirrorContext == nil { mirrorContext = CIContext(options: nil) }
         guard let context = mirrorContext, let cg = context.createCGImage(image, from: rect) else { throw SessionSaverError.mirrorCrop }
         return cg
+    }
+
+    /// D39: every page image of the session's folder (`SessionHandout.pageFiles` order) as one PDF, one page per
+    /// image with the image's pixel size as its media box in points (1200x1600 for a page). Queued on `queue` after
+    /// every save enqueued before it, so the PDF holds the latest page. Written with `Data.write(.atomic)` (a temporary
+    /// file in the folder, then a rename). The result is nil when the folder holds no page image.
+    func writeSessionPDF(sessionStart: Date, completion: ((Result<URL?, Error>) -> Void)? = nil) {
+        begin()
+        queue.async { [weak self] in
+            guard let self = self else { return }
+            let result: Result<URL?, Error>
+            do {
+                let url = try self.writePDF(directory: self.sessionDirectory(sessionStart: sessionStart))
+                result = .success(url)
+            } catch {
+                result = .failure(error)
+            }
+            self.end()
+            completion?(result)
+        }
+    }
+
+    private func writePDF(directory: URL) throws -> URL? {
+        let fileManager = FileManager.default
+        guard fileManager.fileExists(atPath: directory.path) else { return nil }
+        let pages = SessionHandout.pageFiles(try fileManager.contentsOfDirectory(atPath: directory.path))
+        guard !pages.isEmpty else { return nil }
+        let data = NSMutableData()
+        var defaultBox = CGRect(x: 0, y: 0, width: CGFloat(SolStream.canvasWidth), height: CGFloat(SolStream.canvasHeight))
+        guard let consumer = CGDataConsumer(data: data as CFMutableData),
+              let context = CGContext(consumer: consumer, mediaBox: &defaultBox, nil) else { throw SessionSaverError.pdfContext }
+        var drawn = 0
+        for name in pages {
+            let url = directory.appendingPathComponent(name)
+            // A page that does not decode (a write in progress elsewhere, a damaged file) is left out, not fatal.
+            guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+                  let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { continue }
+            var box = CGRect(x: 0, y: 0, width: CGFloat(image.width), height: CGFloat(image.height))
+            context.beginPage(mediaBox: &box)
+            context.draw(image, in: box)
+            context.endPage()
+            drawn += 1
+        }
+        context.closePDF()
+        guard drawn > 0 else { return nil }
+        lock.lock()
+        let bound = pdfURLs[directory.path]
+        lock.unlock()
+        let target = SessionHandout.pdfURL(directory: directory, bound: bound, exists: { fileManager.fileExists(atPath: $0.path) })
+        try (data as Data).write(to: target, options: [.atomic])
+        lock.lock()
+        pdfURLs[directory.path] = target
+        lock.unlock()
+        return target
     }
 
     /// Waits for queued writes (quit: SPEC 12 "the app waits up to 2 s for the writer").

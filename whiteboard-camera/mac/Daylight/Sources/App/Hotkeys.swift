@@ -24,6 +24,15 @@ final class Hotkeys {
     static let overlayEnabledChanged = Notification.Name("com.twelve.daylight.overlayEnabledChanged")
 
     var onAction: ((HotkeyAction) -> Void)?
+    /// D40 "Copy last page": a fixed chord outside `HotkeyAction` (no Settings row, not rebindable).
+    var onCopyLastPage: (() -> Void)?
+    /// Ctrl+Opt+Cmd+P (kVK_ANSI_P 0x23).
+    static let copyLastPageBinding = HotkeyBinding(keyCode: 0x23, modifiers: HotkeyBinding.defaultModifiers)
+    /// Its hotkey id, far above the `HotkeyAction` ids (1...allCases.count).
+    static let copyLastPageID: UInt32 = 100
+    private var copyLastPageReference: EventHotKeyRef?
+    /// Why the Copy last page chord is not registered (logged by the app, not shown in Settings); nil when it is.
+    private(set) var copyLastPageConflict: String?
     /// Every binding the settings carry, the Overlay one included even while Overlay is off.
     private var allBindings: [HotkeyAction: HotkeyBinding]
     /// The bindings in effect: `.overlay` only while `overlayEnabled` (SPEC 6.7, registered only while enabled).
@@ -183,6 +192,30 @@ final class Hotkeys {
                 conflicts[action] = (error as? HotkeyError) ?? .registration(action, -1)
             }
         }
+        registerCopyLastPage()
+    }
+
+    /// Registers Ctrl+Opt+Cmd+P like the other chords (exclusive). A Daylight action bound to the same chord keeps
+    /// it; a clash is kept in `copyLastPageConflict` for the log.
+    func registerCopyLastPage() {
+        guard copyLastPageReference == nil else { return }
+        installHandlerIfNeeded()
+        let binding = Hotkeys.copyLastPageBinding
+        if let other = HotkeyAction.allCases.first(where: { bindings[$0] == binding }) {
+            copyLastPageConflict = "Already used by \(Hotkeys.title(other))"
+            return
+        }
+        let hotKeyID = EventHotKeyID(signature: Hotkeys.signature, id: Hotkeys.copyLastPageID)
+        var reference: EventHotKeyRef?
+        let status = RegisterEventHotKey(binding.keyCode, binding.modifiers, hotKeyID, GetEventDispatcherTarget(), Hotkeys.exclusiveOption, &reference)
+        if status == Hotkeys.alreadyUsedStatus {
+            copyLastPageConflict = "Already used by another app"
+        } else if status != noErr || reference == nil {
+            copyLastPageConflict = "Could not register (\(status))"
+        } else {
+            copyLastPageReference = reference
+            copyLastPageConflict = nil
+        }
     }
 
     func unregisterAll() {
@@ -190,6 +223,10 @@ final class Hotkeys {
             UnregisterEventHotKey(reference)
         }
         references.removeAll()
+        if let reference = copyLastPageReference {
+            UnregisterEventHotKey(reference)
+            copyLastPageReference = nil
+        }
     }
 
     func rebind(_ action: HotkeyAction, keyCode: UInt32, modifiers: UInt32) throws {
@@ -219,6 +256,12 @@ final class Hotkeys {
         if let other = Hotkeys.duplicate(of: action, binding: binding, in: bindings), references[other] != nil {
             throw HotkeyError.duplicate(action, other)
         }
+        // A Daylight action the owner bound to Ctrl+Opt+Cmd+P wins over the fixed Copy last page chord.
+        if binding == Hotkeys.copyLastPageBinding, let ours = copyLastPageReference {
+            UnregisterEventHotKey(ours)
+            copyLastPageReference = nil
+            copyLastPageConflict = "Already used by \(Hotkeys.title(action))"
+        }
         let hotKeyID = EventHotKeyID(signature: Hotkeys.signature, id: Hotkeys.id(for: action))
         var reference: EventHotKeyRef?
         let status = RegisterEventHotKey(binding.keyCode, binding.modifiers, hotKeyID, GetEventDispatcherTarget(), Hotkeys.exclusiveOption, &reference)
@@ -238,6 +281,10 @@ final class Hotkeys {
     }
 
     fileprivate func dispatch(id: UInt32) {
+        if id == Hotkeys.copyLastPageID {
+            onCopyLastPage?()
+            return
+        }
         guard let action = Hotkeys.action(forID: id) else { return }
         onAction?(action)
     }

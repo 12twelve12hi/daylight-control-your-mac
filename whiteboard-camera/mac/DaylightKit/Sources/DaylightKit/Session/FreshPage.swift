@@ -51,7 +51,8 @@ public enum FreshPage {
     /// The board is off the air: PASSTHROUGH (camera only), not pinned, and no hold that forces the board (Hold
     /// Split or Hold Whiteboard). Hold Camera shows the camera only, so it does not keep the page.
     public static func boardIsOffAir(state: GovernorState, pinned: Bool, hold: HoldMode) -> Bool {
-        return state == .passthrough && !pinned && hold.forcedLayout == nil
+        // Any hold is the owner's explicit choice, Hold Camera included (private notes kept off the air): never clear under one.
+        return state == .passthrough && !pinned && hold == .auto
     }
 
     /// True when a 0 that began at `zeroSince` has lasted at least `settledZeroSeconds` at `now`. `zeroSince` nil

@@ -86,7 +86,7 @@ final class FreshPageTests: XCTestCase {
         XCTAssertEqual(FreshPage.decide(newCall: true, board: board(pinned: true), now: now), .keep, "pinned")
         XCTAssertEqual(FreshPage.decide(newCall: true, board: board(hold: .whiteboard), now: now), .keep, "Hold Whiteboard")
         XCTAssertEqual(FreshPage.decide(newCall: true, board: board(hold: .split), now: now), .keep, "Hold Split")
-        XCTAssertEqual(FreshPage.decide(newCall: true, board: board(hold: .camera), now: now), .start, "Hold Camera shows the camera only")
+        XCTAssertEqual(FreshPage.decide(newCall: true, board: board(hold: .camera), now: now), .keep, "Hold Camera is an explicit hold: the page is kept")
         XCTAssertEqual(FreshPage.decide(newCall: true, board: board(age: 60), now: now), .keep, "PASSTHROUGH with fresh ink")
         XCTAssertEqual(FreshPage.decide(newCall: true, board: board(age: 600), now: now), .keep, "exactly 10:00")
         XCTAssertEqual(FreshPage.decide(newCall: true, board: FreshPage.Board(hasInk: false, newestInkAt: drawn.addingTimeInterval(-3600)), now: now), .keep, "empty page")

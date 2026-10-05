@@ -143,7 +143,9 @@ final class H264DecoderTests: XCTestCase {
         XCTAssertEqual(decoder.framesDropped, 2)
         XCTAssertNotNil(decoder.keyFrameWaitStart, "the wait for a key frame is armed")
         XCTAssertFalse(decoder.shouldRestartServer(now: decoder.keyFrameWaitStart! + 11.9))
-        XCTAssertTrue(decoder.shouldRestartServer(now: decoder.keyFrameWaitStart! + 12), "row 27: restart after 12 s without a key frame")
+        // 12.01, not 12: `keyFrameWaitStart` is a large uptime value, and `(start + 12) - start` can round to just under 12
+        // in Double (mac-26 run 37384519102), which is not what row 27 is about.
+        XCTAssertTrue(decoder.shouldRestartServer(now: decoder.keyFrameWaitStart! + 12.01), "row 27: restart after 12 s without a key frame")
         try decoder.decode(annexB: units[3].annexB, ptsUs: 30, keyFrame: true)
         XCTAssertEqual(frames, 1)
         XCTAssertFalse(decoder.needsKeyFrame)

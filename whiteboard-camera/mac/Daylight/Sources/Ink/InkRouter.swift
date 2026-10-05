@@ -288,7 +288,10 @@ final class InkRouter {
                 broadcastState()
             }
             pipeline.post(.activity)
-        case .laserPoint:
+        case let .laserPoint(x, y, intensity, decayS):
+            // Ink Legibility R1: the Mac draws the dot. Scaled like strokes (a client may declare another canvas size);
+            // the laser touches neither the store nor the canvas layers, so it is never saved, undone or erased.
+            rasterizer?.laser(x: Double(x) * c.scale.0, y: Double(y) * c.scale.1, intensity: Double(intensity), decay: Double(decayS), now: now)
             pipeline.post(.activity)
         case let .pageChange(pageID, width, height, _):
             newPage(id: pageID, width: Double(width), height: Double(height))

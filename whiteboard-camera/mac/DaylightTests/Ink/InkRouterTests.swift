@@ -512,6 +512,24 @@ final class InkRouterTests: XCTestCase {
         router.handle(Codec.encode(.strokeStart(start), timestampUs: 40), from: connection, hostTimeNs: 40)
     }
 
+    /// Ink Legibility R1 (LOOSE_ENDS IL-4, IL-10): a LASER_POINT reaches the rasterizer's laser trail, scaled by the
+    /// client's declared canvas like strokes, and never becomes a stroke.
+    func testLaserPointDrawsAScaledDotAndNoStroke() {
+        let transport = FakeTransport(address: "127.0.0.1")
+        let connection = InkConnection(transport: transport)
+        router.clientOpened(connection)
+        let handshake = Codec.encode(.handshake(canvasWidth: 600, canvasHeight: 800, dpi: 200, name: "web;6f1a2b3c-4d5e-4f60-8a9b-0c1d2e3f4a5b;Mike's DC-1"), timestampUs: 1)
+        router.handle(handshake, from: connection, hostTimeNs: 1)
+        XCTAssertEqual(transport.acks, [.ok])
+        router.handle(Codec.encode(.laserPoint(x: 100, y: 200, intensity: 1, decayS: 0.5), timestampUs: 2), from: connection, hostTimeNs: 2)
+        let samples = surfaces.laser.withLock { $0.samples }
+        XCTAssertEqual(samples.count, 1)
+        XCTAssertEqual(samples.first?.x ?? 0, 200, accuracy: 1e-6, "x scaled by 1200 / 600")
+        XCTAssertEqual(samples.first?.y ?? 0, 400, accuracy: 1e-6, "y scaled by 1600 / 800")
+        XCTAssertEqual(router.store.committedCount, 0, "the laser is never a stroke")
+        XCTAssertEqual(pipeline.events.last, .activity)
+    }
+
     func testControlMessagesMapToGovernorEvents() {
         let (connection, _) = connect(address: "127.0.0.1")
         router.handle(bytes("da0160000800000040e2cfeeb540060040e2cfeeb5400600"), from: connection, hostTimeNs: 1)

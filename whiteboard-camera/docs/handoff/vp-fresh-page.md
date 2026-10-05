@@ -30,7 +30,7 @@ Prepared by a manager in a separate worktree, then merged into T1 and reviewed l
 
 Owner-facing strings: "Copy last page", "Send today's board...", "No saved board to send yet." (alert, button "OK"). OWNER-NEXT-STEPS "The daily gestures" quotes both menu items; TESTING-CHECKLIST 7.12 to 7.14.
 
-Not done: request R1 of `docs/handoff/vp-ink-legibility.md` (draw LASER_POINT in `InkRouter`) needs `InkRasterizer.laser`, which is on the branch head but not in this checkout; it goes in after the next `git pull --rebase`.
+Request R1 of `docs/handoff/vp-ink-legibility.md` is done, as amended for review F6: `InkRouter` hands LASER_POINT to `InkRasterizer.laser` scaled by `c.scale`; `InkRouterTests.testLaserPointDrawsAScaledDotAndNoStroke` uses a 600 x 800 handshake and checks the dot at twice the wire coordinates and no stroke (LOOSE_ENDS FP-6).
 
 ## Requests for other domains
 

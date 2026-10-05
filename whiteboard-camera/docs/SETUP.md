@@ -250,7 +250,7 @@ Tablet-side keys. Daylight Ink (SharedPreferences): `clientId` (generated once; 
 
 ## 5. Hotkeys
 
-Ctrl+Opt+Cmd+W Whiteboard Only, Ctrl+Opt+Cmd+D Studio Split, Ctrl+Opt+Cmd+K Keep whiteboard, Ctrl+Opt+Cmd+C Clear, Ctrl+Opt+Cmd+Esc Camera. Pressing the active layout hotkey again returns to the camera. They work in every ink source, in every app, without an Accessibility permission. Change them in Settings > Hotkeys.
+Ctrl+Opt+Cmd+W Whiteboard Only, Ctrl+Opt+Cmd+D Studio Split, Ctrl+Opt+Cmd+K Keep whiteboard, Ctrl+Opt+Cmd+C Clear, Ctrl+Opt+Cmd+Esc Camera, Ctrl+Opt+Cmd+P Copy last page. Pressing the active layout hotkey again returns to the camera. They work in every ink source, in every app, without an Accessibility permission. Change them in Settings > Hotkeys.
 
 ## 6. Saving
 
@@ -287,7 +287,7 @@ Ctrl+Opt+Cmd+W Whiteboard Only, Ctrl+Opt+Cmd+D Studio Split, Ctrl+Opt+Cmd+K Keep
 - [ ] 🟢 Mirror: "Ink source" > "Mirror the tablet"; "Diagnostics..." shows `mirror.status: mirroring`. ⏱️ 1 minute
 - [ ] 📶 Mirror without a cable (optional): Settings > Mirror > "Transport" > "Wi-Fi (Daylight Ink screen stream)"; on the tablet Daylight Ink > Settings > "Share screen with your Mac" > "Start now". You see: the notification "Sharing screen with your Mac" and, in Diagnostics, `mirror.wifi.tabletState` reading streaming. ⏱️ 3 minutes
 - [ ] ✍️ In each source, write one word. You see: the slide, the ink, "LIVE". ⏱️ 3 minutes
-- [ ] 🟣 Settings > Hotkeys: the five defaults listed (six with Overlay enabled), none marked "Already used". ⏱️ 30 seconds
+- [ ] 🟣 Settings > Hotkeys: the six defaults listed (seven with Overlay enabled), none marked "Already used". ⏱️ 30 seconds
 - [ ] 🟢 Optional: Settings > Overlay > "Enable overlay mode", then Ctrl+Opt+Cmd+O. You see: the board slides in and you appear cut out in the bottom-right corner; switch it off again if you prefer Studio Split. ⏱️ 3 minutes
 - [ ] 🟣 Settings > Network > "Allowed tablets" lists your tablet. ⏱️ 30 seconds
 - [ ] 🟣 Settings > Saving: the folder is where you want the pages. ⏱️ 30 seconds

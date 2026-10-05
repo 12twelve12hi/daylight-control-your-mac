@@ -169,7 +169,7 @@ public enum GovernorEvent: Equatable {
 }
 public struct GovernorConfig: Equatable { public var idleTimeout: Double = 90, preWarningLead: Double = 5, snapBackWindow: Double = 0.080, snapBackMaxProgress: Double = 0.15, springK: Double = 1200, engageOnEraser: Bool = false, autoEngage: Bool = true; public init() }
 public enum GovernorEffect: Equatable { case stateChanged(from: GovernorState, to: GovernorState), savePage(reason: SaveReason), clearCanvas, preWarningStarted, preWarningCancelled, pinChanged(Bool), holdChanged(HoldMode) }
-public enum SaveReason: String, Codable { case returned, cleared, pageChange, autosave, modeChanged, quit }
+public enum SaveReason: String, Codable { case returned, cleared, pageChange, autosave, modeChanged, quit, newCall }   // newCall: the fresh page for a new call (D61), saved by the ink router, never a governor effect
 public struct GovernorOutput: Equatable { public var state: GovernorState, progress: Double, pinned: Bool, hold: HoldMode, layout: LayoutStyle, preWarning: Bool, breath: Double /* 0...1 */, msToReturn: UInt32 /* 0xFFFFFFFF none */, activeContacts: Int, effects: [GovernorEffect] }
 public struct EngageGovernor {
     public init(config: GovernorConfig = .init(), now: Double)
@@ -364,7 +364,7 @@ enum ApiRoutes { static func healthz() -> (Int, String, Data); static func info(
 @main struct DaylightApp: App { @NSApplicationDelegateAdaptor(AppDelegate.self) var delegate; var body: some Scene { MenuBarExtra("Daylight", systemImage: "camera") { MenuBarView() }; Settings { SettingsView() }; Window("Welcome to Daylight", id: "onboarding") { OnboardingView() } } }
 @MainActor final class AppModel: ObservableObject { /* mirrors PipelineStats at 2 Hz; publishes extension status, cameras, inkSource, hold, governor, clients, pendingAllow, addresses, adb devices, diagnostics; actions pin(), clear(), returnToCamera(), hold(_:), setInkSource(_:), allow(_:remember:), deny(_:), forget(_:), setupAgain() */ }
 final class Hotkeys { init(settings: Settings); var onAction: ((HotkeyAction) -> Void)?; func rebind(_ a: HotkeyAction, keyCode: UInt32, modifiers: UInt32) throws }   // Carbon RegisterEventHotKey / UnregisterEventHotKey, InstallEventHandler(GetEventDispatcherTarget(), ...)
-enum HotkeyAction: String, Codable, CaseIterable { case whiteboardOnly, studioSplit, keep, clear, camera }
+enum HotkeyAction: String, Codable, CaseIterable { case whiteboardOnly, studioSplit, keep, clear, camera, overlay, copyLastPage }   // new actions appended last: the Carbon id is the index plus 1
 final class AllowClientPanel: NSPanel { /* styleMask includes .nonactivatingPanel; top right; 60 s auto-dismiss; Allow / Not now */ }
 enum SelfTest { static func run(arguments: [String]) -> Int32 }                 // `Daylight --self-test [--perf-log]`
 

@@ -224,6 +224,7 @@ Prerequisites: a tablet drawing on the Mac (Session 2 or 3), Zoom installed, and
 | 7.12 | 🟣 | After the call: menu bar > "Copy last page", then paste into Notes or a Slack message | the page appears as a 1200x1600 picture; Ctrl+Opt+Cmd+P does the same; log `copy last page: <n> bytes` | 1 min | FP-4 |
 | 7.13 | 🟣 | Menu bar > "Send today's board...", pick Mail | the share sheet opens next to the menu bar icon and Mail attaches `session.pdf` with one page per saved page; on a Mac with nothing saved yet the alert says "No saved board to send yet." | 2 min | FP-4 |
 | 7.14 | 🟣 | Open the last `page-NN.png` in a text editor or run `strings page-01.png \| head` in Terminal | the text `daylight-strokes` followed by the page JSON is inside the PNG | 1 min | FP-5 |
+| 7.15 | ✍️ | Laser pointer: on the tablet pick "Laser" (the button in the web whiteboard's toolbar, or the "Laser" pill in Daylight Ink), touch the page and move the pen; then hold the pen just above the glass without touching; then pick Pen and draw one line | on the second device (or menu bar > "Preview window") a red dot follows the pen over the board and fades within half a second after you lift; hovering shows a fainter dot if the tablet reports hover (note whether it does, on each client you try); the laser draws no line, cannot be undone and is not in a saved PNG; Pen draws again | 2 min | IL-5 |
 
 ---
 
